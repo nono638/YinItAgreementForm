@@ -33,10 +33,11 @@ unless Settings.forms_per_case is off.
 
 What each output needs of a job is its policy's (OutputPolicy and the classes after it, named by the
 courthouse's OutputSpec.policy). Each case's files go into a folder of their own inside Save to when Settings
-say so (case_folders, out_dir_for). Firms that order the same pages at different speeds (Job.speeds, and a
-run's own speeds in Job.portions) commit to one before they are billed (speeds_to_ask, settle_split_speeds).
-Documents of a job whose index numbers don't match are pointed out and asked about before Generate
-(Job.index_number_notes, Job.index_number_asks).
+say so (case_folders, out_dir_for), or into Save to itself when it is that folder already (in_case_folder).
+Firms that order the same pages at different speeds (Job.speeds, and a run's own speeds in Job.portions) commit
+to one before they are billed (speeds_to_ask, settle_split_speeds). Documents of a job whose index numbers don't
+match are pointed out and asked about before Generate (Job.index_number_notes, Job.index_number_asks). Every file
+of a run is dated one day (fill_jobs' `day`, workdays.document_day: today, or the next business day).
 """
 from __future__ import annotations
 
@@ -56,7 +57,7 @@ from .invoice import (ORDERED_BY_NOBODY, DayOrder, InvoiceOpts, Portion, day_rep
                       invoice_count, reporters_text)
 from .ingest import IMAGE_EXT, Ingested, ingest_file
 from .log import error as log_error, log
-from .merge import merge, refresh_copies, refresh_delivery_date, refresh_rate, same_value
+from .merge import merge, refresh_copies, refresh_dates, refresh_delivery_date, refresh_rate, same_value
 from .models import (Attorney, Candidate, CaseInfo, Extraction, FIELD_LABELS, FieldState, SRC_DERIVED, SRC_PDF,
                      SRC_RECORDS, SRC_REGEX, SRC_USER, to_int)
 from .pdfout import case_folder_name, free_folder, is_generated, short_caption
@@ -1764,13 +1765,22 @@ def save_to_for(job: Job, s: Settings) -> Path:
     return Path.home() / "Documents" / "Minute Agreements"
 
 
+def in_case_folder(job: Job, s: Settings) -> bool:
+    """The job's Save to folder (save_to_for) is already named as its case's own folder would be: most often
+    Save to is blank and the documents sit in a folder of that name ("...\\712345-2021\\Roe 6-3.pdf"). That folder
+    is the case's, used as it is, not given another "712345-2021" inside it (the user, 2026-10-10)."""
+    name = case_folder_name(job.case, s.case_folder_pattern)
+    return save_to_for(job, s).name.casefold() == name.casefold()
+
+
 def out_dir_for(job: Job, s: Settings) -> Path:
     """Where a job's files go: its case's own folder inside the Save to folder (save_to_for) when
-    Settings.case_folders is on and one was chosen (Job.folder: see case_folders), else Save to itself. (An
-    output with a folder of its own, and the run sheet, still go there: Settings.folder_for.) The folder is kept
-    by its name, so a preview made with Save to a temporary folder puts its files in one of that name there."""
+    Settings.case_folders is on and one was chosen (Job.folder: see case_folders), else Save to itself, also
+    when Save to is the case's folder already (in_case_folder). (An output with a folder of its own, and the run
+    sheet, still go there: Settings.folder_for.) The folder is kept by its name, so a preview made with Save to a
+    temporary folder puts its files in one of that name there."""
     base = save_to_for(job, s)
-    return base / job.folder if s.case_folders and job.folder else base
+    return base / job.folder if s.case_folders and job.folder and not in_case_folder(job, s) else base
 
 
 @dataclass(eq=False)
@@ -1811,15 +1821,17 @@ def case_folders(jobs: list[Job], s: Settings, outputs: list[str] | None = None)
     when the name doesn't say the date); [] with the setting off, or when none of `outputs` (default:
     Settings.outputs) is saved in Save to (the run sheet alone, or outputs that each have a folder of their
     own). A job that chose its folder at an earlier Generate keeps it without being listed, until the name
-    changes (another index number typed in). Nothing is chosen yet: CaseFolder.use does, once the user said
-    (Settings.case_folder_existing, or the window's question when it is "ask" and the folder has files in it)."""
+    changes (another index number typed in), and so does one whose Save to is its case's folder already
+    (in_case_folder: its documents, there, are no reason to ask). Nothing is chosen yet: CaseFolder.use does, once
+    the user said (Settings.case_folder_existing, or the window's question when it is "ask" and the folder has
+    files in it)."""
     wanted = s.outputs if outputs is None else outputs
     if not s.case_folders or not any(not s.output_dirs.get(o) and o not in OUTPUT_FOLDERS for o in wanted):
         return []
     out: dict[Path, CaseFolder] = {}
     for j in jobs:
         name = case_folder_name(j.case, s.case_folder_pattern)
-        if j.folder and j.folder_named == name:
+        if (j.folder and j.folder_named == name) or in_case_folder(j, s):
             continue
         base = save_to_for(j, s)
         at = name
@@ -2063,7 +2075,7 @@ def joint_invoice(group: list[Job]) -> tuple[CaseInfo, InvoiceOpts]:
 
 def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
               batch: list[Job] | None = None, outputs: list[str] | None = None, ledger=None,
-              math: list | None = None) -> list[Path]:
+              math: list | None = None, day: date | None = None) -> list[Path]:
     """Makes the outputs (default: Settings.outputs) of every job; problems are recorded in job.error
     instead of stopping the batch. A job without a transcript gets no run sheet, nor an invoice unless its pages
     were typed in (noted in job.error).
@@ -2089,7 +2101,15 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
     Each case's files go into its own folder (Settings.case_folders, out_dir_for); the trial forms and a joint
     invoice into the first day's. A job without its folder chosen gets it here, without a question
     (settle_case_folders: the window asks before), and so do the firms of a split order without a speed
-    (settle_split_speeds: the speed the question would start from)."""
+    (settle_split_speeds: the speed the question would start from).
+    Every file is dated `day` (default: today, or the next business day as Settings -> Dates says,
+    workdays.document_day, worked out once as the run starts). Before anything is made, each job's date of
+    agreement filled in by default becomes that day and its delivery date not typed is counted again
+    (merge.refresh_dates: the jobs given are changed)."""
+    from .workdays import document_day
+    day = day or document_day(s).day
+    for job in jobs:
+        refresh_dates(job.case, s, day)
     outputs = list(s.outputs if outputs is None else outputs)
     ledger = ledger or ledger_for(s)
     settle_case_folders(jobs, s, outputs)
@@ -2121,7 +2141,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             made = generate(unit_case(unit), s, out_dir_for(unit[0], s), ["runsheet"], None, ledger,
                             runsheet=sheet, folders=[f for j in unit for f in input_folders(j)],
                             origin=job_origin(unit[0]) if len(unit) == 1 else
-                            {"sources": [d.path for j in unit for d in j.docs if d.path], "joint": True})
+                            {"sources": [d.path for j in unit for d in j.docs if d.path], "joint": True}, day=day)
         except Exception as e:
             stopped[unit_of[id(unit[0])]] = _held_note(unit[0] if len(unit) == 1 else None, e, "the run sheet")
             log_error("could not add the takes to the run sheet", e)
@@ -2156,7 +2176,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
                 p for p in generate(job.case, s, out_dir_for(job, s), want, job.invoice_sets(), ledger,
                                     dated=names.count(job.name_key()) > 1, folders=input_folders(job),
                                     invoiced=keys, origin=job_origin(job), math=math, ordered=job.ordered_pages(),
-                                    speeds=job.ordered_speeds())
+                                    speeds=job.ordered_speeds(), day=day)
                 if p not in sheet_made] if want else sheet_made
             job.invoiced |= "invoice" in want
             left_out = [o for o in outputs if o not in want and not job.unneeded(o)
@@ -2193,9 +2213,10 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             continue
         forms: list[tuple[CaseForm, list[Job]]] = []
         try:
-            forms = case_forms(g, s, outputs)
+            forms = case_forms(g, s, outputs, day)
             made = make_forms([f for f, _ in forms], s, out_dir_for(g[0], s), ledger,
-                              origin={"sources": [d.path for j in g for d in j.docs if d.path], "joint": True})
+                              origin={"sources": [d.path for j in g for d in j.docs if d.path], "joint": True},
+                              day=day)
             problem = ""
         except Exception as e:
             made = list(getattr(e, "made", []))
@@ -2229,7 +2250,8 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             # (opened again from the records, the days are read from their documents: one job each)
             made = generate(case, s, out_dir_for(first, s), ["invoice"], [o for _, o in sets], ledger,
                             invoiced=keys, math=math, cases=[c for c, _ in sets],
-                            origin={"sources": [d.path for j in g for d in j.docs if d.path], "joint": True})
+                            origin={"sources": [d.path for j in g for d in j.docs if d.path], "joint": True},
+                            day=day)
             problem = ""
         except Exception as e:
             made = list(getattr(e, "made", []))
@@ -2442,7 +2464,7 @@ def _latest(jobs: list[Job], key: str) -> FieldState | None:
     return deepcopy(jobs[max(dated)[1]].case.fields[key]) if dated else None
 
 
-def case_forms(group: list[Job], s: Settings, outputs) -> list[tuple[CaseForm, list[Job]]]:
+def case_forms(group: list[Job], s: Settings, outputs, day: date | None = None) -> list[tuple[CaseForm, list[Job]]]:
     """The minute agreements and the MOFR of a group of days (form_groups), with the days each covers (it is
     listed under them, see fill_jobs), as `outputs` asks for them: each output of group "form" (trial_forms),
     one per attorney or one for the case as its OutputSpec.per says. One agreement per attorney ticked on any of
@@ -2457,7 +2479,8 @@ def case_forms(group: list[Job], s: Settings, outputs) -> list[tuple[CaseForm, l
     Excerpts..., else every attorney ticked on any of the days; unless typed on the first day), the proceeding
     types of all the days covered and the latest estimated delivery date among them (every day's transcript is
     promised by then). An agreement names the speed(s) its attorney ordered at, where set (Job.ordered_speeds,
-    fill.speeds_case); the MOFR every speed ordered (fill.case_speeds)."""
+    fill.speeds_case: its delivery date then counted from `day`, the forms' date, default: workdays.document_day's);
+    the MOFR every speed ordered (fill.case_speeds)."""
     want = [o for o in trial_forms() if o in outputs]
     if not want:
         return []
@@ -2514,7 +2537,7 @@ def case_forms(group: list[Job], s: Settings, outputs) -> list[tuple[CaseForm, l
                 jobs = covering(picked)
                 case = form_case(jobs, dates_text(days[i][1] for i in picked), pages)
                 # (the speed(s) it ordered at over these days: two make one form naming both, see speeds_case)
-                case = speeds_case(case, [x for j in jobs for x in j.ordered_speeds().get(k, [])], s)
+                case = speeds_case(case, [x for j in jobs for x in j.ordered_speeds().get(k, [])], s, day)
                 form = CaseForm(kind, case, atty, pages, mine(jobs), sum(j.transcript_pages() for j in jobs))
                 out.append((form, jobs))
         else:  # one for the case, as the MOFR: every day, with the pages anyone ordered
@@ -2527,7 +2550,7 @@ def case_forms(group: list[Job], s: Settings, outputs) -> list[tuple[CaseForm, l
                     ordered[k] = ordered.get(k, 0) + n
                 for k, xs in j.ordered_speeds().items():
                     speeds.setdefault(k, []).extend(xs)
-            case = speeds_case(case, case_speeds(case, ordered, speeds), s)  # (every speed ordered: ticked)
+            case = speeds_case(case, case_speeds(case, ordered, speeds), s, day)  # (every speed ordered: ticked)
             out.append((CaseForm(kind, case, None, pages, mine(group), sum(j.transcript_pages() for j in group)),
                         list(group)))
     return out

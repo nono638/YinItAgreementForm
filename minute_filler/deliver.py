@@ -12,27 +12,33 @@ of another reporter in their name (InvoiceOpts.reporter). Each attorney's minute
 attorney ordered, whoever wrote them (batch.Job.ordered_pages), and the speed(s) it ordered them at when set;
 the MOFR the pages anyone ordered; an invoice bills only its reporter's pages of them. make_forms fills and
 records the minute agreements and the MOFR the batch makes once for several days of a case (CaseForm, see
-batch.case_forms).
+batch.case_forms). Every file of one run is dated the same day (workdays.document_day: today, or the next
+business day, as Settings -> Dates says), worked out once when it starts or given by the caller (`day`).
 """
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Callable
 
 from . import courthouses
 from .invoice import NO_INVOICE, InvoiceOpts  # noqa: F401 (NO_INVOICE: batch and the tests take it from here)
 from .log import error as log_error
+from .merge import refresh_dates
 from .models import Attorney, CaseInfo, SRC_USER, to_int
 from .records import Ledger
 from .runsheet import RunSheetOpts
 from .settings import Settings
+from .workdays import document_day
 
 
 def ledger_for(s: Settings) -> Ledger:
-    """The records database, with its CSV copies kept in the user's records folder."""
-    return Ledger(mirror_dir=s.records_folder())
+    """The records database, with its CSV copies kept in the user's records folder (with a column for each tick
+    box in use besides Paid: Settings -> Records)."""
+    return Ledger(mirror_dir=s.records_folder(),
+                  boxes=[(b.key, b.name) for b in s.boxes() if b.on and b.kind == "tick"])
 
 
 def backup_folder(s: Settings) -> Path:
@@ -108,11 +114,13 @@ class Making:
     billed: the pages the invoices bill (billed_pages); ordered: the pages each attorney ordered, speeds the
     speeds it ordered them at (see generate);
     pairs: each invoice set with the case it bills; runsheet, folders: the takes and where else to look for the
-    case's run sheet; invoiced, math, detailed: generate's lists to add to (None: not wanted)."""
+    case's run sheet; invoiced, math, detailed: generate's lists to add to (None: not wanted); day: the day every
+    file is dated (generate's: workdays.document_day, once for the run)."""
     case: CaseInfo
     s: Settings
     out_dir: Path
     dated: bool = False
+    day: date | None = None
     billed: int = 0
     ordered: dict[str, int] | None = None
     speeds: dict[str, list] | None = None
@@ -137,25 +145,33 @@ class CaseForm:
     """A minute agreement or MOFR covering several days of a case (see batch.case_forms), made by its output's
     make_form: kind, the output ("agreement", for atty, None = the blank attorney block, or "mofr"); case: the
     case as the form shows it (its days, pages, speed...); pages: the pages it counts (for the records, as on
-    the form); my_pages, total_pages: the user's pages of its days' transcripts and all their pages."""
+    the form); my_pages, total_pages: the user's pages of its days' transcripts and all their pages; day: the day
+    it is dated (make_forms sets it)."""
     kind: str
     case: CaseInfo
     atty: Attorney | None = None
     pages: int = 0
     my_pages: int = 0
     total_pages: int = 0
+    day: date | None = None
 
 
 def make_forms(forms: list[CaseForm], s: Settings, out_dir: Path, ledger: Ledger | None = None,
-               origin: dict | None = None) -> list[Path]:
+               origin: dict | None = None, day: date | None = None) -> list[Path]:
     """Fills the agreements and MOFRs of several days (one per attorney, one MOFR), each by its output's
     make_form (courthouses.OutputSpec.maker), and records each once, with its pages, as generate does (dated
-    file names: the first and last day, see pdfout.output_name). Returns the files in the order of `forms`;
-    when one can't be made, the error raised carries the files made before it as `made`."""
+    file names: the first and last day, see pdfout.output_name). Every one is dated `day` (default: today, or the
+    next business day, workdays.document_day), and so is a date of agreement filled in by default. The delivery
+    date is left as batch.case_forms made it (the latest of the days', or counted from `day` for the speed(s) an
+    attorney ordered at). Returns the files in the order of `forms`; when one can't be made, the error raised
+    carries the files made before it as `made`."""
+    day = day or document_day(s).day
     ledger = ledger or ledger_for(s)
     made: list[Path] = []
     try:
         for f in forms:
+            f.day = day
+            refresh_dates(f.case, s, day, delivery=False)
             where_from = _where_from(origin, f.case)
             path = courthouses.output(f.kind).maker_impl().make_form(f, s, s.folder_for(f.kind, out_dir))
             made.append(path)
@@ -171,7 +187,8 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
              runsheet: RunSheetOpts | None = None, folders: list[Path] | None = None,
              invoiced: list[str] | None = None, origin: dict | None = None, math: list | None = None,
              detailed: list | None = None, cases: list[CaseInfo] | None = None,
-             ordered: dict[str, int] | None = None, speeds: dict[str, list] | None = None) -> list[Path]:
+             ordered: dict[str, int] | None = None, speeds: dict[str, list] | None = None,
+             day: date | None = None) -> list[Path]:
     """Writes the chosen outputs (keys of settings.OUTPUTS; others are left out) and logs them in the records,
     each made by its maker (courthouses.OutputSpec.maker), in the order of courthouses.make_order: the run
     sheet first, the invoices last. Each output goes to its own folder when Settings -> Options -> Folders gives
@@ -182,11 +199,11 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
     transcripts; raises ValueError otherwise, before anything is made. The run sheet goes to the run sheets
     folder (an existing one of the case is looked for there and in `folders`, see runsheet.choose). It is
     written first: when it is open in Excel, nothing is made, and trying again doesn't make the invoices twice.
-    A run sheet that already had every take is left as it was and is not among the files returned. `invoiced`, when given, gets the
-    InvoiceOpts.skip_key ("" for a blank Bill To) of each invoice made, so a run that stops part way can be tried
-    again without billing them twice (see InvoiceOpts.skip). `origin`: where the job came from (the documents
-    read and its invoice choices, see batch.job_origin); it is kept with each file's record, together with the
-    case as it is now, so the job can be opened again from the Records window. `math`, when given, gets a
+    A run sheet that already had every take is left as it was and is not among the files returned. `invoiced`,
+    when given, gets the InvoiceOpts.skip_key ("" for a blank Bill To) of each invoice made, so a run that stops
+    part way can be tried again without billing them twice (see InvoiceOpts.skip). `origin`: where the job came
+    from (the documents read and its invoice choices, see batch.job_origin); it is kept with each file's record,
+    together with the case as it is now, so the job can be opened again from the Records window. `math`, when given, gets a
     (FirmInvoice, number) pair for each invoice made, to spell out its math (invoice_math.explain). With
     Settings.invoice_detailed_copy each invoice that doesn't show the granular detail gets a copy that does
     ("... (detailed).pdf", the same number and date; it is among the files returned, and in `detailed` when given,
@@ -202,16 +219,27 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
     `speeds`: the speeds each attorney committed to, where set (batch.Job.ordered_speeds: by Attorney.key(),
     [(speed, the day or pages at it)]): its agreement names them (fill.agreement_case), and the MOFR ticks every
     speed ordered (mofr.Mofrs); an attorney without one gets the case's speed, as before.
+    `day`: the day every file is dated (the date of agreement, the invoice's date and its number's year, {today}
+    in the file names); default: today, or the next business day as Settings -> Dates says
+    (workdays.document_day), worked out once here, so the files of one run agree even across midnight. Before
+    anything is made, a date of agreement filled in by default becomes that day and a delivery date not typed is
+    counted again (merge.refresh_dates, on `case` and `cases`: the caller's own objects are changed).
     When a file can't be made, the error raised carries the files made before it as `made`."""
+    day = day or document_day(s).day
     order = courthouses.make_order(outputs)
     makers = {k: courthouses.output(k).maker_impl() for k in order}
     given = invoice if isinstance(invoice, list) else [invoice]
     cases = list(cases) if cases is not None else [case] * len(given)
+    seen: set[int] = set()
+    for c in [case] + cases:  # (each once: most runs give the same case throughout)
+        if id(c) not in seen:
+            seen.add(id(c))
+            refresh_dates(c, s, day)
     pairs = [(o, c) for o, c in zip(given, cases) if o is not None]
     sets = [o for o, _ in pairs]
     own = next((o for o in sets if not o.reporter), None)
     billed = billed_pages(sets)
-    m = Making(case, s, out_dir, dated=dated, billed=billed, ordered=ordered, speeds=speeds, pairs=pairs,
+    m = Making(case, s, out_dir, dated=dated, day=day, billed=billed, ordered=ordered, speeds=speeds, pairs=pairs,
                runsheet=runsheet, folders=folders or [], invoiced=invoiced, math=math, detailed=detailed)
     for k in courthouses.keys():  # (as listed: with no pages to bill and no takes either, the invoice's is said)
         if k in makers and hasattr(makers[k], "check"):

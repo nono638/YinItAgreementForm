@@ -22,6 +22,10 @@ on another) gets one agreement with both ticked, "see below" as the rate and a l
 which ('Daily $6.50 a page: 6/3/2026; Regular $4.30 a page: 6/4/2026': speeds_case, speeds_note; the
 re-typeset form has no such line, so that goes in its rate field).
 
+An agreement is dated the day of its run (fill's `day`, workdays.document_day: today, or the next business day):
+the date of agreement filled in by default, {today} in its file name, and the delivery date counted from it
+(merge.refresh_delivery_date).
+
 The MOFR lists its dates as date_ranges does too, and its speeds as speeds_case gives them (case_speeds). The
 toolkit every output writes its PDF with (fitting text, fields, file names, saving) is in pdfout.py; its names
 are still importable from here. Agreements is the output deliver.generate and make_forms make the agreements
@@ -39,7 +43,7 @@ from typing import TYPE_CHECKING
 import pymupdf
 
 from . import signature
-from .dates import next_weekday, us_date
+from .dates import us_date
 from .forms import original_map, ucs_map
 from .models import CaseInfo, Attorney, PROC_TYPES, SRC_DEFAULT, to_int
 from .pdfout import (MAX_FS, MIN_FS, add_text_field, fit_size, form_text, output_name, save_output, set_check,
@@ -274,13 +278,18 @@ def _fill_mapped(doc: pymupdf.Document, v: dict, fmap, case_fs: float) -> None:
         add_text_field(page, key, r, text, (fixed.get(key) or fit_size(text, r, max_fs=10)) if text else 0)
 
 
-def fill(case: CaseInfo, atty: Attorney | None, s: Settings, out_dir: Path, dated: bool = False) -> Path:
+def fill(case: CaseInfo, atty: Attorney | None, s: Settings, out_dir: Path, dated: bool = False,
+         day: date | None = None) -> Path:
     """Fills the agreement form chosen in Settings for one attorney (None = blank attorney lines), saves
-    it in out_dir and returns its path. A blank agreement date on `case` is set to today when Settings
-    say so: as a default, not as typed by the user (agreement_case shares the job's fields, and a value marked
-    as the user's would be kept through every re-merge of the job)."""
+    it in out_dir and returns its path. day: the day it is dated (deliver.generate's, for every file it makes;
+    default: workdays.document_day's, today or the next business day). A blank agreement date on `case` is set
+    to that day when Settings say so: as a default, not as typed by the user (agreement_case shares the job's
+    fields, and a value marked as the user's would be kept through every re-merge of the job). {today} in its
+    file name is that day too."""
+    from .workdays import document_day
+    day = day or document_day(s).day
     if s.agreement_today and not case.get("agreement_date"):
-        case.set("agreement_date", us_date(), SRC_DEFAULT)
+        case.set("agreement_date", us_date(day), SRC_DEFAULT)
     v = build_values(case, atty, s)
     v["case_name_raw"] = " ".join(case.get("case_name").split())
     choice = s.form_choice if s.form_choice in FORMS else DEFAULT_FORM
@@ -302,7 +311,7 @@ def fill(case: CaseInfo, atty: Attorney | None, s: Settings, out_dir: Path, date
             for xref in [w.xref for w in page.widgets() if w.field_name == "sig_reporter"]:
                 page.delete_widget(page.load_widget(xref))  # no blank field over the signature picture
         signature.place(doc[0], line, s.signature())
-    return save_output(doc, "agreement", out_dir / output_name(case, atty, s, dated), s.flatten)
+    return save_output(doc, "agreement", out_dir / output_name(case, atty, s, dated, today=day), s.flatten)
 
 
 def agreement_pages(ordered: dict[str, int] | None, atty: Attorney | None) -> int | None:
@@ -346,15 +355,16 @@ def speeds_note(form_speeds: list) -> str:
                      for sp, (r, places) in by.items())
 
 
-def speeds_case(case: CaseInfo, speeds: list[tuple[str, str]], s: Settings) -> CaseInfo:
+def speeds_case(case: CaseInfo, speeds: list[tuple[str, str]], s: Settings, day: date | None = None) -> CaseInfo:
     """The case as a form of pages ordered at these speeds shows it ((speed, where) each: the days or pages at
     it, see batch.Job.ordered_speeds). One speed that isn't the case's own: that speed, its rate on the sheet and
     its delivery date (unless one was typed). Several: CaseInfo.form_speeds (each ticked, "see below" on the
     rate line, speeds_note saying which pages are at which, see build_values) and the latest delivery date of
-    them (unless one was typed). The case itself when there is nothing to change. A shallow copy, as
-    agreement_case's."""
+    them (unless one was typed). The delivery dates count from `day`, the form's date, as
+    merge.refresh_delivery_date does; with Settings.fill_delivery_date off there is none but one typed. The case
+    itself when there is nothing to change. A shallow copy, as agreement_case's."""
     from .merge import refresh_delivery_date, refresh_rate
-    from .models import SRC_DERIVED, SRC_USER, FieldState
+    from .models import SRC_USER, FieldState
     names = list(dict.fromkeys(sp for sp, _ in speeds if sp))
     kinds = list(dict.fromkeys(speed_key(sp) for sp in names))
     if not names or kinds == [speed_key(case.get("delivery"))]:
@@ -365,14 +375,12 @@ def speeds_case(case: CaseInfo, speeds: list[tuple[str, str]], s: Settings) -> C
         out.fields["delivery"] = FieldState(names[0], SRC_USER, 1.0, [names[0]])
         out.fields["rate"] = FieldState()  # (a rate typed was the case's speed's)
         refresh_rate(out, s)
-        refresh_delivery_date(out, s)
-        return out
-    out.form_speeds = [(sp, s.rate_for(sp), where) for sp, where in speeds if sp]
-    days = [s.days_for(sp) for sp in names]
-    typed = out.fields["delivery_date"]
-    if all(d is not None for d in days) and not (typed.source == SRC_USER and typed.value):
-        d = us_date(next_weekday(date.today() + timedelta(days=max(days))))
-        out.fields["delivery_date"] = FieldState(d, SRC_DERIVED, 0.8, [d])
+    else:
+        out.form_speeds = [(sp, s.rate_for(sp), where) for sp, where in speeds if sp]
+    if s.fill_delivery_date:
+        refresh_delivery_date(out, s, day)  # (several speeds: the latest of them)
+    elif out.fields["delivery_date"].source != SRC_USER:
+        out.fields["delivery_date"] = FieldState()  # (the date off: none, not the case's own speed's)
     return out
 
 
@@ -391,12 +399,13 @@ def case_speeds(case: CaseInfo, ordered: dict[str, int] | None, speeds: dict[str
 
 
 def agreement_case(case: CaseInfo, atty: Attorney | None, ordered: dict[str, int] | None,
-                   speeds: dict[str, list] | None = None, s: Settings | None = None) -> CaseInfo:
+                   speeds: dict[str, list] | None = None, s: Settings | None = None,
+                   day: date | None = None) -> CaseInfo:
     """The case as one attorney's minute agreement shows it: its Est. number of pages that attorney's
     (agreement_pages), and the speed(s) it ordered at when they are set (speeds: by Attorney.key(), see
-    batch.Job.ordered_speeds; speeds_case, with the settings `s`); the case itself when there is no such
-    count nor speed. A shallow copy: the other fields are the case's own FieldState objects, so an agreement
-    date fill sets is set on the case too."""
+    batch.Job.ordered_speeds; speeds_case, with the settings `s` and the form's date `day`); the case itself when
+    there is no such count nor speed. A shallow copy: the other fields are the case's own FieldState objects, so
+    an agreement date fill sets is set on the case too."""
     n = agreement_pages(ordered, atty)
     out = case
     if n is not None:
@@ -405,7 +414,7 @@ def agreement_case(case: CaseInfo, atty: Attorney | None, ordered: dict[str, int
         out.fields["est_pages"] = dataclasses.replace(case.fields["est_pages"], value=str(n))
     k = atty.key() if atty is not None else ""
     if speeds and s is not None and speeds.get(k):
-        out = speeds_case(out, speeds[k], s)
+        out = speeds_case(out, speeds[k], s, day)
     return out
 
 
@@ -428,11 +437,12 @@ class Agreements:
         it ordered and the speed(s) it ordered them at, when set (agreement_case), recorded with them."""
         for atty in agreement_orderers(m.case, m.ordered):
             # (its Est. number of pages: the pages it ordered; its speed: the one it committed to)
-            on = agreement_case(m.case, atty, m.ordered, m.speeds, m.s)
-            m.record("agreement", fill(on, atty, m.s, m.folder("agreement"), m.dated), atty,
+            on = agreement_case(m.case, atty, m.ordered, m.speeds, m.s, m.day)
+            m.record("agreement", fill(on, atty, m.s, m.folder("agreement"), m.dated, m.day), atty,
                      count=to_int(on.get("est_pages")) if on is not m.case else m.pages)
 
     @staticmethod
     def make_form(form: CaseForm, s: Settings, folder: Path) -> Path:
-        """The agreement of several days (batch.case_forms) for form.atty (None: the blank attorney block)."""
-        return fill(form.case, form.atty, s, folder, True)
+        """The agreement of several days (batch.case_forms) for form.atty (None: the blank attorney block), dated
+        form.day."""
+        return fill(form.case, form.atty, s, folder, True, form.day)

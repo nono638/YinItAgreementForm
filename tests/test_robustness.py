@@ -92,7 +92,7 @@ def test_long_unbroken_text_is_read_quickly():
 def test_damaged_settings_fall_back_to_defaults(content, tmp_path):
     (settings_dir() / "settings.json").write_text(json.dumps(content))
     s = Settings.load()
-    assert s.days_regular == 21 and s.per_email is True and s.default_copies == "1"
+    assert s.days_regular == 15 and s.per_email is True and s.default_copies == "1"
     assert isinstance(s.profile, Profile) and s.profile.name == ""
     if isinstance(content, dict) and content.get("flatten"):
         assert s.flatten and s.profile.email == "pat@example.com"

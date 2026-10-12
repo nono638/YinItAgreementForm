@@ -269,6 +269,9 @@ def sheets_dir(custom: str = "") -> Path:
 OLD_BUNDLED = {
     "Sample Rates.csv": {"e5cf39e5e2f794569669abf41c2fdaad81d90b162c90b2641295807cbf0efbdb",
                          "4bfb2589aca110fcd28f4f73bcca47fc4f0eab03982e288eda11db9f10446234"},
+    # (CRLF, as every version shipped it. 1.0.0 to 2.7.0: Expedite 7 and Regular 21 calendar days; 5 and 15
+    # business days since, see Settings -> Dates)
+    "Rate Sheet TEMPLATE.csv": {"b9b27277bc7ea56311b75fccce39ecea244ee25e32632ea27074daec6584427e"},
 }
 
 

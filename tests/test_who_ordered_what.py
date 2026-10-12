@@ -258,7 +258,8 @@ def test_unticking_a_day_in_the_job_list_updates_the_card(window, tmp_path):
     assert "Generate all may bill it with other days" in window.orders_info.text()
     window.job_list.topLevelItem(window.jobs.index(first)).setCheckState(0, Qt.Unchecked)  # the day shown: left out
     info = window.orders_info.text()
-    assert "unticked in the job list" in info and "may bill it" not in info and "Your pages billed" in info
+    assert "unticked in the job list" in info and "may bill it" not in info and "Your pages billed" not in info
+    assert "Your pages billed" in window.orders_help.toolTip()  # (how the rows are billed: the ? beside it)
 
 
 def test_every_row_of_the_card_can_be_seen_in_a_narrow_window(window, tmp_path):

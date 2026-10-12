@@ -28,6 +28,10 @@ Databases made by older versions get the newer columns when opened (_migrate); t
 Each row of everything made also keeps where it came from (Activity.origin: the documents read and the case as
 it was filled in), so the job can be opened again later (Records -> Open this job again).
 
+An invoice also keeps the tick boxes ticked in the Records window besides Paid (Invoice.checks: each box's key
+and the day it was ticked, {"transcribed": "2026-10-10"}; see tracking.py). The CSV copies and the workbook have
+a column for each box in use (Ledger.boxes), with that day.
+
 The database is copied once a day into a Backups folder (Ledger.backup; the last BACKUPS_KEPT days' copies
 are kept, and the last FORCED_KEPT made by hand or before a restore) and can be put back from a copy
 (Ledger.restore_backup). period_stats and recap sum up a month or a year.
@@ -81,6 +85,7 @@ _ADDED = [
     ("invoices", "email_copy", "TEXT"), ("invoices", "idx", "TEXT"), ("invoices", "deleted", "TEXT"),
     ("activity", "transcript_pages", "INTEGER"), ("activity", "my_pages", "INTEGER"), ("activity", "deleted", "TEXT"),
     ("activity", "origin", "TEXT"), ("invoices", "reporter", "TEXT"), ("used_numbers", "reporter", "TEXT"),
+    ("invoices", "checks", "TEXT"),
 ]
 
 _SCHEMA = """
@@ -107,7 +112,8 @@ CREATE TABLE IF NOT EXISTS invoices (
     file_path TEXT, notes TEXT,
     court TEXT, part TEXT, transcript_pages INTEGER, my_pages INTEGER, reporters TEXT, excerpt TEXT,
     email_copy TEXT, idx TEXT, deleted TEXT,
-    reporter TEXT                 -- made for another reporter's pages: their initials ('' or NULL = the user's)
+    reporter TEXT,                -- made for another reporter's pages: their initials ('' or NULL = the user's)
+    checks TEXT                   -- JSON: the boxes ticked besides Paid, key -> the day, {"sent": "2026-10-12"}
 );
 CREATE TABLE IF NOT EXISTS used_numbers (     -- every invoice number given, even of invoices deleted for good
     invoice_no TEXT PRIMARY KEY, year INTEGER, seq INTEGER,
@@ -157,6 +163,9 @@ class Invoice:
     # made for another reporter's pages, in their name (their initials, "ds"); "" = the user's own. Their
     # numbers are counted apart, and they are left out of the user's sums (summarize)
     reporter: str = ""
+    # the boxes ticked in the Records window besides Paid: key -> the day it was ticked ({"transcribed":
+    # "2026-10-10"}; see tracking.py); unticked ones aren't in it. Last: tests make invoices by position.
+    checks: dict[str, str] = field(default_factory=dict)
 
     @property
     def client(self) -> str:
@@ -282,6 +291,32 @@ def invoice_row(i: Invoice) -> list:
     return [get(i) for _, get in INVOICE_TABLE]
 
 
+def invoice_table(boxes: list[tuple[str, str]] = ()) -> list:
+    """INVOICE_TABLE, then a column for each tick box (key, heading; see Ledger.boxes): the day it was ticked
+    ("10/12/2026"), or blank."""
+    return INVOICE_TABLE + [(head, lambda i, k=key: us_date(i.checks[k]) if k in i.checks else "")
+                            for key, head in boxes]
+
+
+def _amounts(text) -> dict:
+    """What each speed costs, from the invoices' amounts column (JSON); {} for a damaged one."""
+    try:
+        amounts = json.loads(text or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return amounts if isinstance(amounts, dict) else {}  # (a damaged row: "[1, 2]" is JSON too)
+
+
+def _checks(text) -> dict[str, str]:
+    """The boxes ticked, from the invoices' checks column (JSON); {} for none, and for anything damaged (a value
+    that isn't a day's text would break the tables)."""
+    try:
+        d = json.loads(text) if text else {}
+    except (TypeError, ValueError):
+        return {}
+    return {k: v for k, v in d.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(d, dict) else {}
+
+
 def activity_row(a: Activity) -> list:
     """One activity as a row of the exported tables (see ACTIVITY_TABLE)."""
     return [get(a) for _, get in ACTIVITY_TABLE]
@@ -298,14 +333,24 @@ def _from_row(cls, row: sqlite3.Row, **override):
     return cls(**{**d, **override})
 
 
+def _invoice(row: sqlite3.Row) -> Invoice:
+    """An Invoice from a row of the invoices table (an older database read without migrating may lack checks)."""
+    return _from_row(Invoice, row, amounts=_amounts(row["amounts"]),
+                     checks=_checks(row["checks"] if "checks" in row.keys() else None))
+
+
 class Ledger:
     """The records database (path: default_db() when not given). mirror_dir: where invoices.csv / activity.csv
-    are kept up to date (None = not). Opening it brings an older database up to date (_migrate) and deletes for
-    good what has been in the trash too long (purge)."""
+    are kept up to date (None = not). boxes: the tick boxes in use besides Paid, as (key, heading)
+    ([("transcribed", "Transcribed")]; deliver.ledger_for gives them): a column each in the CSV copies and the
+    workbook. Opening it brings an older database up to date (_migrate) and deletes for good what has been in the
+    trash too long (purge)."""
 
-    def __init__(self, path: Path | None = None, mirror_dir: Path | None = None):
+    def __init__(self, path: Path | None = None, mirror_dir: Path | None = None,
+                 boxes: list[tuple[str, str]] = ()):
         self.path = Path(path) if path else default_db()
         self.mirror_dir = mirror_dir
+        self.boxes = list(boxes)  # (before purge, which may write the CSV copies)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with _SCHEMA_LOCK, closing(self._db()) as db:
             db.executescript(_SCHEMA)
@@ -455,7 +500,8 @@ class Ledger:
         counts as the next one of its year."""
         year = year or int(inv.created[:4])
         values = asdict(inv)
-        values.update(amounts=json.dumps(inv.amounts), year=year, seq=seq or self._next_seq(year, inv.reporter))
+        values.update(amounts=json.dumps(inv.amounts), year=year, seq=seq or self._next_seq(year, inv.reporter),
+                      checks=json.dumps(inv.checks) if inv.checks else None)
         values["deleted"] = values["deleted"] or None
         self._run_all([self._insert_sql("invoices", values),
                        ("INSERT OR IGNORE INTO used_numbers (invoice_no, year, seq, reporter) VALUES (?, ?, ?, ?)",
@@ -494,12 +540,52 @@ class Ledger:
             clean[speed] = str(d)
         self._run("UPDATE invoices SET amounts=? WHERE invoice_no=?", (json.dumps(clean), invoice_no))
 
+    def set_checks(self, invoice_nos: list[str], key: str, on: bool, today: str | None = None) -> list[Invoice]:
+        """Ticks (on) or unticks a box (a key of Invoice.checks: "transcribed") on these invoices, in one step;
+        a box ticked already keeps the day it was ticked. Invoices in the trash are left alone. Returns the
+        invoices changed as they were before, for Undo (put_back_checks). today: the day to note (ISO), else
+        today's."""
+        today = today or date.today().isoformat()
+        before: list[Invoice] = []
+        db = self._db()
+        db.isolation_level = None  # (by hand: read and write as one, so a tick made meanwhile isn't lost)
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                for no in dict.fromkeys(invoice_nos):
+                    row = db.execute("SELECT * FROM invoices WHERE invoice_no=? AND deleted IS NULL", (no,)).fetchone()
+                    if row is None:
+                        continue
+                    was = _checks(row["checks"])
+                    now = {**was, key: was.get(key, today)} if on else {k: v for k, v in was.items() if k != key}
+                    if now == was:
+                        continue
+                    db.execute("UPDATE invoices SET checks=? WHERE invoice_no=?",
+                               (json.dumps(now) if now else None, no))
+                    before.append(_from_row(Invoice, row, amounts=_amounts(row["amounts"]), checks=was))
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        finally:
+            db.close()
+        if before:
+            self.mirror()
+        return before
+
     def put_back(self, inv: Invoice) -> None:
-        """Sets an invoice's status, payment, amounts and notes back to what `inv` holds (Undo in the Records
-        window: the invoice as it was before a change)."""
-        self._run("UPDATE invoices SET status=?, paid_speed=?, amount_paid=?, paid_date=?, amounts=?, notes=? "
-                  "WHERE invoice_no=?", (inv.status, inv.paid_speed, inv.amount_paid, inv.paid_date,
-                                         json.dumps(inv.amounts), inv.notes, inv.invoice_no))
+        """Sets an invoice's status, payment, amounts, notes and boxes ticked back to what `inv` holds (Undo in the
+        Records window: the invoice as it was before a change)."""
+        self._run("UPDATE invoices SET status=?, paid_speed=?, amount_paid=?, paid_date=?, amounts=?, notes=?, "
+                  "checks=? WHERE invoice_no=?", (inv.status, inv.paid_speed, inv.amount_paid, inv.paid_date,
+                                                  json.dumps(inv.amounts), inv.notes,
+                                                  json.dumps(inv.checks) if inv.checks else None, inv.invoice_no))
+
+    def put_back_checks(self, invoices: list[Invoice]) -> None:
+        """Sets the boxes ticked of these invoices back to what each holds, nothing else (Undo of a box ticked on
+        several invoices: their payments, amounts and notes are left as they are now)."""
+        self._run_all([("UPDATE invoices SET checks=? WHERE invoice_no=?",
+                        (json.dumps(i.checks) if i.checks else None, i.invoice_no)) for i in invoices])
 
     # ------------------------------------------------------------------ the trash
     def delete(self, invoices: list[str] = (), activity: list[int] = ()) -> None:
@@ -566,13 +652,7 @@ class Ledger:
         where = "deleted IS NOT NULL" if trash else "deleted IS NULL"
         for r in self._rows(f"SELECT * FROM invoices WHERE {where} "
                             "ORDER BY created DESC, year DESC, seq DESC, invoice_no DESC"):
-            try:
-                amounts = json.loads(r["amounts"] or "{}")
-            except ValueError:
-                amounts = {}
-            if not isinstance(amounts, dict):  # (a damaged row: "[1, 2]" is JSON too)
-                amounts = {}
-            inv = _from_row(Invoice, r, amounts=amounts)
+            inv = _invoice(r)
             if year and inv.created[:4] != str(year):
                 continue
             if month and inv.created[5:7] != f"{month:02}":
@@ -724,12 +804,15 @@ class Ledger:
 
     def export_csv(self, folder: Path) -> list[Path]:
         """Writes invoices.csv and activity.csv (every row not in the trash) into folder; returns their paths.
-        Each is written to a temporary file first and then put in place, so a copy is never left half written;
-        one that can't be (open in Excel) doesn't stop the other, and the first such error is raised after."""
+        invoices.csv has a column for each of `boxes` too (invoice_table). Each is written to a temporary file
+        first and then put in place, so a copy is never left half written; one that can't be (open in Excel)
+        doesn't stop the other, and the first such error is raised after."""
         folder = Path(folder)
         folder.mkdir(parents=True, exist_ok=True)
         out, problem = [], None
-        for name, cols, rows in (("invoices.csv", INVOICE_COLUMNS, [invoice_row(i) for i in self.invoices()]),
+        table = invoice_table(self.boxes)
+        for name, cols, rows in (("invoices.csv", [h for h, _ in table],
+                                  [[get(i) for _, get in table] for i in self.invoices()]),
                                  ("activity.csv", ACTIVITY_COLUMNS, [activity_row(a) for a in self.activity()])):
             p = folder / name
             tmp = p.with_name(f".{name}.{os.getpid()}.tmp")
@@ -751,9 +834,9 @@ class Ledger:
         return out
 
     def export_xlsx(self, path: Path, invoices: list[Invoice] | None = None) -> Path:
-        """An Excel workbook: Invoices, Activity, By firm and By month sheets. invoices: the ones to list
-        (default: all); the Activity sheet always has every row. By firm and By month leave out the invoices
-        made in another reporter's name (summarize)."""
+        """An Excel workbook: Invoices (with a column for each of `boxes`), Activity, By firm and By month sheets.
+        invoices: the ones to list (default: all); the Activity sheet always has every row. By firm and By month
+        leave out the invoices made in another reporter's name (summarize)."""
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill
         from openpyxl.utils import get_column_letter
@@ -770,6 +853,12 @@ class Ledger:
                 c.font, c.fill = head, fill
             for r in rows:
                 ws.append(r)
+            # openpyxl writes any text starting with "=" as a formula: a note "=> sent 10/3" or a tick box named
+            # "=Judge copy" would open in Excel as #NAME? or a repair warning, so they stay text
+            for row in ws.iter_rows():
+                for c in row:
+                    if isinstance(c.value, str) and c.value.startswith("="):
+                        c.data_type = "s"
             for i, col in enumerate(cols, 1):
                 letter = get_column_letter(i)
                 width = max([len(str(col))] + [len(str(r[i - 1])) for r in rows[:500]])
@@ -783,7 +872,8 @@ class Ledger:
 
         ws = wb.active
         ws.title = "Invoices"
-        sheet(ws, INVOICE_COLUMNS, [invoice_row(i) for i in invoices], ("Billed", "Amount paid"))
+        table = invoice_table(self.boxes)
+        sheet(ws, [h for h, _ in table], [[get(i) for _, get in table] for i in invoices], ("Billed", "Amount paid"))
         sheet(wb.create_sheet("Activity"), ACTIVITY_COLUMNS, [activity_row(a) for a in self.activity()])
         sums = ["Invoices", "Billed", "Paid", "Outstanding"]
         sheet(wb.create_sheet("By firm"), ["Firm / attorney"] + sums,
@@ -849,6 +939,83 @@ def recorded_cases(number: str, path: Path | None = None) -> list[tuple[str, str
     except sqlite3.Error:
         return []
     return [(str(i or ""), str(c or "")) for i, c, _ in rows]
+
+
+def _read_rows(path: Path | None, sql: str, args: tuple = ()) -> list[sqlite3.Row] | None:
+    """The rows of a read-only query (path: default_db()), or None when there is no database or it can't be read
+    (locked for long by a restore, damaged): the window's helpers below then show nothing rather than fail. Read
+    only, so they can run on a worker thread while the window or the batch writes."""
+    path = Path(path) if path else default_db()
+    if not path.exists():
+        return None
+    try:
+        with closing(sqlite3.connect(_read_only(path), uri=True)) as db:
+            db.row_factory = sqlite3.Row
+            return db.execute(sql, args).fetchall()
+    except sqlite3.Error:
+        return None
+
+
+# What the window's fields can complete from (MainWindow: the case's court, part and judge, an attorney's name and
+# firm): field -> (the invoices' column, then the files made's, when they keep one: they have no court)
+PAST_VALUES = {"court": ("court",), "part": ("part", "part"), "judge": ("judge", "judge"),
+               "firm": ("firm", "firm"), "name": ("bill_to", "attorney")}
+
+
+def past_values(path: Path | None = None) -> dict[str, list[str]]:
+    """{"judge": ["Maria T. Alvarez", ...], "part": [...], "court", "firm", "name"}: the values the records hold
+    (not those in the trash), the most used first, each once whatever its case or spaces ("Smith Law" and "smith
+    law " are one). {} without a database or when it can't be read."""
+    out = {}
+    for key, (inv_col, *act_col) in PAST_VALUES.items():
+        sql = f"SELECT {inv_col} AS v FROM invoices WHERE deleted IS NULL"
+        if act_col:
+            sql += f" UNION ALL SELECT {act_col[0]} AS v FROM activity WHERE deleted IS NULL"
+        rows = _read_rows(path, f"SELECT v, COUNT(*) AS n FROM ({sql}) WHERE TRIM(COALESCE(v, '')) != '' "
+                                "GROUP BY v ORDER BY n DESC, v")
+        if rows is None:
+            return {}
+        spelled: dict[str, str] = {}  # (the most used spelling of each value: rows come most used first)
+        used: dict[str, int] = {}
+        for r in rows:
+            v = " ".join(str(r["v"]).split())
+            spelled.setdefault(v.lower(), v)
+            used[v.lower()] = used.get(v.lower(), 0) + r["n"]
+        out[key] = [spelled[k] for k in sorted(used, key=lambda k: (-used[k], spelled[k].lower()))]
+    return out
+
+
+def recent_jobs(limit: int = 6, path: Path | None = None) -> list[tuple[str, str, str, str]]:
+    """The jobs made lately, newest first, one per case and date: (case name, dates, when made as an ISO time,
+    origin: what MainWindow.open_past_job opens). Only those that can be opened again (with an origin), not those in
+    the trash; [] without a database, or when it can't be read."""
+    rows = _read_rows(path, "SELECT case_name, dates, ts, origin FROM activity WHERE deleted IS NULL AND origin IS "
+                            "NOT NULL AND origin != '' ORDER BY ts DESC, id DESC LIMIT 500") or []
+    out, seen = [], set()
+    for r in rows:
+        case, dates = " ".join(str(r["case_name"] or "").split()), str(r["dates"] or "").strip()
+        key = (case.lower(), dates)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((case, dates, str(r["ts"] or ""), str(r["origin"])))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def live_invoices(path: Path | None = None) -> list[Invoice]:
+    """Every invoice not in the trash, as Ledger.invoices() gives them, read only (no Ledger is made: making one
+    migrates the database, purges the trash and may rewrite the CSV copies). [] without a database; OSError when
+    there is one that can't be read (locked for long by a restore, damaged), so the main window, which counts them
+    for its Records button off the window's thread, keeps the count it had rather than showing none."""
+    rows = _read_rows(path, "SELECT * FROM invoices WHERE deleted IS NULL "
+                            "ORDER BY created DESC, year DESC, seq DESC, invoice_no DESC")
+    if rows is None:
+        if (Path(path) if path else default_db()).exists():
+            raise OSError("the records could not be read")
+        rows = []
+    return [_invoice(r) for r in rows]
 
 
 def backup_counts(copy: Path) -> tuple[int, int] | None:

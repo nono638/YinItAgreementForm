@@ -3,12 +3,19 @@ changed) and the history of everything made. Each table has many columns (INVOIC
 user picks which are shown (Columns..., or a right-click on the headings), and the choice is kept in
 Settings.records_columns. Records can be deleted to the trash (restored for 30 days; the files are not
 touched); the Trash button shows what is in it. An invoice made in another reporter's name (Whose pages...,
-numbered apart: "DS-2026-1") is listed, but left out of the totals and the summary: that money is theirs.
+numbered apart: "DS-2026-0001") is listed, but left out of the totals and the summary: that money is theirs.
+
+An invoice's tick boxes (Settings -> Records; see tracking.py): Paid, and those switched on there (Invoice sent,
+Transcribed, Transcript sent, the user's own), each a column after Paid. The Status column says each box, ticked
+or not ("Paid, Transcribed, Not sent"), and each row is coloured by the first colour rule that matches it (a
+see-through tint, read on the light and the dark theme). Ticking Transcribed ticks it on the other invoices of
+the transcript; several invoices selected are ticked at once from the right-click menu. Notes are typed into
+their column (double-click or F2).
 
 Along the bottom: the exports, Summary... (a month or a year summed up, SummaryDialog), Backups... (the daily
-copies of the records, BackupsDialog) and Undo (Ctrl+Z: the last change made here - paid, void, amounts, notes,
-a delete - is taken back). A right-click also prints a record's file and opens its job again in the main
-window (RecordsWindow.on_reopen)."""
+copies of the records, BackupsDialog) and Undo (Ctrl+Z: the last change made here - paid, a box ticked, void,
+amounts, notes, a delete - is taken back). A right-click also prints a record's file and opens its job again in
+the main window (RecordsWindow.on_reopen)."""
 from __future__ import annotations
 
 import calendar
@@ -20,7 +27,7 @@ from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QDate, Qt, QTimer
-from PySide6.QtGui import QColor, QKeySequence, QShortcut
+from PySide6.QtGui import QBrush, QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDateEdit, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QPushButton,
@@ -35,15 +42,21 @@ from ..rates import parse_amount
 from ..records import (BACKUPS_KEPT, FORCED_KEPT, KINDS, PERIODS, TRASH_DAYS, Activity, Invoice, _month_name, backup_counts,
                        backup_day, backups, gone_for_good, period, period_stats, stats_rows, summarize, us_date)
 from ..settings import Settings
+from ..tracking import PAID, TICK, ColourRule, Transcripts, TrackBox, rule_for, rule_names, status_words
 from .widgets import open_path, plural, refill_combo, show_save_error
 from .zoom import z
 
 SUM_COLS = ["", "Invoices", "Billed", "Paid", "Outstanding"]
-STATUS_FILTERS = [("All", ""), ("Unpaid", "open"), ("Paid", "paid"), ("Void", "void")]
+# The Status filter's fixed choices (Ledger.invoices' status); the names of the colour rules come after All
+STATUS_FILTERS = [("All", ""), ("Not paid", "open"), ("Paid", "paid"), ("Void", "void")]
+RULE = "rule:"  # the Status filter's data for a colour rule: "rule:Ready to send"
 SEARCH_TIP = ("Words found anywhere in a record, in any order: a firm, an attorney, a case,\n"
               "an index number (712345/2021 or 712345-2021), an invoice number, a judge…")
-STATUS_COLORS = {"open": "#d97706", "paid": "#16a34a", "void": "#8a8797"}  # readable on light and dark
+# the Status column's text, without row colours (Settings -> Records): readable on light and dark
+STATUS_COLORS = {"open": "#d97706", "paid": "#16a34a", "void": "#8a8797"}
+TINT = 80  # how opaque a row's colour is (of 255): see-through, so it reads on the light and the dark theme
 UNDO_MAX = 30  # changes Undo can take back, the latest first
+BOX = "box:"  # a tick box's column key: "box:transcribed"
 
 
 @dataclass(frozen=True)
@@ -58,12 +71,6 @@ class Col:
     kind: str = "text"
     sort: Callable | None = None
     trash: bool = False
-
-
-def _status(i: Invoice) -> str:
-    """'Unpaid', 'Paid (Expedite)' or 'Void'."""
-    text = i.status.title() if i.status != "open" else "Unpaid"
-    return text + (f" ({i.paid_speed})" if i.status == "paid" and i.paid_speed else "")
 
 
 def _ordered(i: Invoice) -> str:
@@ -102,11 +109,11 @@ INVOICE_COLS = [
     Col("email_copy", "E-mailed copy", lambda i: i.email_copy),
     Col("index", "Index", lambda i: i.index),
     Col("billed", "Billed", lambda i: i.billed, True, "money"),
-    Col("status", "Status", _status, True),
+    Col("status", "Status", lambda i: "", True),  # (its words: tracking.status_words, see show_invoices)
     Col("ordered", "Speed ordered", _ordered, True),
     Col("amount_paid", "Amount paid", lambda i: i.paid if i.status == "paid" else "", False, "money"),
     Col("paid_date", "Date paid", lambda i: us_date(i.paid_date), True, "date", lambda i: i.paid_date),
-    Col("notes", "Notes", lambda i: i.notes),
+    Col("notes", "Notes", lambda i: i.notes, True),  # (typed into: see _item_changed)
     Col("file", "File", lambda i: i.file_path),
     Col("deleted", "Deleted on", lambda i: us_date(i.deleted[:10]), True, "date", lambda i: i.deleted, True),
     Col("gone", "Gone for good on", lambda i: gone_for_good(i.deleted), True, "date", lambda i: i.deleted, True),
@@ -139,7 +146,8 @@ def col_index(cols: list[Col], key: str) -> int:
 
 
 class _Item(QTableWidgetItem):
-    """A cell that sorts by the value kept under UserRole + 1 (a number, or an ISO date) when there is one."""
+    """A cell that sorts by the value kept under UserRole + 1 (a number, or an ISO date) when there is one, else by
+    its text, whatever the capitals."""
 
     def __lt__(self, other):
         a, b = self.data(Qt.UserRole + 1), other.data(Qt.UserRole + 1)
@@ -148,14 +156,23 @@ class _Item(QTableWidgetItem):
                 return a < b
             except TypeError:
                 pass
-        return super().__lt__(other)
+        # (not super().__lt__: PySide6 sends that back to this override, which recursed until the app crashed on
+        # a click on a text column's heading)
+        return self.text().casefold() < other.text().casefold()
+
+
+# A cell's flags but Editable (a QTableWidgetItem's own, less that one): worked out once, as a table of thousands
+# of invoices has a hundred thousand cells and these sums are slow in Python
+_READ_ONLY = (Qt.ItemIsSelectable | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsDragEnabled
+              | Qt.ItemIsDropEnabled)
+_GREYED = _READ_ONLY & ~Qt.ItemIsEnabled  # (a tick box that can't be ticked: a void invoice's, the trash's)
 
 
 def _item(text, align_right: bool = False, data=None, sort=None) -> QTableWidgetItem:
     """A read-only table cell showing text (None shows as blank). data, when given, is kept under UserRole;
     sort (a number or an ISO date) under UserRole + 1, to sort by."""
     it = _Item("" if text is None else str(text))
-    it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+    it.setFlags(_READ_ONLY)
     if align_right:
         it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
     if data is not None:
@@ -460,7 +477,12 @@ class RecordsWindow(QDialog):
         self.shown: list[Invoice] = []
         self.act_shown: dict[int, Activity] = {}  # the rows of everything made shown, by id
         self.on_reopen: Callable[[str], bool] | None = None  # opens a job again in the main window (set by it)
+        self.on_settings: Callable[[str], None] | None = None  # opens Settings at a tab ("Records"; set by it)
         self.undo_stack: list[tuple[str, Callable]] = []  # (what was done, how to take it back), latest last
+        self.boxes: list[TrackBox] = s.boxes()   # the tick boxes and row colours, as Settings were at the last
+        self.rules: list[ColourRule] = s.rules()  # reload()
+        self.inv_cols: list[Col] = self._invoice_cols()  # the Invoices table's columns, the tick boxes' too
+        self._stale = False  # the table wasn't shown afresh while a note was being typed: it is when that ends
         self.setWindowTitle("Records")
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
         self.resize(z(1180), z(760))
@@ -493,6 +515,8 @@ class RecordsWindow(QDialog):
         self.undo_btn.clicked.connect(self.undo)
         bottom.addWidget(self.undo_btn)
         QShortcut(QKeySequence.Undo, self, activated=self._undo_key)
+        self.setProperty("help_topic", "rec-overview")
+        QShortcut(QKeySequence("F1"), self, activated=self.show_help)
         self._show_undo()
         bottom.addStretch(1)
         close = QPushButton("Close")
@@ -576,9 +600,13 @@ class RecordsWindow(QDialog):
         v.setContentsMargins(12, 12, 12, 12)
         fl = QHBoxLayout()
         self.i_year, self.i_month, self.i_client = self._filters(fl, True)
+        self._year_picked = None  # the year the Invoices tab last opened on by itself (see reload)
         self.i_status = QComboBox()
-        for label, key in STATUS_FILTERS:
-            self.i_status.addItem(label, key)
+        self.i_status.setToolTip("Not paid, Paid or Void, or the invoices of one colour (Settings → Records)")
+        # as wide as "Ready to send", not as the longest colour's name (its list still shows them whole)
+        self.i_status.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.i_status.setMinimumContentsLength(13)
+        self._fill_status()
         fl.addWidget(QLabel("Status:"))
         fl.addWidget(self.i_status)
         self.i_text, self.i_regex, self.i_fuzzy = self._search(
@@ -616,15 +644,23 @@ class RecordsWindow(QDialog):
         v.addWidget(self.trash_note)
 
         inner = QTabWidget()
-        self.inv_table = _table([c.head for c in INVOICE_COLS])
-        self.inv_table.itemChanged.connect(self._paid_toggled)
-        self.inv_table.itemDoubleClicked.connect(lambda it: self._open_invoice(self._inv_at(it.row())))
+        self.inv_table = _table(self._heads())
+        self._order_columns()
+        # Only Notes can be typed into: a double-click or F2 (not any key: typing in the table must not start it)
+        self.inv_table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
+        self.inv_table.itemChanged.connect(self._item_changed)
+        self.inv_table.itemDelegate().closeEditor.connect(self._editor_closed)
+        self.inv_table.itemDoubleClicked.connect(self._double_clicked)
         self.inv_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.inv_table.customContextMenuRequested.connect(self._invoice_menu)
         self._header_menu(self.inv_table, "invoices")
-        self.inv_table.setToolTip("Tick Paid when an invoice is paid · double-click opens the PDF · "
-                                  "right-click for more · Delete moves it to the trash")
-        QShortcut(QKeySequence.Delete, self.inv_table, activated=lambda: self._delete_selected("invoices"))
+        self.inv_table.setToolTip("Tick Paid when an invoice is paid (and your other boxes: Settings → Records) · "
+                                  "double-click opens the PDF, or types a note in Notes · right-click for more · "
+                                  "Delete moves it to the trash")
+        # Delete moves records to the trash only while the table itself has the focus: in a note being typed,
+        # Delete deletes text (_delete_selected checks too)
+        QShortcut(QKeySequence.Delete, self.inv_table, activated=lambda: self._delete_selected("invoices"),
+                  context=Qt.WidgetShortcut)
         self.firm_table = _table(["Firm / attorney"] + SUM_COLS[1:])
         self.month_table = _table(["Month"] + SUM_COLS[1:])
         inner.addTab(self.inv_table, "Invoices")
@@ -663,7 +699,8 @@ class RecordsWindow(QDialog):
         self.act_table.customContextMenuRequested.connect(self._activity_menu)
         self._header_menu(self.act_table, "activity")
         self.act_table.setToolTip("Double-click opens the file · right-click for more · Delete moves it to the trash")
-        QShortcut(QKeySequence.Delete, self.act_table, activated=lambda: self._delete_selected("activity"))
+        QShortcut(QKeySequence.Delete, self.act_table, activated=lambda: self._delete_selected("activity"),
+                  context=Qt.WidgetShortcut)
         v.addWidget(self.act_table, 1)
         return w
 
@@ -676,19 +713,65 @@ class RecordsWindow(QDialog):
         """Whether that table's Trash button is on (it lists what was deleted)."""
         return (self.i_trash if which == "invoices" else self.a_trash).isChecked()
 
+    def _invoice_cols(self) -> list[Col]:
+        """The Invoices table's columns: INVOICE_COLS (Paid first), then one for each tick box in use besides
+        Paid (BOX + its key; at the end, so the others keep their places, and shown after Paid: _order_columns)."""
+        return INVOICE_COLS + [Col(BOX + b.key, b.name, lambda i: "", True)
+                               for b in self.boxes if b.on and b.kind == TICK]
+
+    def _heads(self) -> list[str]:
+        """The Invoices table's headings: Paid's as the Paid box is named (Settings → Records)."""
+        paid = next((b.name for b in self.boxes if b.kind == PAID), "Paid")
+        return [paid if c.key == "paid" else c.head for c in self.inv_cols]
+
+    def _order_columns(self) -> None:
+        """Shows the tick boxes' columns right after Paid (they come last in inv_cols)."""
+        h = self.inv_table.horizontalHeader()
+        ticks = [i for i, c in enumerate(self.inv_cols) if c.key.startswith(BOX)]
+        order = [0] + ticks + [i for i in range(1, len(self.inv_cols)) if i not in ticks]
+        for pos, logical in enumerate(order):
+            h.moveSection(h.visualIndex(logical), pos)
+
+    def _rebuild_columns(self) -> None:
+        """The tick boxes in use, or their names, changed (Settings → Records): the Invoices table gets their
+        columns (show_invoices fills them)."""
+        self.inv_cols = self._invoice_cols()
+        t = self.inv_table
+        t.blockSignals(True)
+        t.setColumnCount(len(self.inv_cols))
+        t.setHorizontalHeaderLabels(self._heads())
+        t.blockSignals(False)
+        self._order_columns()
+        self.apply_columns("invoices")
+
+    def _cols(self, which: str) -> list[Col]:
+        """The columns of a table ("invoices", with the tick boxes', or "activity")."""
+        return self.inv_cols if which == "invoices" else ACTIVITY_COLS
+
+    @staticmethod
+    def _is_box(key: str) -> bool:
+        """A tick box's column: Paid, or one of Settings → Records (shown when the box is in use, not chosen
+        with Columns…)."""
+        return key == "paid" or key.startswith(BOX)
+
     def columns(self, which: str) -> list[str]:
         """The keys of the columns chosen for a table ("invoices" or "activity"): the user's choice
-        (Settings.records_columns), else those shown by default."""
-        known = {c.key for c in TABLES[which] if not c.trash}
+        (Settings.records_columns), else those shown by default. The tick boxes are not among them."""
+        known = {c.key for c in self._cols(which) if not c.trash and not self._is_box(c.key)}
         chosen = [k for k in self.s.records_columns.get(which, []) if k in known]
-        return chosen or [c.key for c in TABLES[which] if c.shown and not c.trash]
+        return chosen or [c.key for c in self._cols(which) if c.shown and not c.trash and not self._is_box(c.key)]
 
     def apply_columns(self, which: str) -> None:
-        """Shows the chosen columns of a table (and, in the trash, when each record was deleted)."""
+        """Shows the chosen columns of a table (and, in the trash, when each record was deleted); the tick
+        boxes in use, but not in the trash."""
         keep, trash = set(self.columns(which)), self._in_trash(which)
         t = self._table_of(which)
-        for i, c in enumerate(TABLES[which]):
-            t.setColumnHidden(i, not (c.key in keep or (c.trash and trash)) or (c.key == "paid" and trash))
+        paid = any(b.on and b.kind == PAID for b in self.boxes)
+        for i, c in enumerate(self._cols(which)):
+            if self._is_box(c.key):
+                t.setColumnHidden(i, trash or (c.key == "paid" and not paid))
+            else:
+                t.setColumnHidden(i, not (c.key in keep or (c.trash and trash)))
 
     def set_columns(self, which: str, keys: list[str] | None) -> None:
         """Keeps a new choice of columns (None: back to the default ones) and shows it."""
@@ -696,7 +779,8 @@ class RecordsWindow(QDialog):
         if keys is None:
             cols.pop(which, None)
         else:
-            cols[which] = [c.key for c in TABLES[which] if c.key in keys and not c.trash]
+            cols[which] = [c.key for c in self._cols(which) if c.key in keys and not c.trash
+                           and not self._is_box(c.key)]
         self.s.records_columns = cols
         try:
             self.s.save()
@@ -708,8 +792,8 @@ class RecordsWindow(QDialog):
         """The menu of a table's columns, ticked when shown; clicking one shows or hides it."""
         m = QMenu(self)
         chosen = self.columns(which)
-        for c in TABLES[which]:
-            if c.trash:
+        for c in self._cols(which):
+            if c.trash or self._is_box(c.key):
                 continue
             act = m.addAction(c.head)
             act.setCheckable(True)
@@ -718,6 +802,8 @@ class RecordsWindow(QDialog):
                 which, [x for x in self.columns(which) if x != k] + ([k] if on else [])))
         m.addSeparator()
         m.addAction("Back to the usual columns", lambda: self.set_columns(which, None))
+        if which == "invoices" and self.on_settings is not None:
+            m.addAction("Tick boxes and colours… (Settings → Records)", lambda: self.on_settings("Records"))
         m.exec(at)
 
     def _header_menu(self, t: QTableWidget, which: str) -> None:
@@ -728,14 +814,30 @@ class RecordsWindow(QDialog):
 
     # ------------------------------------------------------------ data
     def reload(self) -> None:
-        """Re-reads the records (after new files were made) and keeps the filters chosen."""
+        """Re-reads the records (after new files were made, or Settings saved) and keeps the filters chosen. The
+        tick boxes and colours are read from Settings again: a box switched on or off, or renamed, changes the
+        columns, and the CSV copies get its column at once."""
+        boxes, rules = self.s.boxes(), self.s.rules()
+        changed = [(b.key, b.name, b.on) for b in boxes] != [(b.key, b.name, b.on) for b in self.boxes]
+        self.boxes, self.rules = boxes, rules
         self.ledger = ledger_for(self.s)  # the records folder may have been changed in Settings
+        if changed:
+            self._rebuild_columns()
+            self.ledger.mirror()
+        self._fill_status()
         years = self.ledger.years()
         this_year = date.today().year
+        # Invoices are dated as a form is, so one can be a year ahead of the clock: made on Fri 12/31/2027 (New
+        # Year's Day 2028, observed) it is dated Mon 1/3/2028 and numbered 2028-0001. The Invoices tab opens on the
+        # newest year with an invoice (this year while none is newer), so a new invoice is in sight, and follows it
+        # while the year shown is the one it picked; a year chosen by hand is kept
+        newest = max([this_year] + years)
         year_items = [("All years", 0)] + [(str(y), y) for y in sorted(set(years) | {this_year}, reverse=True)]
-        for combo in (self.i_year, self.a_year):
-            keep = combo.currentData()
-            refill_combo(combo, year_items, this_year if keep is None else keep)
+        keep = self.i_year.currentData()
+        refill_combo(self.i_year, year_items, newest if keep is None or keep == self._year_picked else keep)
+        self._year_picked = newest
+        keep = self.a_year.currentData()  # (Activity: what was done, by the clock)
+        refill_combo(self.a_year, year_items, this_year if keep is None else keep)
         refill_combo(self.i_client, [("All firms", "")] + [(c, c) for c in self.ledger.clients()],
                      self.i_client.currentData() or "")
         self.show_invoices()
@@ -757,48 +859,96 @@ class RecordsWindow(QDialog):
         self.show_invoices()
         self.show_activity()
 
+    def _fill_status(self) -> None:
+        """The Status filter's choices: All, the names of the colour rules that can colour a row (Settings →
+        Records; "Paid" and "Not paid" only once), Not paid, Paid and Void. The choice made is kept."""
+        fixed = {label.lower() for label, _ in STATUS_FILTERS}
+        items = STATUS_FILTERS[:1] + [(n, RULE + n) for n in rule_names(self.boxes, self.rules)
+                                      if n.lower() not in fixed] + STATUS_FILTERS[1:]
+        refill_combo(self.i_status, items, self.i_status.currentData() or "")
+
+    def _chosen_rule(self) -> str:
+        """The colour chosen in the Status filter ("Ready to send"), or ""."""
+        data = self.i_status.currentData() or ""
+        return data[len(RULE):] if data.startswith(RULE) else ""
+
     def _invoice_filters(self) -> dict:
-        """The Invoices tab's filters as keyword arguments for Ledger.invoices ("All" is None or "")."""
+        """The Invoices tab's filters as keyword arguments for Ledger.invoices ("All" is None or ""; a colour
+        chosen in the Status filter is not one of them: see _by_rule)."""
+        status = self.i_status.currentData() or ""
         return dict(year=self.i_year.currentData() or None, month=self.i_month.currentData() or None,
-                    client=self.i_client.currentData() or "", status=self.i_status.currentData() or "",
+                    client=self.i_client.currentData() or "", status="" if status.startswith(RULE) else status,
                     text=self.i_text.text().strip(), how=self._how(self.i_regex, self.i_fuzzy),
                     fuzzy_numbers=self.s.fuzzy_numbers)
 
+    def _transcripts(self) -> Transcripts:
+        """Every invoice not in the trash, by transcript, for Every firm paid and Transcribed ticked on a whole
+        transcript (a firm of the transcript may be outside the filters)."""
+        return Transcripts(self.ledger.invoices())
+
+    def _by_rule(self, invoices: list[Invoice], name: str, transcripts: Transcripts | None) -> list[Invoice]:
+        """The invoices the colour rule `name` colours (all of them with no name)."""
+        if not name:
+            return invoices
+        return [i for i in invoices
+                if (r := rule_for(i, self.boxes, self.rules, transcripts)) is not None and r.name == name]
+
     def show_invoices(self, _=None) -> None:
-        """Lists the invoices that match the filters (those in the trash with the Trash button) and updates the
-        totals and the by-firm and by-month tabs."""
+        """Lists the invoices that match the filters (those in the trash with the Trash button), each row in the
+        colour of the first rule that matches it (Settings → Records; none in the trash), and updates the totals
+        and the by-firm and by-month tabs. The rows selected, the current one and where the list was scrolled to
+        are kept. While a note is being typed, nothing is done until the typing ends (_editor_closed)."""
+        t = self.inv_table
+        if t.state() == QAbstractItemView.EditingState:  # (filling the table would close the note being typed)
+            self._stale = True
+            return
+        self._stale = False
         trash = self.i_trash.isChecked()
+        rule_name = "" if trash else self._chosen_rule()
+        colours = self.s.records_colours and not trash
+        transcripts = None
         try:
-            self.shown = self.ledger.invoices(**self._invoice_filters(), trash=trash)
+            shown = self.ledger.invoices(**self._invoice_filters(), trash=trash)
+            if colours or rule_name:
+                transcripts = self._transcripts()
+            self.shown = self._by_rule(shown, rule_name, transcripts)
             self._search_problem(self.i_text, "")
         except ValueError as e:  # a regular expression still being typed ("(smith")
             self.shown = []
             self._search_problem(self.i_text, str(e))
-        t = self.inv_table
-        t.blockSignals(True)  # setting the Paid ticks must not look like the user clicking them
+        place = self._place()
+        t.blockSignals(True)  # setting the ticks and the notes must not look like the user changing them
         t.setSortingEnabled(False)
         t.setRowCount(0)
-        status_col = col_index(INVOICE_COLS, "status")
+        status_col, notes_col = col_index(self.inv_cols, "status"), col_index(self.inv_cols, "notes")
         for inv in self.shown:
             r = t.rowCount()
             t.insertRow(r)
-            paid = _Item()
-            paid.setFlags((paid.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsEditable)
-            if inv.status == "void" or trash:
-                paid.setFlags(paid.flags() & ~Qt.ItemIsEnabled)
-            paid.setCheckState(Qt.Checked if inv.status == "paid" else Qt.Unchecked)
-            paid.setData(Qt.UserRole, inv.invoice_no)
-            paid.setData(Qt.UserRole + 1, 1 if inv.status == "paid" else 0)
-            t.setItem(r, 0, paid)
-            for c, col in enumerate(INVOICE_COLS[1:], 1):
-                t.setItem(r, c, _cell(col, inv))
-            t.item(r, status_col).setForeground(QColor(STATUS_COLORS.get(inv.status, STATUS_COLORS["void"])))
+            rule = rule_for(inv, self.boxes, self.rules, transcripts) if colours else None
+            tint = None
+            if rule is not None:
+                tint = QColor(rule.colour)
+                tint.setAlpha(TINT)
+            for c, col in enumerate(self.inv_cols):
+                it = self._tick_item(inv, col.key, trash) if self._is_box(col.key) else _cell(col, inv)
+                if c == status_col:
+                    self._status_cell(it, inv, rule, colours)
+                elif c == notes_col:
+                    it.setData(Qt.UserRole, inv.invoice_no)  # (the row may move, sorted, before the note is kept)
+                    it.setToolTip(inv.notes)
+                    if not trash:
+                        it.setFlags(it.flags() | Qt.ItemIsEditable)
+                if tint is not None:
+                    it.setBackground(tint)
+                t.setItem(r, c, it)
         t.blockSignals(False)
         t.setSortingEnabled(True)
         t.resizeColumnsToContents()
-        for key, widest in (("case", 300), ("bill_to", 260), ("file", 360), ("reporters", 200), ("excerpt", 240)):
-            i = col_index(INVOICE_COLS, key)
+        for key, widest in (("case", 300), ("bill_to", 260), ("file", 360), ("reporters", 200), ("excerpt", 240),
+                            ("notes", 300)):
+            i = col_index(self.inv_cols, key)
             t.setColumnWidth(i, min(t.columnWidth(i), z(widest)))
+        self._put_back_place(place)
 
         total, by_client, by_month = summarize(self.shown)
         # (no totals of deleted invoices: they would read as money billed)
@@ -809,6 +959,61 @@ class RecordsWindow(QDialog):
         self._fill_summary(self.firm_table, [(k, v) for k, v in by_client.items()], total)
         self._fill_summary(self.month_table, [(_month_name(k), v) for k, v in reversed(list(by_month.items()))],
                            total)
+
+    @staticmethod
+    def _tick_item(inv: Invoice, key: str, trash: bool) -> QTableWidgetItem:
+        """A tick box's cell ("paid", or BOX + a box's key): ticked as the invoice is, with its number (UserRole),
+        sorting ticked last; greyed out on a void invoice and in the trash. A ticked box's tooltip says when it was
+        ticked (not Paid's: Date paid says that)."""
+        it = _Item()
+        it.setFlags(_GREYED if inv.status == "void" or trash else _READ_ONLY)
+        box = key[len(BOX):]
+        on = inv.status == "paid" if key == "paid" else box in inv.checks
+        it.setCheckState(Qt.Checked if on else Qt.Unchecked)
+        it.setData(Qt.UserRole, inv.invoice_no)
+        it.setData(Qt.UserRole + 1, 1 if on else 0)
+        if on and key != "paid":
+            it.setToolTip(f"Ticked on {us_date(inv.checks[box])}")
+        return it
+
+    def _status_cell(self, it: QTableWidgetItem, inv: Invoice, rule: ColourRule | None, colours: bool) -> None:
+        """The Status cell: each box in use, ticked or not ("Paid, Transcribed, Not sent"), with the colour's
+        name, the speed paid and when each box was ticked in its tooltip. Without row colours, the text has the
+        colour of the invoice's status (STATUS_COLORS: amber not paid, green paid); a void invoice's is always grey."""
+        it.setText(status_words(inv, self.boxes))
+        tips = [rule.name] if rule is not None and rule.name else []
+        if inv.status == "paid":
+            tips.append(f"Paid{f' ({inv.paid_speed})' if inv.paid_speed else ''}"
+                        f"{f' on {us_date(inv.paid_date)}' if inv.paid_date else ''}")
+        tips += [f"{b.name} on {us_date(inv.checks[b.key])}" for b in self.boxes
+                 if b.on and b.kind == TICK and b.key in inv.checks]
+        it.setToolTip("\n".join(tips))
+        if inv.status == "void" or not colours:
+            it.setForeground(QColor(STATUS_COLORS.get(inv.status, STATUS_COLORS["void"])))
+
+    def _place(self) -> tuple:
+        """Where the Invoices table is: the invoices selected, the current one and its column, and how far it
+        is scrolled (see _put_back_place)."""
+        t = self.inv_table
+        number = lambda r: t.item(r, 0).data(Qt.UserRole) if t.item(r, 0) else None  # noqa: E731
+        return ({number(i.row()) for i in t.selectedIndexes()} - {None}, number(t.currentRow()),
+                t.currentColumn(), t.verticalScrollBar().value(), t.horizontalScrollBar().value())
+
+    def _put_back_place(self, place: tuple) -> None:
+        """Selects the same invoices again, and scrolls back to where the table was, after it was filled
+        afresh (a box ticked down the list must not send it back to the top)."""
+        from PySide6.QtCore import QItemSelectionModel
+        selected, current, column, down, across = place
+        t = self.inv_table
+        sm = t.selectionModel()
+        for r in range(t.rowCount()):
+            no = t.item(r, 0).data(Qt.UserRole)
+            if no == current:
+                t.setCurrentCell(r, max(0, column), QItemSelectionModel.NoUpdate)
+            if no in selected:
+                sm.select(t.model().index(r, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        t.verticalScrollBar().setValue(down)
+        t.horizontalScrollBar().setValue(across)
 
     @staticmethod
     def _fill_summary(t: QTableWidget, rows, total) -> None:
@@ -888,13 +1093,132 @@ class RecordsWindow(QDialog):
         if a is not None and a.file_path:
             open_path(a.file_path)
 
-    def _paid_toggled(self, item: QTableWidgetItem) -> None:
-        """A Paid tick was clicked: ask about it once the click is over."""
-        if item.column() != 0:
+    def _item_changed(self, item: QTableWidgetItem) -> None:
+        """A cell of the Invoices table was changed by the user: a Paid tick (asked about), another box ticked or
+        unticked, or a note typed. Dealt with once the click or the typing is over, not in the middle of it: that
+        puts new cells in this table."""
+        if item.column() >= len(self.inv_cols):
             return
-        no, paid = item.data(Qt.UserRole), item.checkState() == Qt.Checked
-        # After the click has been dealt with, not in the middle of it: the answer rebuilds this table.
-        QTimer.singleShot(0, lambda: self._set_paid(no, paid))
+        key, no = self.inv_cols[item.column()].key, item.data(Qt.UserRole)
+        if key == "paid":
+            paid = item.checkState() == Qt.Checked
+            QTimer.singleShot(0, lambda: self._set_paid(no, paid))
+        elif key.startswith(BOX):
+            on = item.checkState() == Qt.Checked
+            QTimer.singleShot(0, lambda: self._set_box([no], key[len(BOX):], on))
+        elif key == "notes":
+            inv, text = next((i for i in self.shown if i.invoice_no == no), None), item.text()
+            if inv is not None and text != inv.notes:  # (the same text: nothing typed, a tooltip or a colour set)
+                QTimer.singleShot(0, lambda: self._set_note(no, text))
+
+    def _double_clicked(self, item: QTableWidgetItem) -> None:
+        """A double-click opens the invoice's PDF; on a note that can be typed into, it types instead, and on a tick
+        box it only ticks (two quick clicks to tick and untick shouldn't open a PDF too)."""
+        key = self.inv_cols[item.column()].key
+        if (key == "notes" and item.flags() & Qt.ItemIsEditable) or self._is_box(key):
+            return
+        self._open_invoice(self._inv_at(item.row()))
+
+    def _editor_closed(self, *_) -> None:
+        """A note was typed (or Escape pressed): the table is shown afresh if that waited for it."""
+        if self._stale:
+            QTimer.singleShot(0, self._show_stale)
+
+    def _show_stale(self) -> None:
+        """Shows the invoices afresh, as show_invoices left them for the typing, unless a note is being typed
+        again by now."""
+        if self._stale and self.inv_table.state() != QAbstractItemView.EditingState:
+            self.show_invoices()
+
+    def _box(self, key: str) -> TrackBox | None:
+        """A tick box in use besides Paid, by its key."""
+        return next((b for b in self.boxes if b.key == key and b.on and b.kind == TICK), None)
+
+    def _set_box(self, invoice_nos: list[str], key: str, on: bool) -> None:
+        """Ticks (on) or unticks a box on these invoices, and on the other invoices of their transcripts for a
+        box that says so (Transcribed: TrackBox.whole), then shows their rows afresh (_show_ticked). Nothing is
+        asked; Undo takes it back, on all of them at once. A void invoice is left alone."""
+        box = self._box(key)
+        try:
+            if box is not None:
+                live = self.ledger.invoices()
+                void = {i.invoice_no for i in live if i.status == "void"}
+                targets = [n for n in invoice_nos if n not in void]
+                if box.whole and targets:
+                    tr = Transcripts(live)
+                    targets = list(dict.fromkeys(m for n in targets for m in (tr.mates(n) or [n])))
+                before = self.ledger.set_checks(targets, key, on)
+                if before:
+                    which = f"invoice {before[0].invoice_no}" if len(before) == 1 else plural(len(before), "invoice")
+                    self._undoable(f"{box.name} {'ticked' if on else 'unticked'} on {which}",
+                                   back=lambda: self.ledger.put_back_checks(before))
+                    self._show_ticked({i.invoice_no for i in before})
+                    return
+        except Exception as e:
+            log_error("could not tick a box of an invoice", e)
+            QMessageBox.warning(self, "Could not save", f"{type(e).__name__}: {e}")
+        self.show_invoices()  # (nothing changed, or it failed: the boxes as they are)
+
+    def _show_ticked(self, invoice_nos: set[str]) -> None:
+        """After boxes were ticked: those invoices' rows shown afresh where they are (their boxes, status and
+        colour: a tick changes nothing else), not the whole table, which takes seconds with thousands of
+        invoices. The whole table is filled afresh when a colour is chosen in the Status filter (a row may leave
+        it), and while a note is typed (later: show_invoices)."""
+        t = self.inv_table
+        if self._chosen_rule() or self.i_trash.isChecked() or t.state() == QAbstractItemView.EditingState:
+            self.show_invoices()
+            return
+        colours = self.s.records_colours
+        every = self.ledger.invoices()
+        transcripts = Transcripts(every) if colours else None
+        fresh = {i.invoice_no: i for i in every if i.invoice_no in invoice_nos}
+        at = {i.invoice_no: n for n, i in enumerate(self.shown)}
+        rows = {t.item(r, 0).data(Qt.UserRole): r for r in range(t.rowCount())}
+        status_col = col_index(self.inv_cols, "status")
+        t.blockSignals(True)
+        t.setSortingEnabled(False)  # (rows stay put while they change; sorted again below)
+        for no, inv in fresh.items():
+            if no not in rows or no not in at:
+                continue
+            self.shown[at[no]] = inv
+            r, rule = rows[no], rule_for(inv, self.boxes, self.rules, transcripts) if colours else None
+            brush = QBrush()
+            if rule is not None:
+                tint = QColor(rule.colour)
+                tint.setAlpha(TINT)
+                brush = QBrush(tint)
+            for c, col in enumerate(self.inv_cols):
+                if self._is_box(col.key):
+                    t.setItem(r, c, self._tick_item(inv, col.key, False))
+                elif c == status_col:
+                    self._status_cell(t.item(r, c), inv, rule, colours)
+                t.item(r, c).setBackground(brush)
+        t.blockSignals(False)
+        t.setSortingEnabled(True)
+
+    def _set_note(self, invoice_no: str, text: str) -> None:
+        """Keeps a note typed into the table. The table isn't filled afresh (nothing else changes); when the
+        records can't be changed (locked, the disk full), it says so and shows the note as it was."""
+        inv = next((i for i in self.shown if i.invoice_no == invoice_no), None)
+        if inv is None or inv.notes == text:
+            return
+        try:
+            before = self.ledger.invoice(invoice_no) or inv
+            self.ledger.set_notes(invoice_no, text)
+            self._undoable(f"the notes of invoice {invoice_no} changed", before)
+        except Exception as e:
+            log_error("could not change an invoice", e)
+            QMessageBox.warning(self, "Could not save", f"{type(e).__name__}: {e}")
+            self.show_invoices()
+            return
+        inv.notes = text
+        t, notes_col = self.inv_table, col_index(self.inv_cols, "notes")
+        t.blockSignals(True)
+        for r in range(t.rowCount()):
+            it = t.item(r, notes_col)
+            if it is not None and it.data(Qt.UserRole) == invoice_no:
+                it.setToolTip(text)
+        t.blockSignals(False)
 
     def _set_paid(self, invoice_no: str, paid: bool) -> None:
         """Marks an invoice paid (asking at which speed) or not paid, then shows the list afresh."""
@@ -951,6 +1275,14 @@ class RecordsWindow(QDialog):
                 m.addAction("Mark paid…", lambda: self._set_paid(inv.invoice_no, True))
             else:
                 m.addAction("Mark not paid", lambda: self._set_paid(inv.invoice_no, False))
+            # each box in use, on every invoice selected (not void) at once: ticked, or unticked when all are
+            live = [i for i in many if i.status != "void"]
+            for b in self.boxes:
+                if b.on and b.kind == TICK and live:
+                    on = not all(b.key in i.checks for i in live)
+                    m.addAction(f"{'Tick' if on else 'Untick'} {b.name}"
+                                + (f" ({plural(len(live), 'invoice')})" if len(live) > 1 else ""),
+                                lambda b=b, on=on: self._set_box([i.invoice_no for i in live], b.key, on))
             if inv.status != "void":
                 m.addAction("Void (cancelled, not counted)", lambda: self._set_void(inv))
             else:
@@ -1000,8 +1332,9 @@ class RecordsWindow(QDialog):
         return {"activity": [a.id for a in records]}
 
     def _delete_selected(self, which: str) -> None:
-        """Delete (or the Delete key): the records selected go to the trash, after asking."""
-        if self._in_trash(which):
+        """Delete (or the Delete key): the records selected go to the trash, after asking. Nothing while a note
+        is being typed (Delete there deletes text)."""
+        if self._in_trash(which) or self._table_of(which).state() == QAbstractItemView.EditingState:
             return
         records = self._selected(which)
         if records:
@@ -1060,6 +1393,11 @@ class RecordsWindow(QDialog):
         self.undo_btn.setToolTip(f"Take back: {self.undo_stack[-1][0]} (Ctrl+Z)" if self.undo_stack else
                                  "Takes back the last change made in this window (Ctrl+Z)")
 
+    def show_help(self) -> None:
+        """F1: the Help window (the main window's, beside this one) at the Records overview."""
+        from .help_window import help_topic_of, open_help
+        open_help(help_topic_of(self.focusWidget()) or "rec-overview", self.parentWidget() or self)
+
     def _undo_key(self) -> None:
         """Ctrl+Z: in a search box it undoes the typing, as everywhere; else the last change to the records."""
         w = self.focusWidget()
@@ -1069,8 +1407,8 @@ class RecordsWindow(QDialog):
             self.undo()
 
     def undo(self) -> None:
-        """Takes back the last change made in this window (paid, not paid, void, amounts, notes, a delete or a
-        restore) and shows the lists afresh."""
+        """Takes back the last change made in this window (paid, not paid, a box ticked or unticked, void,
+        amounts, notes, a delete or a restore) and shows the lists afresh."""
         if not self.undo_stack:
             return
         what, back = self.undo_stack.pop()
@@ -1183,7 +1521,8 @@ class RecordsWindow(QDialog):
 
     # ------------------------------------------------------------ exports
     def _filter_title(self) -> str:
-        """A title for an export that names the filters, e.g. "Invoices - March 2026 - Dana Smith (unpaid)"."""
+        """A title for an export that names the filters, e.g. "Invoices - March 2026 - Dana Smith (not paid)" or
+        "(ready to send)"."""
         f = self._invoice_filters()
         bits = []
         if f["month"]:
@@ -1193,8 +1532,8 @@ class RecordsWindow(QDialog):
         title = "Invoices" + (" - " + " ".join(bits) if bits else "")
         if f["client"]:
             title += f" - {f['client']}"
-        if f["status"]:
-            title += f" ({dict((k, l) for l, k in STATUS_FILTERS)[f['status']].lower()})"
+        if self.i_status.currentData():
+            title += f" ({self.i_status.currentText().lower()})"
         return title
 
     def _ask_path(self, title: str, name: str, filt: str) -> Path | None:
@@ -1206,8 +1545,13 @@ class RecordsWindow(QDialog):
 
     def _to_export(self) -> list[Invoice]:
         """The invoices a report or workbook lists: those shown, or with the Trash on, the invoices (not the
-        deleted ones) the same filters match: a report never passes deleted invoices off as billed."""
-        return self.ledger.invoices(**self._invoice_filters()) if self.i_trash.isChecked() else self.shown
+        deleted ones) the same filters match (a colour chosen too): a report never passes deleted invoices off as
+        billed."""
+        if not self.i_trash.isChecked():
+            return self.shown
+        rule = self._chosen_rule()
+        return self._by_rule(self.ledger.invoices(**self._invoice_filters()), rule,
+                             self._transcripts() if rule else None)
 
     def _search_blocked(self) -> bool:
         """True (after saying so) when the Invoices tab's search can't be read (a regular expression half

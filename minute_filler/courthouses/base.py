@@ -160,7 +160,13 @@ class Courthouse:
     them ("" = it isn't: pages ordered together must all be at one speed); speeds_together, how many different
     speeds may share pages (1 = one); speed_upfront, whether the firms of a split order must each commit to a
     speed before they are billed (True: their invoices bill that speed alone, and Generate asks when it isn't
-    set), rather than choosing one from the invoice as a firm billed alone does."""
+    set), rather than choosing one from the invoice as a firm billed alone does.
+
+    holidays: the days its courts are closed, (name, rule in plain words: workdays.parse_rule) each, the first list
+    of Settings -> Dates (Settings.holidays): as that tab says, forms and invoices made on one are dated the next
+    business day, and turnaround days in business days don't count them; holiday_weekend: what one of a fixed date
+    that falls on a weekend does (Settings.holiday_weekend: "nearest", closed the Friday before or the Monday
+    after, or "none")."""
     key: str
     name: str
     outputs: tuple[OutputSpec, ...]
@@ -169,6 +175,8 @@ class Courthouse:
     split_rule: str = ""
     speeds_together: int = 1
     speed_upfront: bool = False
+    holidays: tuple[tuple[str, str], ...] = ()
+    holiday_weekend: str = "nearest"
 
     def modules(self) -> list[str]:
         """Every module its outputs and rules name (maker, policy, panel, split_rule), each once: imported only

@@ -12,6 +12,11 @@ For one speed, with N ordering parties (quote):
 
     total = the sum;  each party pays total / N, rounded up to the cent
 
+Or, with Settings -> Invoice -> Rounding "the price a page" (Settings.invoice_rounding "page"), as most people
+work it out by hand: what each party pays a page, all its charges together, is rounded to the nearest cent first,
+then times the pages (4 parties at Immediate: $7.60 / 4 + $1.45 + $1.45 + $1.45 + $1.45 / 4 = $6.6125 a page ->
+$6.61 x 1,000 pages = $6,610.00, where the exact way gives $6,612.50). It goes either way: $6.6175 -> $6.62.
+
 An invoice can cover several days (a transcript each). Original and copies are charged on all their pages; the
 index and the judge's index on the pages of the days that get one (see index_days: by default, all of them once
 any day reaches the threshold). Whether a day gets one is judged on every page of its transcripts, whoever
@@ -36,7 +41,9 @@ as if every firm had ordered its speed, the fastest pay the rest; courthouses/qu
 while each pays its own copy, e-mailed copy and index at its own speed. With every firm at one speed that is
 quote_shares' price.
 
-Money is kept in Decimal and rounded to cents (a firm's share is worked out exactly first, as a fraction).
+Money is kept in Decimal and rounded to cents (a firm's share is worked out exactly first, as a fraction). Each
+quote also keeps what a party pays a page, exactly, for each stretch of pages at one price (Quote.prices), which
+the price-a-page rounding rounds.
 """
 from __future__ import annotations
 
@@ -79,6 +86,22 @@ def money_exact(d: Decimal | Fraction) -> str:
     if isinstance(d, Fraction):
         d = _decimal(d)
     return fmt(d) if d == d.quantize(CENT) else "$" + exact_number(d, 4, 2)
+
+
+def to_cent(f: Fraction) -> Fraction:
+    """To the nearest cent, half a cent up, worked out exactly (a third of a cent is never a Decimal's 0.333…):
+    $6.6125 -> $6.61, $6.6175 -> $6.62, $4.925 -> $4.93."""
+    return Fraction(math.floor(f * 100 + Fraction(1, 2)), 100)
+
+
+def _merged(prices: list[tuple[Fraction, int]]) -> list[tuple[Fraction, int]]:
+    """Pages at the same price a page counted together, in the order first met, and none of 0 pages:
+    [(6.30, 40), (3.4333…, 50), (6.30, 10), (5, 0)] -> [(6.30, 50), (3.4333…, 50)]."""
+    out: dict[Fraction, int] = {}
+    for price, pages in prices:
+        if pages:
+            out[price] = out.get(price, 0) + pages
+    return list(out.items())
 
 
 def extra_rate(sp: Speed, *names: str) -> Decimal:
@@ -144,8 +167,9 @@ class Stretch:
 @dataclass
 class Quote:
     """The price of one speed for one job, line by line. A firm's own share (quote_shares) has `due`, the
-    exact amount it owes, and its per_party is that rounded up. An ordered quote (quote_ordered) is a firm's
-    share too, of the speeds it ordered (`ordered`); its `speed` names them ("Daily", "Daily + Regular")."""
+    exact amount it owes, and its per_party is that rounded up (or, with by_page, its prices a page rounded: see
+    per_party). An ordered quote (quote_ordered) is a firm's share too, of the speeds it ordered (`ordered`); its
+    `speed` names them ("Daily", "Daily + Regular")."""
     speed: str                  # the sheet's name for it, e.g. "Expedite"
     pages: int                  # all the days together
     parties: int                # on a firm's share: the most firms that shared any of its pages
@@ -153,6 +177,12 @@ class Quote:
     days: list[int] = field(default_factory=list)  # the pages of each day
     due: Fraction | None = None  # a firm's share, exactly (None: the whole price, split by parties)
     ordered: tuple[str, ...] = ()  # an ordered quote: the speeds the firm committed to (the sheet's names)
+    # what a party pays a page, every charge together, exactly, and the pages at that price: [(6.6125, 1000)];
+    # [(6.30, 40), (3.4333…, 50)] for 40 pages ordered alone and 50 with 2 other firms. Each price times its
+    # pages, added up, is what a party owes exactly (a firm's share: due)
+    prices: list[tuple[Fraction, int]] = field(default_factory=list)
+    # each price a page is rounded to the nearest cent, then times its pages (Settings.invoice_rounding "page")
+    by_page: bool = False
 
     @property
     def share(self) -> bool:
@@ -167,7 +197,7 @@ class Quote:
     @property
     def total(self) -> Decimal:
         """The whole price of this speed, all parties together; on a firm's share, what that firm owes
-        (before it is rounded up to the cent)."""
+        (exactly, before per_party rounds it to the cent)."""
         if self.due is not None:
             return _decimal(self.due)
         return sum((l.amount for l in self.lines), Decimal("0.00"))
@@ -175,7 +205,12 @@ class Quote:
     @property
     def per_party(self) -> Decimal:
         """What each party pays: the total split evenly, rounded up to the cent so the shares cover the
-        total ($319.30 three ways -> $106.44 each). On a firm's share: its own amount, rounded up."""
+        total ($319.30 three ways -> $106.44 each). On a firm's share: its own amount, rounded up. With by_page,
+        as by hand: each price a page (prices) rounded to the nearest cent, half a cent up (to_cent), times its
+        pages, added up ($6.6125 a page -> $6.61 x 1,000 = $6,610.00), which can be less or more than the exact
+        amount."""
+        if self.by_page and self.prices:
+            return _decimal(sum((to_cent(p) * n for p, n in self.prices), Fraction(0))).quantize(CENT)
         if self.due is not None:
             return (Decimal(math.ceil(self.due * 100)) / 100).quantize(CENT)
         return (self.total / max(1, self.parties)).quantize(CENT, ROUND_CEILING)
@@ -185,6 +220,29 @@ class Quote:
         """What each party pays a page, to the cent: per_party over the pages billed, so the copies and the
         index are in it too."""
         return (self.per_party / max(1, self.pages)).quantize(CENT, ROUND_HALF_UP)
+
+    @property
+    def page_rounded(self) -> bool:
+        """With by_page, a price a page came to part of a cent and was rounded ($6.6125 -> $6.61), so the
+        amount can differ from the exact one; with every price in whole cents the two ways agree."""
+        return self.by_page and any(to_cent(p) != p for p, _ in self.prices)
+
+
+def page_prices_text(q: Quote, short: bool = False) -> str:
+    """How a party's amount was reached with each price a page rounded to the cent first (Quote.by_page):
+    '$6.6125 a page, rounded to $6.61, × 1,000 pages'; several prices joined by ' + ', one in whole cents as it is
+    ('$6.30 a page × 40 pages'). short, under an amount: '1,000 × $6.61'."""
+    bits = []
+    for price, n in q.prices:
+        cent = to_cent(price)
+        pages = f"{n:,} page" + ("" if n == 1 else "s")
+        if short:
+            bits.append(f"{n:,} × {money_exact(cent)}")
+        elif cent == price:
+            bits.append(f"{money_exact(price)} a page × {pages}")
+        else:
+            bits.append(f"{money_exact(price)} a page, rounded to {money_exact(cent)}, × {pages}")
+    return " + ".join(bits)
 
 
 def index_days(days: list[int], mode: str = "auto", rule: str = "any", threshold: int = 50) -> list[bool]:
@@ -204,34 +262,40 @@ def index_days(days: list[int], mode: str = "auto", rule: str = "any", threshold
 
 def quote(days: int | list[int], sp: Speed, parties: int = 1, include_email: bool = True,
           index: str | bool = "auto", rule: str = "any", threshold: int = 50, index_shared: str = "each",
-          judged: list[int] | None = None) -> Quote:
+          judged: list[int] | None = None, by_page: bool = False) -> Quote:
     """Prices one speed for the pages of one day (an int) or of each day (a list). index: "auto" (see
     index_days), "on", "off"; True/False are "auto"/"off". judged: the pages each day's index is judged on,
     every page of its transcripts whoever wrote them (default: the days' own pages; the index is still charged
     on the days' own pages). index_shared: "each" (an index for each party) or "split" (one index, its price
-    split between the parties like the original), as Settings.invoice_index_shared says. See the module
-    docstring for the arithmetic."""
+    split between the parties like the original), as Settings.invoice_index_shared says. by_page: each party's
+    price a page is rounded to the nearest cent, then times its pages (Settings.invoice_rounding "page", see
+    Quote.per_party). See the module docstring for the arithmetic."""
     days = [days] if isinstance(days, int) else list(days)
     index = {True: "auto", False: "off"}.get(index, index)
     pages = sum(days)
     parties = max(1, parties)
-    q = Quote(sp.name, pages, parties, days=days)
+    q = Quote(sp.name, pages, parties, days=days, by_page=by_page)
 
-    def line(label: str, rate: Decimal, qty: int, count: int = pages) -> None:
-        """Adds a line charging `count` pages; none when it would be $0 (no such column on the sheet)."""
+    def line(label: str, rate: Decimal, qty: int, count: int = pages) -> Fraction:
+        """Adds a line charging `count` pages; none when it would be $0 (no such column on the sheet). Returns
+        what each party pays a page of it."""
         if rate and qty and count:
             q.lines.append(QuoteLine(label, rate, qty, (rate * count * qty).quantize(CENT, ROUND_HALF_UP), count))
+            return Fraction(rate) * qty / parties
+        return Fraction(0)
 
-    line("Original", money(sp.original), 1)
-    line("Copy", money(sp.copy), parties)
+    a_page = line("Original", money(sp.original), 1)
+    a_page += line("Copy", money(sp.copy), parties)
     if include_email:
-        line("E-mailed copy", extra_rate(sp, "email", "e-mail"), parties)
+        a_page += line("E-mailed copy", extra_rate(sp, "email", "e-mail"), parties)
     on = index_days(days if judged is None else judged, index, rule, threshold)
     indexed = sum(p for p, x in zip(days, on) if x)
+    with_index = a_page
     if indexed:
         idx = extra_rate(sp, "index")
-        line("Index", idx, parties if index_shared == "each" else 1, indexed)
-        line("Judge's index", idx, 1, indexed)
+        with_index += line("Index", idx, parties if index_shared == "each" else 1, indexed)
+        with_index += line("Judge's index", idx, 1, indexed)
+    q.prices = _merged([(a_page, pages - indexed), (with_index, indexed)])
     return q
 
 
@@ -255,41 +319,49 @@ def _decimal(f: Fraction) -> Decimal:
 
 
 def quote_shares(shares: list[Share], sp: Speed, include_email: bool = True, index_split: bool = False,
-                 days: list[int] | None = None) -> Quote:
+                 days: list[int] | None = None, by_page: bool = False) -> Quote:
     """One firm's price for one speed, from the stretches of pages it ordered (see the module docstring):
     the original / n, its own copy and e-mailed copy, its own index whole (or / n: index_split), the judge's
     index / n. The lines show the pages charged, those shared counting 1/n each (the original of 40 pages alone and
     50 shared by two: 65 pages), and their parts, the pages by how many firms ordered them ([(40, 1), (50, 2)]).
-    The amount is worked out exactly (Quote.due) and rounded up to the cent (Quote.per_party). days: the pages
-    the firm ordered on each day, for the invoice."""
+    The amount is worked out exactly (Quote.due) and rounded up to the cent once (Quote.per_party); with by_page,
+    each stretch's price a page (Quote.prices) is rounded to the nearest cent instead, then times its pages. days:
+    the pages the firm ordered on each day, for the invoice."""
     shares = [x for x in shares if x.pages > 0]
     pages = sum(x.pages for x in shares)
-    q = Quote(sp.name, pages, max([x.n for x in shares] or [1]), days=list(days or [pages]), due=Fraction(0))
+    q = Quote(sp.name, pages, max([x.n for x in shares] or [1]), days=list(days or [pages]), due=Fraction(0),
+              by_page=by_page)
+    a_page = [Fraction(0)] * len(shares)  # what the firm pays a page of each share, every charge together
 
-    def line(label: str, rate: Decimal, part: list[Share], split: bool) -> None:
-        """Adds a line for these stretches (split: each counts pages / n); none when it would be $0."""
-        count = sum((Fraction(x.pages, max(1, x.n) if split else 1) for x in part), Fraction(0))
+    def line(label: str, rate: Decimal, part: list[int], split: bool) -> None:
+        """Adds a line for these stretches (the shares at these positions; split: each counts pages / n); none
+        when it would be $0."""
+        count = sum((Fraction(shares[k].pages, max(1, shares[k].n) if split else 1) for k in part), Fraction(0))
         if rate and count:
             amount = Fraction(rate) * count
             q.due += amount
+            for k in part:
+                a_page[k] += Fraction(rate) / (max(1, shares[k].n) if split else 1)
             # to the cent, without trailing zeros: 32.5 pages, not 32.50 (and 40, not 40.00 or 4E+1)
             shown = Decimal(format(_decimal(count).quantize(CENT, ROUND_HALF_UP).normalize(), "f"))
             by_n: dict[int, int] = {}
-            for x in part:
-                by_n[max(1, x.n)] = by_n.get(max(1, x.n), 0) + x.pages
+            for k in part:
+                by_n[max(1, shares[k].n)] = by_n.get(max(1, shares[k].n), 0) + shares[k].pages
             q.lines.append(QuoteLine(label, rate, 1, _decimal(amount), shown,
-                                     split and any(x.n > 1 for x in part),
+                                     split and any(shares[k].n > 1 for k in part),
                                      [(p, n) for n, p in sorted(by_n.items())]))
 
-    line("Original", money(sp.original), shares, True)
-    line("Copy", money(sp.copy), shares, False)
+    every = list(range(len(shares)))
+    line("Original", money(sp.original), every, True)
+    line("Copy", money(sp.copy), every, False)
     if include_email:
-        line("E-mailed copy", extra_rate(sp, "email", "e-mail"), shares, False)
-    indexed = [x for x in shares if x.indexed]
+        line("E-mailed copy", extra_rate(sp, "email", "e-mail"), every, False)
+    indexed = [k for k in every if shares[k].indexed]
     if indexed:
         idx = extra_rate(sp, "index")
         line("Index", idx, indexed, index_split)
         line("Judge's index", idx, indexed, True)
+    q.prices = _merged([(a_page[k], shares[k].pages) for k in every])
     return q
 
 
@@ -303,7 +375,7 @@ def sheet_speed(sheet: RateSheet, name: str) -> Speed:
 
 
 def quote_ordered(shares: list[Share], sheet: RateSheet, rule=None, include_email: bool = True,
-                  index_split: bool = False, days: list[int] | None = None) -> Quote:
+                  index_split: bool = False, days: list[int] | None = None, by_page: bool = False) -> Quote:
     """One firm's price for the speeds it committed to (each share's `speed`), the pages of each priced at its
     own speed: its copy, e-mailed copy and (index_split False) index in full, as quote_shares does. A charge
     billed once for the pages (the original, the judge's index, and the index too with index_split) is split
@@ -312,7 +384,9 @@ def quote_ordered(shares: list[Share], sheet: RateSheet, rule=None, include_emai
     courthouse's split rule says (rule(parties, me) -> courthouses.base.Part; see courthouses.split_rule).
     One speed gives the lines "Original", "Copy"...; two (a firm that ordered Daily on one day, Regular on
     another) "Original (Daily)", ... for each. The amount is worked out exactly (Quote.due) and rounded up to the
-    cent (Quote.per_party). ValueError when a speed isn't on the sheet, or the speeds are mixed without a rule."""
+    cent once (Quote.per_party); with by_page, each stretch's price a page (Quote.prices) is rounded to the nearest
+    cent instead, then times its pages. ValueError when a speed isn't on the sheet, or the speeds are mixed without
+    a rule."""
     shares = [x for x in shares if x.pages > 0]
     if not shares or not all(x.speed for x in shares):
         raise ValueError("an ordered invoice needs the speed of every page it bills")
@@ -324,7 +398,8 @@ def quote_ordered(shares: list[Share], sheet: RateSheet, rule=None, include_emai
     own = list(dict.fromkeys(found[x.speed].name for x in shares))
     pages = sum(x.pages for x in shares)
     q = Quote(" + ".join(own), pages, max(x.n for x in shares), days=list(days or [pages]), due=Fraction(0),
-              ordered=tuple(own))
+              ordered=tuple(own), by_page=by_page)
+    a_page = [Fraction(0)] * len(shares)  # what the firm pays a page of each share, every charge together
 
     def stretch(x: Share, price, once: bool) -> Stretch:
         """What this firm pays a page of one charge (price(speed) -> its rate) on the share's pages."""
@@ -346,34 +421,37 @@ def quote_ordered(shares: list[Share], sheet: RateSheet, rule=None, include_emai
         top = max(parties, key=lambda p: p.rank)
         return Stretch(x.pages, len(parties), part.per_page, x.others, top.speed, top.rate, part.steps)
 
-    def line(label: str, part: list[Share], price, once: bool) -> None:
-        """Adds a line for these shares (once: a charge billed once for their pages, divided between the firms
-        that ordered them); none when it comes to $0 (no such column on the sheet)."""
-        got = [stretch(x, price, once) for x in part]
+    def line(label: str, part: list[int], price, once: bool) -> None:
+        """Adds a line for the shares at these positions (once: a charge billed once for their pages, divided
+        between the firms that ordered them); none when it comes to $0 (no such column on the sheet)."""
+        got = [stretch(shares[k], price, once) for k in part]
         amount = sum((x.per_page * x.pages for x in got), Fraction(0))
         if not amount:
             return
         q.due += amount
+        for k, x in zip(part, got):
+            a_page[k] += x.per_page
         count = sum((Fraction(x.pages, x.n) if once else Fraction(x.pages) for x in got), Fraction(0))
         shown = Decimal(format(_decimal(count).quantize(CENT, ROUND_HALF_UP).normalize(), "f"))
         by_n: dict[int, int] = {}
         for x in got:
             by_n[x.n] = by_n.get(x.n, 0) + x.pages
-        q.lines.append(QuoteLine(label, price(found[part[0].speed]), 1, _decimal(amount), shown,
+        q.lines.append(QuoteLine(label, price(found[shares[part[0]].speed]), 1, _decimal(amount), shown,
                                  once and any(x.n > 1 for x in got), [(p, n) for n, p in sorted(by_n.items())],
                                  got))
 
     for name in own:
-        mine = [x for x in shares if found[x.speed].name == name]
+        mine = [k for k, x in enumerate(shares) if found[x.speed].name == name]
         tag = f" ({name})" if len(own) > 1 else ""
         line("Original" + tag, mine, lambda sp: money(sp.original), True)
         line("Copy" + tag, mine, lambda sp: money(sp.copy), False)
         if include_email:
             line("E-mailed copy" + tag, mine, lambda sp: extra_rate(sp, "email", "e-mail"), False)
-        indexed = [x for x in mine if x.indexed]
+        indexed = [k for k in mine if shares[k].indexed]
         if indexed:
             line("Index" + tag, indexed, lambda sp: extra_rate(sp, "index"), index_split)
             line("Judge's index" + tag, indexed, lambda sp: extra_rate(sp, "index"), True)
+    q.prices = _merged([(a_page[k], x.pages) for k, x in enumerate(shares)])
     return q
 
 
@@ -394,9 +472,10 @@ def quotes_for(days: int | list[int], parties: int, sheet: RateSheet, s, chosen:
     """One Quote per speed the invoice offers (Settings.invoice_speeds; `chosen`, the job's own speed, when
     none of them is on the sheet), for the pages of one day or of each day. The job's own choices: email
     (True/False: an e-mailed copy) and index ("auto", "on" or "off"); None = as the invoice settings in `s`
-    say. judged: the pages each day's index is judged on (see quote)."""
+    say. judged: the pages each day's index is judged on (see quote). Rounded as Settings.invoice_rounding says."""
     email = s.invoice_include_email if email is None else email
     if index is None:
         index = "auto" if s.invoice_include_index else "off"
     return [quote(days, sp, parties, email, index, s.invoice_index_rule, s.invoice_index_threshold,
-                  s.invoice_index_shared, judged) for sp in offered(sheet, s.invoice_speeds, chosen)]
+                  s.invoice_index_shared, judged, s.invoice_rounding == "page")
+            for sp in offered(sheet, s.invoice_speeds, chosen)]

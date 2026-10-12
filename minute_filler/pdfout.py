@@ -183,10 +183,12 @@ def short_caption(name: str, limit: int = 60) -> str:
 
 
 def output_name(case: CaseInfo, atty: Attorney | None, s: Settings, dated: bool = False,
-                pattern: str | None = None, fallback: str = "Minute Agreement", **extra: str) -> str:
+                pattern: str | None = None, fallback: str = "Minute Agreement", today: date | None = None,
+                **extra: str) -> str:
     """The file name (with .pdf) for a PDF made for this case, from a pattern with {case} (short caption),
-    {index}, {attorney}, {date} (the first date of the minutes) and {today}. A pattern that can't be
-    filled in gives '<fallback> - <index>'.
+    {index}, {attorney}, {date} (the first date of the minutes) and {today} (the day the files are dated: `today`,
+    else workdays.document_day's, today or the next business day). A pattern that can't be filled in gives
+    '<fallback> - <index>'.
     dated: add the date of the minutes, to tell apart the forms for several days of one case; a form of several
     days (one for the whole case, see batch.form_groups) gets its first and last day ('9-28-2026 to 10-2-2026'),
     for {date} too.
@@ -199,7 +201,9 @@ def output_name(case: CaseInfo, atty: Attorney | None, s: Settings, dated: bool 
     if dated and len(found) > 1:
         first, last = min(found, key=_date_key), max(found, key=_date_key)
         day = f"{first.replace('/', '-')} to {last.replace('/', '-')}"
-    today = date.today()
+    if today is None:
+        from .workdays import document_day
+        today = document_day(s).day
     caption = short_caption(case.get("case_name")) or "Case"
     if dated and day and "{case}" in pattern and "{date}" not in pattern:
         caption, dated = f"{caption} ({day})", False

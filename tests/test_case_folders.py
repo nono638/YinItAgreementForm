@@ -3,8 +3,10 @@ inside Save to, named by a pattern (pdfout.case_folder_name: "712345-2021" by de
 Windows forbids kept out. The run sheet and an output given a folder of its own keep theirs; the command line
 stays flat. A folder already there with files in it is asked about (add to it, or a new one beside it:
 "712345-2021 (2)"), or not, as Settings say; an empty one is simply used, and a job that chose its folder
-isn't asked again. Generate all asks once for the days of a case, and the preview makes no folder of the real
-ones. All names are made up."""
+isn't asked again. When the folder the files would go in (the documents' own, or Save to) is already named as the
+case's folder would be, the files go into it, with no folder of that name made inside it, and nothing is asked.
+Generate all asks once for the days of a case, and the preview makes no folder of the real ones. All names are
+made up."""
 import os
 import time
 from pathlib import Path
@@ -94,6 +96,28 @@ def test_a_case_s_files_go_into_its_folder_and_the_others_keep_theirs(tmp_path):
     other = jobs_of(s, write(tmp_path / "in2", "b.txt", title="Roe v Doe", index="700001-2025", date="6-1-2026"))
     made = fill_jobs(other, s, outputs=["agreement"])
     assert [p.parent for p in made] == [tmp_path / "in2" / "700001-2025"]
+
+
+def test_documents_already_in_the_case_s_folder_use_it(tmp_path):
+    """Save to blank, and the documents already sit in a folder named as the case's would be
+    ("...\\712222-2024\\a.txt"): the files go into it, not into another "712222-2024" inside it, and what is in it
+    already (the documents) is no reason to ask (the user, 2026-10-10)."""
+    s = pat_settings()
+    case = tmp_path / "Cases" / "712222-2024"
+    jobs = jobs_of(s, write(case, "a.txt", title="Smith v Jones", index="712222-2024", date="5-22-2026"))
+    assert case_folders(jobs, s) == []
+    made = fill_jobs(jobs, s, outputs=["agreement"])
+    assert [p.parent for p in made] == [case]
+    jobs[0].folder = jobs[0].folder_named = "712222-2024"  # (as if chosen at an earlier Generate: not nested either)
+    assert out_dir_for(jobs[0], s) == case
+    # a Save to chosen and named so: the same, the names compared as Windows does (capitals or not)
+    s.output_dir, s.case_folder_pattern = str(tmp_path / "Case 712222-2024"), "case {index}"
+    assert case_folders(jobs, s) == [] and out_dir_for(jobs[0], s) == tmp_path / "Case 712222-2024"
+    # another case's document in that folder: a folder of its own inside it, as before
+    s.output_dir, s.case_folder_pattern = "", "{index}"
+    other = jobs_of(s, write(case, "b.txt", title="Roe v Doe", index="700001-2025", date="6-1-2026"))
+    [f] = case_folders(other, s)
+    assert f.path == case / "700001-2025"
 
 
 def test_no_folder_is_asked_about_for_the_run_sheet_alone(tmp_path):
@@ -227,6 +251,18 @@ def test_an_empty_folder_is_used_without_a_question(window, qt, tmp_path, monkey
     window.fill()
     assert not any("already there" in t for t in shown)
     assert [p.parent.name for p in window.cur.saved] == ["712222-2024"]
+
+
+def test_generate_puts_the_files_in_the_document_s_case_folder_without_a_question(window, qt, tmp_path,
+                                                                                  monkeypatch):
+    window.s.output_dir = ""  # (next to the document, which sits in the case's folder already)
+    case = tmp_path / "in" / "712222-2024"
+    window.add_files([write(case, "a.txt", title="Smith v Jones", index="712222-2024", date="5-22-2026")])
+    wait(window, qt, lambda: window.cur.docs)
+    shown = answer(monkeypatch, qt, "OK")
+    window.fill()
+    assert not any("already there" in t for t in shown)
+    assert [p.parent for p in window.cur.saved] == [case]
 
 
 def test_generate_all_asks_once_for_the_days_of_a_case(window, qt, tmp_path, monkeypatch):

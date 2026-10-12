@@ -8,3 +8,5 @@
 *.png binary
 *.bmp binary
 *.ico binary
+# the help search's word table (data/help_words.bin): its first 8 KB are text, but it is not
+*.bin binary

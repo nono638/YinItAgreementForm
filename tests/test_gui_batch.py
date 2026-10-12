@@ -836,7 +836,7 @@ def test_the_invoice_panel_rows_and_the_generate_button(window, tmp_path):
     assert window.inv_peripherals.text() == "Peripherals…"
     assert window.fill_btn.objectName() == "generate" and window.fill_all_btn.objectName() == "generate"
     two_days(window, tmp_path)
-    assert window.fill_btn.objectName() == "" and window.fill_btn.text() == "Generate this job"
+    assert window.fill_btn.objectName() == "" and window.fill_btn.text().startswith("Generate this job  (")
     from minute_filler.gui.theme import DARK, LIGHT, QSS
     assert "QPushButton#generate {" in QSS and all(k in t for t in (LIGHT, DARK) for k in ("go", "go_hover"))
 

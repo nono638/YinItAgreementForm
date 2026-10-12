@@ -1,8 +1,10 @@
 """Is there a newer version? The one time the app goes online.
 
 Once a day (Settings.check_updates, on by default; Settings -> Options turns it off) the window asks GitHub for
-the latest release of the app and, when its number is higher than this copy's, shows a line with a link to
-download it. Nothing is installed by itself. The request names only the app and its version: nothing about
+the latest release of the app and, when its number is higher than this copy's, shows an "Update to 2.8.0" button
+at the top of the window that opens the release's download page (MainWindow._show_update). The version found is
+remembered (Settings.update_version, update_page), so the button is back at each start until this copy is that
+version or newer. Nothing is installed by itself. The request names only the app and its version: nothing about
 the user, the computer or any case is sent.
 """
 from __future__ import annotations

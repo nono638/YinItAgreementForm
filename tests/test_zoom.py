@@ -11,6 +11,7 @@ from PySide6 import QtCore  # noqa: E402
 
 from helpers import pat_settings  # noqa: E402
 from minute_filler.gui import zoom  # noqa: E402
+from minute_filler.gui.main_window import BADGE_WIDTH  # noqa: E402
 from minute_filler.gui.theme import QSS  # noqa: E402
 from minute_filler.settings import Settings  # noqa: E402
 
@@ -41,15 +42,15 @@ def window(make_window, tmp_path):
 
 def test_zoom_in_out_and_back_is_saved_and_resizes_fixed_widgets(window):
     badge = window.rows["index_no"].badge
-    assert badge.width() == 58
+    assert badge.width() == BADGE_WIDTH
     window.zoom_step(1)
     window.zoom_step(1)
     assert zoom.zoom() == pytest.approx(1.2)
-    assert badge.width() == round(58 * 1.2)
+    assert badge.width() == round(BADGE_WIDTH * 1.2)
     assert Settings.load().zoom == pytest.approx(1.2)          # kept for next time
     assert "15pt" not in window.app.styleSheet() and "12pt" in window.app.styleSheet()
     window.zoom_step(0)                                         # Ctrl+0
-    assert zoom.zoom() == 1.0 and badge.width() == 58 and Settings.load().zoom == 1.0
+    assert zoom.zoom() == 1.0 and badge.width() == BADGE_WIDTH and Settings.load().zoom == 1.0
     window.set_zoom(0.2)  # (each step styles every window again: one step, not twenty)
     assert zoom.zoom() == zoom.MIN
 

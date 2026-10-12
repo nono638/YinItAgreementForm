@@ -3,9 +3,11 @@ does Immediate, some courts offer Realtime), "but every peripheral should be spe
 needs its Original, Copy, Email and Index price. The Email and Index prices are also read from a column headed
 close to the name ("E-mail", "Index Price"), unless that would be a guess (two close ones, a judge's index). The
 window warns when the sheet in use is incomplete (picked, read again, after Settings, at start) and asks whether
-to use it anyway; the answer is kept until the file changes. All names and prices are made up."""
+to use it anyway (kept until the file changes), to go back to the sheet before, to open the sheet to fill it in
+(read again each time it is saved), or not now. All names and prices are made up."""
 import os
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -124,6 +126,7 @@ def boxes(monkeypatch):
 
     def exec_(box):
         shown.append((box.windowTitle(), box.text(), [b.text() for b in box.buttons()]))
+        shown.escape = box.escapeButton().text() if box.escapeButton() else None  # (Esc and the window's X)
         for b in box.buttons():
             if b.text() == shown.answer:
                 b.click()
@@ -150,7 +153,8 @@ def test_picking_an_incomplete_sheet_warns_and_can_go_back(window, boxes):
                            "prices: Original, Copy, Email and Index.")
     assert ' The Email and Index prices are read from the columns headed so, or close to it ("E-mail", "Index ' \
            'Price") when only one column is.\n\nUse this rate sheet anyway?' in text
-    assert buttons == ["Use it anyway", "Go back to Sample Rates", "Open the rate sheets folder"]
+    assert buttons == ["Use it anyway", "Go back to Sample Rates", "Open the sheet to fill it in"]
+    assert boxes.escape == "Go back to Sample Rates"
     assert window.s.rate_sheet == "Sample Rates" and window.sheet_box.currentData() == "Sample Rates"
     assert window.s.rate_sheets_ok == []
     assert '\nThe "Index Price" column is read as the Index price\n⚠ Missing: Regular: Email, Index; Daily: Index; ' \
@@ -172,21 +176,74 @@ def test_use_it_anyway_until_the_file_changes(window, boxes, tmp_path):
     assert "Go back to" not in " ".join(boxes[-1][2])  # (the same sheet: nothing to go back to)
 
 
-def test_open_the_folder_to_fill_it_in(window, boxes, monkeypatch, tmp_path):
-    """The folder opens and nothing is kept: not asked again this session unless picked or read again (⟳),
-    and gone once the sheet is filled in."""
+def test_not_now_when_there_is_nothing_to_go_back_to(window, boxes):
+    """At start (or ⟳) there is no sheet to go back to: Not now, also Esc and the window's X, keeps it in use as it
+    is, not asked again this session unless read again (the user, 2026-10-10)."""
+    window.s.rate_sheet = "Court Rates"
+    boxes.answer = "Not now"
+    window._check_rate_sheet()  # (at start)
+    (_, _, buttons), = boxes
+    assert buttons == ["Use it anyway", "Not now", "Open the sheet to fill it in"] and boxes.escape == "Not now"
+    assert window.s.rate_sheet == "Court Rates" and window.s.rate_sheets_ok == []
+    window._check_rate_sheet()
+    assert len(boxes) == 1
+    boxes.answer = None  # (closed)
+    window._reload_sheets()
+    assert len(boxes) == 2 and window.s.rate_sheet == "Court Rates" and window.s.rate_sheets_ok == []
+
+
+def test_open_the_sheet_and_it_is_read_again_when_saved(window, boxes, monkeypatch, tmp_path, qt):
+    """The sheet itself opens (not the folder) and nothing is kept; each time it is saved it is read again, the
+    jobs priced from it, and the note at the bottom says what it still misses, with no box; once it has every
+    price, it is no longer watched (the user, 2026-10-10)."""
     opened = []
-    monkeypatch.setattr(window, "_open_sheets_folder", lambda: opened.append(True))
-    boxes.answer = "Open the rate sheets folder"
+    monkeypatch.setattr("minute_filler.gui.main_window.open_path", opened.append)
+    path = tmp_path / "sheets" / "Court Rates.csv"
+    boxes.answer = "Open the sheet to fill it in"
     pick(window, "Court Rates")
-    assert opened == [True] and window.s.rate_sheet == "Court Rates" and window.s.rate_sheets_ok == []
+    assert opened == [path] and window.s.rate_sheet == "Court Rates" and window.s.rate_sheets_ok == []
+    watch = window._sheet_watch
+    assert [Path(p) for p in watch.files()] == [path] and [Path(p) for p in watch.directories()] == [path.parent]
     window._check_rate_sheet()  # (at start, after Settings: once a session)
     assert len(boxes) == 1
-    window._reload_sheets()
-    assert len(boxes) == 2
-    (tmp_path / "sheets" / "Court Rates.csv").write_text(COMPLETE, encoding="utf-8")
-    window._reload_sheets()
-    assert len(boxes) == 2
+    note = window.statusBar().currentMessage
+    window._sheet_saved()  # (something else in the folder changed: the sheet wasn't saved)
+    assert "Read" not in note()
+    path.write_text(GAPS.replace("Regular,$4.30,$1.00,,,21", "Regular,$4.30,$1.00,$1.05,$1.10,21"), encoding="utf-8")
+    with monkeypatch.context() as m:
+        m.setattr(qt.QApplication, "activeModalWidget", lambda: object())
+        window._sheet_saved()  # (a question on screen: not now, in a second)
+        assert window._sheet_timer.isActive() and not window.s.sheet().find("Regular").extras.get("Email")
+    window._sheet_saved()
+    assert note() == 'Read "Court Rates" again. Still missing: Daily: Index; Realtime: Original'
+    assert window.s.sheet().find("Regular").extras["Email"] == "$1.05" and len(boxes) == 1
+    assert window._sheet_watched is not None
+    path.write_text(COMPLETE, encoding="utf-8")
+    window._sheet_saved()
+    assert note() == 'Read "Court Rates" again: it has all its prices now.' and len(boxes) == 1
+    assert window._sheet_watched is None and window._sheet_watch.files() == []
+
+
+def test_the_watch_sees_the_sheet_saved(window, boxes, monkeypatch, tmp_path, qt):
+    """The same through the file watcher itself, as Excel saves: a new file in place of the old one."""
+    import time
+    monkeypatch.setattr("minute_filler.gui.main_window.open_path", lambda p: None)
+    path = tmp_path / "sheets" / "Court Rates.csv"
+    boxes.answer = "Open the sheet to fill it in"
+    pick(window, "Court Rates")
+    window._sheet_timer.setInterval(50)
+    (tmp_path / "sheets" / "~new.tmp").write_text(COMPLETE, encoding="utf-8")
+    for _ in range(40):  # (a virus scanner may hold the new file a moment, as Excel's saves meet too: retried)
+        try:
+            os.replace(tmp_path / "sheets" / "~new.tmp", path)
+            break
+        except PermissionError:
+            time.sleep(0.05)
+    end = time.time() + 15
+    while time.time() < end and window._sheet_watched is not None:
+        qt.QApplication.processEvents()
+        time.sleep(0.02)
+    assert window.statusBar().currentMessage() == 'Read "Court Rates" again: it has all its prices now.'
 
 
 def test_after_settings_the_sheet_in_use_is_checked(window, boxes):

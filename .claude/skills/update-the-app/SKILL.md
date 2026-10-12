@@ -4,15 +4,19 @@ description: >
   Full release cycle for YinItAgreementForm, in order: bug sweep and fixes, a
   comments and docstrings review, commit and push, rebuild the installer, publish
   a GitHub release with the new version, update the website (GitHub Pages) and
-  update the README and internal notes. Use when the user says "update the app",
-  "/update-the-app", "ship it", "release a new version" or "do the release cycle".
-disable-model-invocation: true
+  update the README and internal notes. Use when the user asks for a release in
+  plain words, in any phrasing ("update the app", "ship it", "release a new
+  version", "run the update the app when you're done"), including for later (after
+  other work, or while they're away). It publishes to the world, so don't start it
+  on your own: finished work, passing tests or "it looks ready" are not a request.
 ---
 
 # Update the app
 
 Run the steps below in order, in this repository (the folder with `YinItAgreementForm.spec`).
-Invoking this skill is the user's go-ahead to commit, push and publish **for this run**. Still stop and
+Who starts it: the user, by typing `/update-the-app`, or Claude when the user has asked for a release in
+plain words in this conversation (a request made before the conversation was summarized counts). Either
+way, that is the user's go-ahead to commit, push and publish **for this run**. Still stop and
 ask if a step fails in a way you can't fix, or if a decision belongs to the user (a change in what is
 billed, a feature removed, anything about their money or clients).
 
@@ -147,10 +151,17 @@ The site is `docs/index.html` (plus its pictures), served by GitHub Pages from `
 
 1. `README.md`: the feature list, the usage steps, each feature's section, the `--batch --outputs`
    line, the "How it works" module table and the build instructions should match the code.
-2. `samples_internal/README.txt` (private): only if how the private samples are used has changed.
-3. Docstrings at the top of the test files, when what they cover has changed.
-4. Commit and push any of the above (privacy scan first).
-5. Project memory: update the project state memory (version released, commit, what shipped, known
+2. The in-app manual, `minute_filler/help_topics.py` (Help, F1): every new or changed feature has a topic
+   that says how it works now, in the same plain voice, made-up examples only. `tests/test_help.py` fails
+   when a setting or a shortcut isn't named in it, but not when a feature is. Add a question or two for
+   a new topic to `tests/help_questions.py`, and run `.venv/Scripts/python.exe tools/meaning/score.py` to
+   see the search still finds the answers. Run `.venv/Scripts/python.exe tools/meaning/build_table.py` again
+   only if the help gained many new words (a word the table lacks still counts by its keywords; it builds
+   its own environment in `%LOCALAPPDATA%\YinItMeaning`, and takes about an hour and a half).
+3. `samples_internal/README.txt` (private): only if how the private samples are used has changed.
+4. Docstrings at the top of the test files, when what they cover has changed.
+5. Commit and push any of the above (privacy scan first).
+6. Project memory: update the project state memory (version released, commit, what shipped, known
    limits, test count), the release-process memory (new gotchas found during this run) and their lines
    in `MEMORY.md`.
 

@@ -71,7 +71,7 @@ MODULES: dict[str, dict] = {
     "invoice_calc": {
         "tests": ["tests/test_invoice_calc.py", "tests/test_portions.py", "tests/test_show_the_math.py",
                   "tests/test_invoice.py", "tests/test_speeds_and_order.py", "tests/test_joint_invoice.py",
-                  "tests/test_deliver.py", "tests/test_agreement_pages.py"],
+                  "tests/test_deliver.py", "tests/test_agreement_pages.py", "tests/test_page_rounding.py"],
         "equivalent": [
             ("pages: int | Decimal = 0", "pages: int | Decimal = -1", "every QuoteLine is made with its pages"),
             ("pages: int | Decimal = 0", "pages: int | Decimal = 1", "every QuoteLine is made with its pages"),
@@ -88,8 +88,8 @@ MODULES: dict[str, dict] = {
             ('index = {True: "auto", False: "off"}.get(index, index)',
              'index = {False: "auto", False: "off"}.get(index, index)',
              'True left as it is works as "auto": index_days reads anything but "on" and "off" as auto'),
-            ('line("Index", idx, parties if index_shared == "each" else 1, indexed)',
-             'line("Index", idx, parties if index_shared <= "each" else 1, indexed)',
+            ('with_index += line("Index", idx, parties if index_shared == "each" else 1, indexed)',
+             'with_index += line("Index", idx, parties if index_shared <= "each" else 1, indexed)',
              'only "split" and "each" get there (Settings checks it), and "split" sorts after "each"'),
             ("@dataclass(frozen=True)", "@dataclass(frozen=False)",
              "frozen only stops a Share from being changed and makes it hashable; nothing does either"),

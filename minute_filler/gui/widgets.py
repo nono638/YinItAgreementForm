@@ -1,11 +1,13 @@
-"""Small building blocks shared by the windows: pictures, opening files, combo boxes, checkbox rows, errors."""
+"""Small building blocks shared by the windows: pictures, opening files, combo boxes, checkbox rows, errors, a label
+cut to its width and a label that can be clicked."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, Qt, QUrl
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QHBoxLayout, QMessageBox, QWidget
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QMessageBox, QSizePolicy,
+                               QWidget)
 
 from ..log import error as log_error
 
@@ -120,3 +122,54 @@ def show_save_error(parent: QWidget, e: Exception, what: str = "Could not save",
 def plural(n: int, word: str) -> str:
     """plural(1, 'file') -> '1 file'; plural(3, 'file') -> '3 files'."""
     return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+class ElidedLabel(QLabel):
+    """One line of plain text cut to the room it has, with "…" ("Jane Roe v. X.Y. Holding Corp… · 712345/2021"):
+    it asks for no width of its own, so a long text never widens the window. full() is the whole text, which is
+    also its tooltip."""
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(parent)
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:  # noqa: N802 (Qt's name)
+        """Shows text, cut to the width."""
+        self._full = text
+        self.setToolTip(text)
+        self._elide()
+
+    def full(self) -> str:
+        """The whole text, as set."""
+        return self._full
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        """No width: the label takes what the layout gives it."""
+        return QSize(0, super().minimumSizeHint().height())
+
+    def resizeEvent(self, e) -> None:  # noqa: N802
+        """Cut the text again to the new width."""
+        super().resizeEvent(e)
+        self._elide()
+
+    def _elide(self) -> None:
+        """The text cut to the width (it is cut again each time the label is laid out at another width)."""
+        width = self.width()
+        super().setText(self.fontMetrics().elidedText(self._full, Qt.ElideRight, width) if width > 0 else self._full)
+
+
+class ClickLabel(QLabel):
+    """A label that says when it is clicked (clicked), with the pointing hand while it can be (set_clickable)."""
+    clicked = Signal()
+
+    def set_clickable(self, on: bool) -> None:
+        """Whether a click means something now: the hand cursor shows it."""
+        self.setCursor(Qt.PointingHandCursor if on else Qt.ArrowCursor)
+
+    def mouseReleaseEvent(self, e) -> None:  # noqa: N802
+        """A left click inside the label: clicked."""
+        super().mouseReleaseEvent(e)
+        if e.button() == Qt.LeftButton and self.rect().contains(e.position().toPoint()):
+            self.clicked.emit()

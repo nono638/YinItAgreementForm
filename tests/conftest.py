@@ -1,6 +1,7 @@
 """Fixtures for every test: settings and records kept in a temporary folder, no real Ollama, no look on GitHub for
-a newer version, and an off-screen Qt application and main window for the GUI tests. Also, for the tests that ask
-for it, a courthouse whose split orders choose a speed from their invoices (split_orders_choose)."""
+a newer version, every day a business day (forms dated today, whatever day the tests run), and an off-screen Qt
+application and main window for the GUI tests. Also, for the tests that ask for it, a courthouse whose split
+orders choose a speed from their invoices (split_orders_choose)."""
 import os
 
 import pytest
@@ -16,8 +17,20 @@ def isolated_appdata(tmp_path, monkeypatch):
 
 
 def pytest_configure(config):
-    """Registers the "ollama" marker, so pytest does not warn about it."""
+    """Registers the "ollama" and "workdays" markers, so pytest does not warn about them. On Windows, lets the C
+    runtime keep more files open than its first 512: off screen, Qt reads the real fonts with FreeType, which keeps
+    each font file it opened open (a long run of window tests reaches about 510), and MuPDF opens PDFs as C runtime
+    files too, so past the limit it fails with "Too many open files". (The app on screen draws its text through
+    Windows.)"""
     config.addinivalue_line("markers", "ollama: the test may reach a real Ollama (not stubbed by no_ollama)")
+    config.addinivalue_line("markers", "workdays: the test sees the real business days and clock (not "
+                                       "every_day_open's)")
+    if os.name == "nt":
+        import ctypes
+        try:
+            ctypes.cdll.ucrtbase._setmaxstdio(2048)
+        except (OSError, AttributeError):
+            pass
 
 
 @pytest.fixture(autouse=True)
@@ -31,6 +44,21 @@ def no_ollama(request, monkeypatch):
     def offline(self, timeout: float = 3):
         raise ConnectionError("no Ollama in the tests")
     monkeypatch.setattr(OllamaExtractor, "installed_models", offline)
+
+
+@pytest.fixture(autouse=True)
+def every_day_open(request, monkeypatch):
+    """Every day is a business day at 10 a.m. (workdays.now, workdays.is_business_day), so a form or an invoice
+    is dated today and a delivery date is today plus its days, whatever day the tests run on: run on a weekend or
+    a court holiday (or after the evening hour, with that rule on), the dates would move (Settings -> Dates). A
+    test marked @pytest.mark.workdays gets the real calendar and clock, and sets workdays.now itself when the day
+    or the hour matters."""
+    if request.node.get_closest_marker("workdays"):
+        return
+    from datetime import date, datetime, time
+    from minute_filler import workdays
+    monkeypatch.setattr(workdays, "now", lambda: datetime.combine(date.today(), time(10)))
+    monkeypatch.setattr(workdays, "is_business_day", lambda d, hol=None: True)
 
 
 @pytest.fixture(autouse=True)

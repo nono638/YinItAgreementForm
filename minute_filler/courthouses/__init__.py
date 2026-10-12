@@ -4,7 +4,8 @@ Every module that needs to know which outputs exist asks here (or reads a table 
 them itself: settings.OUTPUTS and OUTPUT_FOLDERS, records.KINDS, the preview's names and colours (by_mark) and
 batch's forms made once for a trial (keys("form")) all come from the courthouse's outputs. use() switches to
 another courthouse and refreshes these tables in place, so `from .settings import OUTPUTS` keeps working in
-every module (tests use it to try a made-up courthouse); it is not meant to run while work is going on.
+every module (tests use it to try a made-up courthouse); it is not meant to run while work is going on. The
+court holidays Settings -> Dates starts with are the courthouse's too (holiday_rows).
 
 For now there is one courthouse, Queens Supreme Court, Civil Term (queens_supreme_civil); choosing one in
 Settings comes in a later release.
@@ -75,6 +76,12 @@ def speed_upfront() -> bool:
     """Whether the firms of a split order must each commit to a speed before they are billed
     (Courthouse.speed_upfront), instead of choosing one from the invoice."""
     return _current.speed_upfront
+
+
+def holiday_rows() -> list[dict]:
+    """The courthouse's holidays as Settings.holidays keeps them: [{"name": "Columbus Day", "when": "2nd Monday of
+    October"}, ...] (Courthouse.holidays), the list Settings -> Dates starts with and restores."""
+    return [{"name": n, "when": w} for n, w in _current.holidays]
 
 
 def by_mark(mark: str) -> OutputSpec | None:

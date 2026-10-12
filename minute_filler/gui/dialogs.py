@@ -1,16 +1,18 @@
-"""The app's dialogs: Settings (with its invoice text editor), the "please clarify" questions before filling, the
-speed the agreement form names when an e-mail asks for another (SpeedDialog), the speed each firm of a split
-order ordered at (SplitSpeedsDialog), the run sheet choice, a job's invoice Peripherals (for that job only),
-granular detail and whose pages of a transcript of several reporters to bill, another reporter's invoice details
-(ReporterDialog), the Ollama setup help (with a model download), About and the How to use guide (GUIDE). The
-preview before saving, the math and the first-run welcome are in preview.py; the Excerpts window (who ordered
-which pages) is gui/excerpts.py."""
+"""The app's dialogs: Settings (with its invoice text editor; the Dates tab's court holidays are
+gui/holiday_editor.py, the Records tab's tick boxes and colours gui/tracking_editor.py), the "please clarify"
+questions before filling, the speed the agreement form names when an e-mail asks for another (SpeedDialog), the
+speed each firm of a split order ordered at (SplitSpeedsDialog), the run sheet choice, a job's invoice Peripherals
+(for that job only), granular detail and whose pages of a transcript of several reporters to bill, another
+reporter's invoice details (ReporterDialog), the Ollama setup help (with a model download) and About. The preview
+before saving, the math and the first-run welcome are in preview.py; the Excerpts window (who ordered which pages)
+is gui/excerpts.py; the Help window (the manual, F1) is gui/help_window.py."""
 from __future__ import annotations
 
 import re
 from dataclasses import replace
 
 from PySide6.QtCore import QSignalBlocker, QThread, Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout,
     QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QProgressBar,
@@ -20,9 +22,11 @@ from PySide6.QtWidgets import (
 from .. import __version__
 from ..models import Attorney, FIELD_LABELS
 from ..settings import (AGREEMENT_FALLBACKS, AI_TICKS, CASE_FOLDER_EXISTING, CASE_FOLDER_PATTERN, DETAIL_ITEMS,
-                        INDEX_RULES, INDEX_SHARED, MATH_SAVES, OUTPUT_FOLDERS, OUTPUTS, SPEEDS, ReporterProfile,
+                        INDEX_RULES, INDEX_SHARED, MATH_SAVES, OUTPUT_FOLDERS, OUTPUTS, ROUNDINGS, SPEEDS,
+                        TURNAROUND_FROM, ReporterProfile,
                         TEXT_PLACEHOLDERS, TEXT_PLACES, TEXT_WHEN, Settings, clean_folder_pattern,
                         default_invoice_texts, reporter_key)
+from ..tracking import box_rows, rule_rows
 from .widgets import check_row, open_path, open_url, refill_combo, rounded, show_save_error
 from .zoom import z
 
@@ -37,8 +41,16 @@ def _form(parent: QWidget) -> QFormLayout:
     return f
 
 
+# The help topic (help_topics) of each Settings tab, opened by its Help button and F1
+SETTINGS_TOPICS = {"My info": "set-my-info", "Defaults": "set-defaults", "Options": "set-options",
+                   "Dates": "set-dates", "Invoice": "set-invoice", "Records": "set-records",
+                   "Run sheet": "set-run-sheet", "AI": "set-ai"}
+
+
 class SettingsDialog(QDialog):
-    """The Settings window: tabs for My info, Defaults, Options, Invoice, Run sheet and AI.
+    """The Settings window: tabs for My info, Defaults, Options, Dates (business days and the court holidays:
+    gui/holiday_editor.py), Invoice, Records (the Records window's tick boxes and colours: gui/tracking_editor.py),
+    Run sheet and AI.
 
     Nothing is stored until Save (accept), which copies every control back into the Settings object
     and saves it to disk. Cancel leaves the settings, and a picked but unsaved signature image,
@@ -151,19 +163,17 @@ class SettingsDialog(QDialog):
             row.addSpacing(8)
         row.addStretch(1)
         f.addRow("Turnaround days", row)
-        note = QLabel("Used when a rate sheet has no Days column.")
+        note = QLabel("Used when a rate sheet has no Days column. Business days (weekends and court holidays not "
+                      "counted) unless the Dates tab says calendar days.")
         note.setObjectName("muted")
+        note.setWordWrap(True)
         f.addRow("", note)
-        self.o_deldate = QCheckBox("Fill 'Estimated Delivery Date' from the turnaround days")
-        self.o_deldate.setChecked(settings.fill_delivery_date)
-        f.addRow("", self.o_deldate)
         self.tabs.addTab(w, "Defaults")
 
         # --- Options
         w = QWidget()
         f = _form(w)
         self.o_per_email = QCheckBox("Write \"per email\" in the attorney signature spot")
-        self.o_today = QCheckBox("Use today as the date of agreement")
         self.o_flat = QCheckBox("Flatten the PDF (fields no longer editable)")
         self.o_flat.setToolTip("Applies to minute agreements, MOFRs and invoices: they are locked as they are made.\n"
                                "Unticked, they stay fillable; File → Lock finished PDFs locks a copy later.")
@@ -173,8 +183,7 @@ class SettingsDialog(QDialog):
                                   "invoices;\nnothing is saved until you click Save.")
         self.o_tc = QCheckBox("Convert ALL-CAPS names to Title Case")
         self.o_yin = QCheckBox("Show the yin-yang (working / done / stumped pictures)")
-        for cb, val in ((self.o_per_email, settings.per_email),
-                        (self.o_today, settings.agreement_today), (self.o_flat, settings.flatten),
+        for cb, val in ((self.o_per_email, settings.per_email), (self.o_flat, settings.flatten),
                         (self.o_open, settings.open_after), (self.o_preview, settings.preview_before_saving),
                         (self.o_tc, settings.title_case_names),
                         (self.o_yin, settings.show_yin)):
@@ -214,7 +223,8 @@ class SettingsDialog(QDialog):
         self._folders(f, settings)
         self.o_pattern = QLineEdit(settings.filename_pattern)
         self.o_pattern.setToolTip("Placeholders:\n{case}  {index}  {attorney}\n"
-                                  "{date} - date of the minutes\n{today} - the day the form is filled")
+                                  "{date} - date of the minutes\n{today} - the date the form is dated (today, or "
+                                  "the next business day: Dates tab)")
         f.addRow("File name", self.o_pattern)
         self.o_mofr_pattern = QLineEdit(settings.mofr_filename_pattern)
         self.o_mofr_pattern.setToolTip(self.o_pattern.toolTip())
@@ -254,7 +264,8 @@ class SettingsDialog(QDialog):
         f.addRow("Invoice math", self.o_math)
         self.o_updates = QCheckBox("Look for a newer version once a day")
         self.o_updates.setToolTip("The only time the app goes online: it asks GitHub for the number of the latest "
-                                  "version\nand shows a link when there is a newer one. Nothing about you, your "
+                                  "version\nand shows an Update button at the top of the window when there is a "
+                                  "newer one. Nothing about you, your "
                                   "computer or your cases is sent,\nand nothing is installed by itself.")
         self.o_updates.setChecked(settings.check_updates)
         f.addRow("New versions", self.o_updates)
@@ -263,6 +274,7 @@ class SettingsDialog(QDialog):
         scroll.setFrameShape(QScrollArea.NoFrame)
         scroll.setWidget(w)
         self.tabs.addTab(scroll, "Options")
+        self._dates_tab(settings)
 
         # --- Invoice
         w = QWidget()
@@ -373,6 +385,19 @@ class SettingsDialog(QDialog):
                                  "or one index is split between them like the original. The judge's index is\n"
                                  "always split, page by page (A pays 95 pages of it, B 5).")
         f.addRow("Index on shared pages", self.i_shared)
+        self.i_rounding = QComboBox()
+        for key, label in ROUNDINGS.items():
+            self.i_rounding.addItem(label, key)
+        self.i_rounding.setCurrentIndex(max(0, self.i_rounding.findData(settings.invoice_rounding)))
+        self.i_rounding.setToolTip("When a firm's price a page comes to part of a cent (four firms sharing Immediate:\n"
+                                   "$6.6125 a page).\n"
+                                   "Exact: every fraction of a cent is kept, and the amount is rounded up to the cent\n"
+                                   "once, at the end (1,000 pages: $6,612.50).\n"
+                                   "The price a page, to the cent: rounded to the nearest cent first, as most people\n"
+                                   "do by hand ($6.61 × 1,000 = $6,610.00; $6.6175 a page would be $6.62). It can\n"
+                                   "come out either way.\n"
+                                   "The math (Show the math) says which was used.")
+        f.addRow("Rounding", self.i_rounding)
         self.i_joint = QComboBox()
         self.i_joint.addItem("One joint invoice for all the days of a case", True)
         self.i_joint.addItem("An invoice for each day", False)
@@ -430,6 +455,20 @@ class SettingsDialog(QDialog):
         scroll.setFrameShape(QScrollArea.NoFrame)
         scroll.setWidget(w)
         self.tabs.addTab(scroll, "Invoice")
+
+        # --- Records: the tick boxes of the Records window's invoices and the colour of its rows
+        from .tracking_editor import TrackingEditor
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(18, 18, 18, 18)
+        self.k_track = TrackingEditor(settings.boxes(), settings.rules(), settings.records_colours,
+                                      settings.records_count)
+        v.addWidget(self.k_track)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setWidget(w)
+        self.tabs.addTab(scroll, "Records")
 
         # --- Run sheet
         w = QWidget()
@@ -528,10 +567,22 @@ class SettingsDialog(QDialog):
         self.tabs.addTab(w, "AI")
         self._load_models()
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        for i in range(self.tabs.count()):  # (what Help and F1 open: help_window.help_topic_of)
+            self.tabs.widget(i).setProperty("help_topic", SETTINGS_TOPICS.get(self.tabs.tabText(i), ""))
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel | QDialogButtonBox.Help)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
+        buttons.helpRequested.connect(self.show_help)
         lay.addWidget(buttons)
+        QShortcut(QKeySequence("F1"), self, activated=self.show_help)
+
+    def show_help(self):
+        """Help and F1: the help topic of the tab shown (SETTINGS_TOPICS), in a Help window of this dialog's own (a
+        modal dialog blocks the main window's)."""
+        from .help_window import help_topic_of, open_help
+        focus = self.focusWidget()
+        topic = help_topic_of(focus) if focus is not None and self.tabs.isAncestorOf(focus) else ""
+        open_help(topic or help_topic_of(self.tabs.currentWidget()), self)
 
     # --- signature picture
     def _show_signature(self, path: str):
@@ -737,7 +788,9 @@ class SettingsDialog(QDialog):
         self.o_case_folders = QCheckBox("A folder for each case, inside Save to")
         self.o_case_folders.setToolTip("Each case's minute agreements, MOFR, invoices and their math go into a "
                                        "folder of its own, named as below\n(\"...\\Minute Agreements\\712345-2021\")."
-                                       " An output with a folder of its own below, and the run sheet, keep theirs.")
+                                       " An output with a folder of its own below, and the run sheet, keep theirs."
+                                       "\nWhen your documents already sit in a folder of that name, it is used as "
+                                       "it is (no \"712345-2021\" inside it).")
         self.o_case_folders.setChecked(settings.case_folders)
         f.addRow("", self.o_case_folders)
         self.o_case_pattern = QLineEdit(settings.case_folder_pattern)
@@ -907,6 +960,81 @@ class SettingsDialog(QDialog):
             self.session_answers = [r for n, r in enumerate(self.session_answers) if n + kept not in rows]
         self._fill_firms()
 
+    def _dates_tab(self, settings: Settings) -> None:
+        """The Dates tab (workdays.py): the two dates filled in, the business days (forms and invoices made on a
+        weekend or a court holiday dated the next business day, the turnaround counted in business days and from
+        which day, made after the evening hour dated the next day) and the court holidays (HolidayEditor)."""
+        from PySide6.QtCore import QTime
+        from PySide6.QtWidgets import QTimeEdit
+        from .holiday_editor import HolidayEditor
+        w = QWidget()
+        f = _form(w)
+        f.addRow(_tip("Minute agreement forms and invoices are dated on the court's business days, and turnaround "
+                      "days counted in them: weekends and the court holidays below are skipped. The main window "
+                      "says so under the dates whenever one was moved."))
+        self.o_today = QCheckBox("Fill in the date of agreement (today, or the next business day as below)")
+        self.o_today.setChecked(settings.agreement_today)
+        f.addRow("Date of agreement", self.o_today)
+        self.o_deldate = QCheckBox("Fill in the estimated delivery date from the turnaround days")
+        self.o_deldate.setToolTip("The days of each speed: the rate sheet's Days column, else Defaults → "
+                                  "Turnaround days.")
+        self.o_deldate.setChecked(settings.fill_delivery_date)
+        f.addRow("Est. delivery date", self.o_deldate)
+        self.t_dating = QCheckBox("Date forms and invoices on a business day")
+        self.t_dating.setToolTip(
+            "One made on a weekend or a court holiday is dated the next business day: made on Sunday 10/11/2026,\n"
+            "with Columbus Day on the Monday, it is dated Tuesday 10/13/2026. The invoice's number (its year), the\n"
+            "records and {today} in the file names go by that date too.")
+        self.t_dating.setChecked(settings.business_day_dating)
+        f.addRow("Business days", self.t_dating)
+        self.t_business = QCheckBox("Count turnaround days as business days")
+        self.t_business.setToolTip(
+            "Ticked: 5 days from Tuesday 10/13/2026 is Tuesday 10/20/2026 (weekends and court holidays not "
+            "counted).\nUnticked: calendar days; a last day on a weekend or a court holiday moves to the next "
+            "business day.")
+        self.t_business.setChecked(settings.turnaround_business_days)
+        f.addRow("", self.t_business)
+        self.t_from = QComboBox()
+        for key, label in TURNAROUND_FROM.items():
+            self.t_from.addItem(label, key)
+        self.t_from.setCurrentIndex(max(0, self.t_from.findData(settings.turnaround_from)))
+        self.t_from.setToolTip("Made on Sunday 10/11/2026 (dated Tuesday 10/13), 5 business days are Tuesday 10/20 "
+                               "from the date on the form,\nor Monday 10/19 from the day you make it.")
+        f.addRow("Count the turnaround from", self.t_from)
+        row = QHBoxLayout()
+        self.t_after = QCheckBox("Made after")
+        self.t_after.setChecked(settings.after_hours)
+        self.t_time = QTimeEdit(QTime.fromString(settings.after_hours_from, "HH:mm"))
+        self.t_time.setDisplayFormat("h:mm AP")
+        self.t_time.setEnabled(settings.after_hours)
+        self.t_after.toggled.connect(self.t_time.setEnabled)
+        row.addWidget(self.t_after)
+        row.addWidget(self.t_time)
+        row.addWidget(QLabel(": dated the next day"), 1)
+        tip = ("Off at first. A form or an invoice made in the evening is dated as if made the next morning: the next "
+               "business day,\nwhen Date forms and invoices on a business day is ticked (made Friday at 6 PM: "
+               "Monday).")
+        for x in (self.t_after, self.t_time):
+            x.setToolTip(tip)
+        f.addRow("Evening", row)
+        heading = QLabel("Court holidays")
+        heading.setObjectName("section")
+        f.addRow(heading)
+        self.t_holidays = HolidayEditor(settings.holidays, settings.holiday_weekend)
+        f.addRow(self.t_holidays)
+        scroll = QScrollArea()  # a long tab: scrolls on small screens
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setWidget(w)
+        self.tabs.addTab(scroll, "Dates")
+
+    def show_tab(self, name: str) -> None:
+        """Opens at the tab of that name ("Records"); an unknown name leaves the first."""
+        for i in range(self.tabs.count()):
+            if self.tabs.tabText(i) == name:
+                self.tabs.setCurrentIndex(i)
+                return
+
     def accept(self):
         """Copies every control into the Settings object, saves it to disk and closes. A blank file name
         pattern or invoice number format keeps the old one. Reporter lines that cannot be read are left out,
@@ -931,6 +1059,10 @@ class SettingsDialog(QDialog):
         s.per_email, s.sign_reporter = self.o_per_email.isChecked(), self.p_sign.isChecked()
         self._store_signature()
         s.agreement_today, s.flatten = self.o_today.isChecked(), self.o_flat.isChecked()
+        s.business_day_dating, s.turnaround_business_days = self.t_dating.isChecked(), self.t_business.isChecked()
+        s.turnaround_from = self.t_from.currentData() or s.turnaround_from
+        s.after_hours, s.after_hours_from = self.t_after.isChecked(), self.t_time.time().toString("HH:mm")
+        s.holidays, s.holiday_weekend = self.t_holidays.rows(), self.t_holidays.weekend()
         s.open_after, s.title_case_names = self.o_open.isChecked(), self.o_tc.isChecked()
         s.form_choice = self.o_form.currentData()
         s.include_instructions = self.o_instr.isChecked()
@@ -955,6 +1087,7 @@ class SettingsDialog(QDialog):
         s.invoice_index_threshold = self.i_threshold.value()
         s.invoice_index_rule = self.i_rule.currentData()
         s.invoice_index_shared = self.i_shared.currentData()
+        s.invoice_rounding = self.i_rounding.currentData()
         s.invoice_joint = bool(self.i_joint.currentData())
         s.invoice_detail_items = [k for k, cb in self.i_items.items() if cb.isChecked()]
         s.invoice_turnaround = {k: e.text().strip() for k, e in self.i_turn.items()}
@@ -963,6 +1096,10 @@ class SettingsDialog(QDialog):
         s.invoice_number_format = self.i_number.text().strip() or s.invoice_number_format
         s.invoice_filename_pattern = self.i_pattern.text().strip() or s.invoice_filename_pattern
         s.records_dir = self.i_records.text().strip()
+        s.tracking_boxes = box_rows(self.k_track.boxes())
+        s.tracking_rules = rule_rows(self.k_track.rules())
+        s.records_colours = self.k_track.colours_on()
+        s.records_count = self.k_track.count_name()
         s.output_dirs = {k: e.text().strip() for k, e in self.o_dirs.items() if e.text().strip()}
         s.case_folders = self.o_case_folders.isChecked()
         # (the box refuses those characters typed or pasted, but not in the pattern it started with: a settings
@@ -1762,7 +1899,8 @@ choice. <b>gemma4:e4b</b> is larger and more accurate, but much slower on a lapt
 (GPU). Choose the model there first: this window downloads the one chosen.</p>
 
 <h4>3. Check it</h4>
-<p>Close this window and click <b>Test connection</b>. The main window shows "● AI ready" at the bottom left.</p>
+<p>Close this window and click <b>Test connection</b> in Settings → AI. The main window shows "● AI ready" at the
+bottom left.</p>
 
 <h4>What to expect</h4>
 <p>On a laptop without a dedicated graphics card, the model runs on the processor, so each document takes about
@@ -1901,7 +2039,8 @@ COMPONENTS = [
     ("ollama-python", "MIT", "https://github.com/ollama/ollama-python"),
     ("PyWinRT (Windows OCR bindings)", "MIT", "https://github.com/pywinrt/pywinrt"),
     ("openpyxl (run sheets)", "MIT", "https://openpyxl.readthedocs.io"),
-    ("RapidFuzz (the Records search's Fuzzy box)", "MIT", "https://github.com/rapidfuzz/RapidFuzz"),
+    ("RapidFuzz (the Records search's Fuzzy box, typos in the Help search)", "MIT",
+     "https://github.com/rapidfuzz/RapidFuzz"),
     ("regex (the Records search's Regex box)", "Apache-2.0 and CNRI-Python", "https://github.com/mrabarnett/mrab-regex"),
     ("pillow-heif (iPhone HEIC photos)", "BSD-3-Clause", "https://github.com/bigcat88/pillow_heif"),
     ("libheif and libde265 (used by pillow-heif)", "LGPL-3.0", "https://github.com/strukturag/libheif"),
@@ -1911,6 +2050,8 @@ COMPONENTS = [
     ("OpenSSL (the look for a newer version)", "Apache-2.0", "https://www.openssl.org"),
     ("SQLite (the records)", "public domain", "https://www.sqlite.org"),
     ("Python", "PSF License", "https://www.python.org"),
+    ("EmbeddingGemma 2 by Google (the help search's word table is made from it)", "Apache-2.0",
+     "https://huggingface.co/google/embeddinggemma-2"),
 ]
 
 
@@ -1985,236 +2126,10 @@ class AboutDialog(QDialog):
         rows = "".join(f'<tr><td><a href="{u}">{n}</a></td><td>&nbsp;&nbsp;{l}</td></tr>' for n, l, u in COMPONENTS)
         t.setHtml(f"<p>This program is built with these open-source components:</p><table>{rows}</table>"
                   "<p>Optional AI features use <a href='https://ollama.com'>Ollama</a> (MIT) and Google's "
-                  "Gemma models (Gemma Terms of Use), installed separately by the user. Text recognition uses "
+                  "Gemma 4 models (Apache-2.0), installed separately by the user. Text recognition uses "
                   "the OCR engine built into Windows.</p>")
         lay.addWidget(t)
         b = QPushButton("Close")
         b.clicked.connect(box.accept)
         lay.addWidget(b, 0, Qt.AlignRight)
         box.exec()
-
-
-GUIDE = """
-<h2>How to use YinItAgreementForm</h2>
-<p>The app reads the documents of an order (a transcript, an invoice, a photo of a court paper, an e-mail),
-finds the court, part, judge, case, index number, dates and attorneys, shows them for you to check, and makes
-the paperwork: the minute agreement, the invoice, the MOFR and the run sheet. Everything stays on this
-computer (once a day the app asks GitHub whether there is a newer version, and sends nothing about you or
-your cases; Settings → Options turns that off).</p>
-
-<h3>What you can put in</h3>
-<ul>
-<li><b>Transcript PDFs.</b> The best input: the case details come from the title page, and the page count
-(the pages with <i>your</i> initials, when several reporters wrote it) is what the invoice bills.</li>
-<li><b>Other PDFs:</b> an invoice, a scanned order, a printed e-mail. Scans are read by Windows' text
-recognition.</li>
-<li><b>Photos and screenshots</b> (JPG, PNG, iPhone HEIC, TIFF, BMP, WebP), or a screenshot pasted with
-<b>Ctrl+V</b>.</li>
-<li><b>E-mails:</b> paste the text into the box and click <b>Extract from text</b>, or drop a saved
-<code>.eml</code>. Word (<code>.docx</code>), <code>.txt</code> and web pages work too. Outlook
-<code>.msg</code> files don't: copy the e-mail's text instead.</li>
-<li><b>A whole folder</b> (File → Open a folder of documents). Documents about the same case and date are
-put together, one job per day.</li>
-</ul>
-
-<h3>What it makes</h3>
-<p>Tick them in the <b>Outputs</b> box at the bottom of the window; each column holds that output's
-options.</p>
-<ul>
-<li><b>Minute agreement</b>: the UCS Court Reporter Minute Agreement Form, one PDF for each ticked
-attorney, with <b>the pages that attorney ordered</b>, whoever wrote them: firm A ordering a day of 150 pages
-and firm B an excerpt of 80 of them get agreements for 150 and 80 pages. (Your invoice bills only your own pages
-of them.) The days of a case made together with <b>Generate all</b> on one invoice get <b>one agreement per
-attorney for the whole case</b>: it lists only the days that attorney ordered, with all the pages it ordered on
-them (Settings → Options can go back to one per day).</li>
-<li><b>Invoice</b>: priced from your rate sheet and the transcript's pages, one for each ticked attorney.
-No transcript (only a caption or title page, or an e-mail)? Type the pages in <i>Est. number of pages</i> and
-the invoice bills them (a number read from an e-mail isn't billed until you type it). Several days of one case
-made together with <b>Generate all</b> get one joint invoice per attorney (unless Settings → Invoice says an
-invoice for each day), and an attorney who ordered an excerpt pays only for those pages (<b>Who pays what</b>
-and <b>Who ordered what</b> show who pays for what). Firms that ordered the same pages split the original and
-the judge's index; each pays for its own copy, e-mailed copy and index (Settings → Invoice → <i>Index on shared
-pages</i> can split the index too). Whether there is an index depends on the
-whole transcript (every reporter's pages): 50 pages or more by default (Settings → Invoice), and
-<b>Peripherals…</b> in the Invoice panel can say yes or no for one job. Firms that ordered the same pages
-commit to a speed (the <i>Speed</i> column of Who ordered what; Generate asks when one isn't set) and are
-billed it alone: at different speeds the original is billed once, at the fastest, each slower firm pays its
-share as if every firm had ordered its speed, and the fastest pay the rest. A firm ordering alone still
-chooses a speed from its invoice.</li>
-<li><b>MOFR</b>: the Minute Order Form/Receipt, the reporter's parts filled in, with the pages anyone ordered:
-one for the whole case when its days share an invoice (Generate all), listing every day.</li>
-<li><b>Run sheet</b>: an Excel sheet of a shared trial's takes (who wrote which pages), read from the
-initials at the foot of the pages. It is ticked by itself when two or more reporters wrote a case's transcripts
-(the initials, or the names on the title page), and unticked when one did; click it to choose yourself.</li>
-</ul>
-<p>On a transcript several reporters wrote, <b>Whose pages…</b> (Invoice panel) can tick the other reporters
-too: each gets invoices for their own pages, in their name, with the details kept under Settings → Run sheet →
-<i>Invoices for</i>, and numbers of their own (DS-2026-0001). Records lists them, but leaves them out of your
-sums.</p>
-<p>The PDFs are saved in a folder for the case, named by its index number ("712345-2021", or as Settings →
-Options → Folders → <i>Case folder name</i> says), next to your document or inside the <i>Save to</i> folder
-chosen there (a kind of file given a folder of its own, and the run sheet, go straight into theirs). Untick
-<i>A folder for each case</i> there to keep them all in one folder. When the case's folder is already there
-with files in it, Generate asks whether to add to it or make a new one beside it ("712345-2021 (2)"). The PDFs
-stay fillable (unless <i>Flatten the PDF</i> is ticked in Settings → Options): you can still correct any
-value in a PDF viewer. Every file made is listed in
-<b>Records</b> (Ctrl+R).</p>
-
-<h3>Step by step</h3>
-<ol>
-<li><b>Add the order:</b> drop the documents on the drop zone (or click <b>Browse...</b>, or Ctrl+O).</li>
-<li><b>Check the fields.</b> Amber fields are guesses; a ▾ button lists the other candidates. The badge
-on each field says where its value came from (found in the document, counted from the transcript PDF, your
-records, AI, your defaults, calculated or typed by you). A case name marked <i>records</i> is the one an earlier
-job with the same index number has in your records: a suggestion to check, as the document gave none surer.
-A document with no index number gets a note under the list on the left (and a ⚠ on its row, under a job of
-several documents); so do documents of one job whose index numbers don't match, and Generate then asks before making anything (<i>Keep them together</i>, or
-right-click one → <i>Move to a job of its own</i>). A title page listing several index numbers is fine.
-<i>No. of copies</i> is the number of ordering parties (the firms ticked, or the invoice's <i>Parties</i> number
-when you set it).
-<i>Est. number of pages</i> is counted from the transcript PDF when there is one: every page, whoever wrote
-it, without the word index printed after the transcript (the line under the field says which: "Transcript
-pages 378–460 · excludes the 13 word-index pages after them"). The count is read four ways: the pages up to
-the word index, the pages with line numbers, the printed page numbers, and the index found from the end. When
-two of them agree on another count, or the index would take more than a quarter of the PDF's pages (rounded
-up, or 5 pages of a short one), the field turns amber and a warning under it says so: check the count (the
-other count is in the ▾ list). Each attorney's agreement
-shows the pages
-that attorney ordered, and on a transcript of several reporters your invoice bills only your own pages (the
-Invoice panel's <i>Billed</i> line: "You wrote 45 of 83 total pages"). A number you
-type in either stays; a typed page count is what your invoice bills, and the day's pages on every agreement
-(an excerpt counts its pages of it). Typed below the transcript's own count, when the two would decide the
-index differently, Generate asks whether to include one (<b>Peripherals…</b> shows and changes your answer). Typing the transcript's own count (or your own pages of it) is no number of
-yours: to bill every page of a transcript of several reporters, choose <i>Whose pages…</i> → <i>The whole
-transcript</i>.</li>
-<li><b>Tick the attorneys who ordered.</b> A transcript lists everyone who appeared, not who ordered. The
-table has <b>one row per firm</b> (or city office, or a party without an attorney): every attorney of the firm
-on the title page is named in its row ("Alex B. Counsel, Dana Smith"), with the firm's address, so a firm is one
-party, with one minute agreement and one invoice. An e-mail from one of its attorneys, or the same firm on
-another day's transcript, joins its row. Two rows that only may be one firm ("Smith Law" and "Smith Law Group")
-are asked about: <b>Same firm</b> or <b>Not the same</b>, and the answer is kept unless you untick <i>Remember</i>
-(then it holds until you close the app). Settings → Invoice → <i>Firms you answered</i> lists them, those for now
-marked <i>for now</i>: <b>Forget</b> one, or <b>Forget all</b>, and after Save the jobs open now are read again
-with the two rows apart and asked about again. With the AI helper on, its tick of who ordered is taken from
-e-mails and pasted text only (a transcript lists who appeared, not who ordered); Settings → AI → <i>The AI may
-tick who ordered</i> changes that.</li>
-<li><b>Pick the rate sheet</b> under <b>Minute agreement form details</b>, and the speeds the invoice offers in
-the <b>Invoice</b> panel (<i>Speeds offered</i>): the <i>invoice</i> offers every speed ticked, each at its own
-price; the <i>minute agreement form</i> names one speed at one rate per page. Settings → Invoice picks that speed
-(Expedited, else the slowest offered); choose another for one job under Minute agreement form details (↺ goes
-back). A firm whose speed is set in <i>Who ordered what</i> gets that speed on its own agreement. When an e-mail asks for another speed ("please send a daily copy"), that card asks which, and so does
-Generate.</li>
-<li><b>Check Who pays what</b> (under the attorneys): each firm's invoice in short, its pages, how it ordered
-them (alone, or shared with other firms) and what it pays at each speed. It follows every tick at once; its
-link spells out the whole math.</li>
-<li><b>Tick the outputs</b> (each says how many files it will make, as you tick) and click <b>Generate</b>
-(Ctrl+Enter), or <b>Generate all</b> (Ctrl+Shift+Enter) for every ticked job in the list on the left.</li>
-<li><b>Look at the preview</b> and click <b>Save</b>, or <b>Go back</b> to change something: nothing is saved
-until then. Its first tab, <b>The math</b>, shows how each invoice's amount is reached. (<i>Don't show previews
-anymore</i> turns it off; Settings → Options turns it back on.) After Generate (not Generate all), the box
-that says what was saved can <b>print</b> it.</li>
-</ol>
-
-<h3>Tips</h3>
-<ul>
-<li>The first time, fill in <b>Settings → My info</b> (your name, contact details, initials and signature)
-and <b>Settings → Defaults</b> (rate sheet, copies) once, and they are used on every form.</li>
-<li>Several documents for one order can be added together; what they say is combined.</li>
-<li>Only one window runs at a time: opening the app again (or a PDF with "Open with") brings the open window
-forward and adds the documents there.</li>
-<li>In the job list, ✓ marks a job already made and ⚠ one with something to check: a field missing, no
-attorney ticked, Whose pages… or Excerpts… to choose, documents whose index numbers don't match, more than two
-speeds on the same pages, or a Generate that failed. Hover over the job to see
-what. <i>Pages</i> is the transcript's own pages (no word index), <i>Yours</i> the pages you wrote (? until
-Whose pages… says). A job of several documents lists them under it: right-click one to see its text, move it
-to a job of its own or remove it.</li>
-<li>When one firm ordered the whole trial and others only some pages, open <b>Excerpts…</b> (Invoice panel):
-a table of every day of the case on that invoice, a row per run of pages typed in the transcript's own numbers (141-170) and a
-box per firm. It shows what each run costs, the pages by the firms ordering together and each firm's invoice,
-as you change it, and stays open beside the window. <b>Remove run</b> (or the Delete key, or a right-click)
-gives a run's pages to the run next to it, so every page stays in a run; <b>Remove this day's
-excerpts</b> and <b>Remove all excerpts</b> go back to whole days. The boxes above the table set the speed
-each firm ordered its pages at; right-click a firm's tick box on a run for that run's own speed (for now, at
-most two speeds on the same pages). Check the <b>Who ordered what</b> card before generating.</li>
-<li>The preview's tabs have a colour for each kind of file; with many files, the arrows at the end of the tabs
-scroll them, <b>Files ▾</b> lists every file, and Ctrl+Tab / Ctrl+Shift+Tab go to the next one and back.
-<b>Side by side</b> shows everything at once (scroll across with the bar at the bottom, or Shift and the mouse
-wheel), and Ctrl + / Ctrl - zoom it.</li>
-<li>The <b>Who ordered what</b> card shows, for each day and attorney, the pages it ordered, the
-<i>Speed</i> it ordered them at (change it there) and who <i>Also ordered</i> them (those split the original
-and the judge's index; each pays its own copies and index).</li>
-<li>Your own invoice text (shown always, or only when it applies) is in Settings → Invoice → <i>Invoice
-text</i>; <b>Preview…</b> shows a made-up invoice with it.</li>
-<li><b>The math</b> shows how each amount is reached, in tables: <i>By invoice</i> (a row for each charge:
-its pages, rate and cost, whether each firm splits it or pays for its own, and what this firm pays) or
-<i>Firms side by side</i> (a column for each firm); the window keeps the one you chose last. It is in the
-preview, behind the links under Who pays what and in the Invoice panel, and after saving when previews are off
-(there it can be saved as a PDF for an attorney who asks; Settings → Options turns it on or off).
-<b>Copy all</b> copies it as text, a line for each charge. Generate saves it too, as PDFs next to the
-invoices ("... - the math.pdf"): each invoice's, to send that firm, and one for all of them, to look back at
-the job; which of them is chosen under the math itself and in Settings → Invoice → <i>Save the math</i>.
-Settings → Invoice can also save a <i>detailed copy</i> of each invoice, with the same number, ready for when
-someone asks.</li>
-<li>In <b>Records</b>, type a firm, case or index number to find its invoices, tick <b>Paid</b> when they
-pay, and choose the columns with <b>Columns…</b>. Deleted records stay in the trash for 30 days; the PDFs
-are never deleted.</li>
-<li>Also in <b>Records</b>: right-click a record to <b>open its job again</b> (for a corrected invoice, or
-another day of the case) or to print it; <b>Undo</b> (Ctrl+Z) takes back the last change; <b>Summary…</b> sums
-up a month or a year; <b>Backups…</b> lists the copies of your records made each day, to go back to one.</li>
-<li><b>File → Open recent</b> lists the documents and folders you opened lately.</li>
-<li>A new computer? <b>File → Export settings</b> saves your details, options and rate sheets as one file
-(it asks whether to leave your personal details out, for a file you give to a colleague),
-and <b>File → Import settings</b> reads it there.</li>
-<li>When an invoice is final, <b>File → Lock finished PDFs</b> saves a copy nobody can change.</li>
-<li>Text too small or too big? <b>Ctrl +</b> and <b>Ctrl −</b> (or Ctrl and the mouse wheel) zoom,
-<b>Ctrl 0</b> goes back to 100%.</li>
-<li>Prices are in rate sheets you can edit in Excel: <b>File → Open rate sheets folder</b>. List only the speeds you
-offer, but give each one all four prices (Original, Copy, Email and Index): the app warns you when one is missing.
-Headings close to these are read too (E-mail, Index Price).</li>
-</ul>
-
-<h3>Keyboard shortcuts</h3>
-<table cellpadding="2">
-<tr><td><b>F1</b></td><td>This guide</td></tr>
-<tr><td><b>Ctrl+O</b></td><td>Open documents</td></tr>
-<tr><td><b>Ctrl+V</b></td><td>Paste a screenshot or e-mail text</td></tr>
-<tr><td><b>Ctrl+N</b></td><td>New job</td></tr>
-<tr><td><b>Ctrl+Enter</b></td><td>Generate (this job)</td></tr>
-<tr><td><b>Ctrl+Shift+Enter</b></td><td>Generate all</td></tr>
-<tr><td><b>Ctrl+R</b></td><td>Records</td></tr>
-<tr><td><b>Ctrl+Z</b></td><td>In Records: undo the last change</td></tr>
-<tr><td><b>Ctrl + / Ctrl − / Ctrl 0</b></td><td>Zoom in, out, back to 100%</td></tr>
-<tr><td><b>Ctrl+Tab / Ctrl+Shift+Tab</b></td><td>In the preview: the next file, the one before</td></tr>
-</table>
-
-<h3>More help</h3>
-<p>The <a href="{website}">website</a> shows the app with pictures and explains each feature, and has the
-latest version to download. Something not working? <b>Help → Copy details for a problem report</b> and
-e-mail it with <b>Help → Send feedback</b>; the log never records what your documents say.</p>
-"""
-
-
-class GuideDialog(QDialog):
-    """Help → How to use: what the app takes in, what it makes, the steps, tips and shortcuts (GUIDE)."""
-
-    def __init__(self, parent=None):
-        """Builds the window: the guide in a scrolling text box, a Website button and Close."""
-        super().__init__(parent)
-        self.setWindowTitle("How to use YinItAgreementForm")
-        self.resize(z(680), z(720))
-        lay = QVBoxLayout(self)
-        self.text = QTextBrowser()
-        self.text.setOpenExternalLinks(True)
-        self.text.setHtml(GUIDE.replace("{website}", WEBSITE_URL))
-        lay.addWidget(self.text, 1)
-        row = QHBoxLayout()
-        site = QPushButton("Open the website")
-        site.setToolTip(WEBSITE_URL)
-        site.clicked.connect(lambda: open_url(WEBSITE_URL))
-        row.addWidget(site)
-        row.addStretch(1)
-        close = QPushButton("Close")
-        close.setDefault(True)
-        close.clicked.connect(self.accept)
-        row.addWidget(close)
-        lay.addLayout(row)

@@ -2,12 +2,27 @@
 and the Outputs box at the bottom: the Generate buttons and a panel per output with its options (greyed out
 while the output is unticked) and how many files Generate makes of it, kept up to date (_show_counts). The
 panels are the courthouse's outputs (courthouses.panel_order), their options laid out by gui/panels.py.
+Room for the form on a small screen: the status and the Records, New job and Settings buttons sit at the right of
+the menu bar; dividers above the Outputs box and above the paste box can be dragged; the Outputs box folds to a
+line of small boxes (_fold_outputs) and each card to a line that sums it up (card, _fold_card); the drop zone is
+one slim row once documents are read (DropZone.set_slim), as the whole window takes them (dropEvent). The status
+counts what needs a look, the job's own checks too, and a click goes to the first (_job_status, _go_to_problem).
+The attorney table shows who; the row selected is spelled out under it (_build_att_details). While nothing is
+loaded, the jobs made lately are listed to open again (_show_start); fields complete from the records
+(_fill_completions); New job can be undone for a few seconds (_undo_clear); the Records button counts the
+invoices of a status (Settings.records_count: _count_records). View zooms, picks the theme and folds. F1 opens the
+manual at the topic of the part of the window in use (show_help, gui/help_window.py).
+The dates follow the day (workdays.py, Settings -> Dates): a form made on a weekend or a court holiday is dated the
+next business day (and one made after the evening hour, when Settings says so, the day after), and the delivery
+date is counted in business days; a note under each date says what moved it (_show_date_notes), and both are
+worked out again as the day turns (_redate, each minute). Each date has a calendar with the court holidays marked.
 The job list is a tree: a row per job (Case / file, Date, Pages, Yours) and, under a job of several documents,
 a row per document; a document with no index number, or with another than its job's, gets a ⚠ there and a note
 under the list (_label_docs, _show_index_notes), and Generate asks first about documents whose index numbers
 don't match (_ask_index_numbers).
 The "Minute agreement form details" card holds the rate sheet (one missing prices is warned about:
-_check_rate_sheet) and the one speed and rate the agreement form names (the Settings rule's,
+_check_rate_sheet; opened from that warning to be filled in, it is read again each time it is saved: _watch_sheet)
+and the one speed and rate the agreement form names (the Settings rule's,
 Settings.agreement_speed, or the job's own choice; when an e-mail asks for another speed, the user is asked
 which), among the speeds the invoice offers (ticked in the Invoice panel, each at its price). A firm whose speed
 is set in the "Who ordered what" card gets its own; firms that ordered the same pages commit to one (Generate
@@ -29,9 +44,10 @@ Settings.show_math is off), and the math is saved as PDFs with the invoices as S
 files. File -> Open recent lists the documents opened lately, and Export / Import settings carry the settings
 to another computer. A job once made can be opened again from the Records window (open_past_job). When the
 window opens it makes the day's backup of the records and, once a day, asks whether there is a newer version
-(update.py); a new user is asked a few questions first (preview.WelcomeDialog), a settings file that couldn't
-be read is said so instead, and an incomplete rate sheet is warned about (MainWindow._startup). On the first day
-the app is used in a new year, the yin-yang's "done" picture is the New Year one (note_opened).
+(update.py: an Update button at the top until it is installed); a new user is asked a few questions first
+(preview.WelcomeDialog), a settings file that couldn't be read is said so instead, and an incomplete rate sheet is
+warned about (MainWindow._startup). On the first day the app is used in a new year, the yin-yang's "done" picture
+is the New Year one (note_opened).
 
 Documents are read and batches are made on a thread pool (workers.Runner), and the AI is asked on a pool of its
 own, one question at a time (MainWindow.ai_pool). Their results are applied on the UI thread; the results of
@@ -44,16 +60,17 @@ import re
 import tempfile
 import textwrap
 import time
+from calendar import monthrange
 from copy import deepcopy
-from datetime import date
+from datetime import MAXYEAR, MINYEAR, date, timedelta
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QEvent, QPoint, QRect, QSignalBlocker, Qt, QThreadPool, QTimer
-from PySide6.QtGui import QColor, QKeySequence, QMovie, QShortcut
+from PySide6.QtCore import QByteArray, QEvent, QPoint, QRect, QSignalBlocker, QStringListModel, Qt, QThreadPool, QTimer
+from PySide6.QtGui import QActionGroup, QColor, QKeySequence, QMovie, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemDelegate, QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame,
-    QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
+    QAbstractItemDelegate, QAbstractItemView, QApplication, QBoxLayout, QCheckBox, QComboBox, QCompleter, QFileDialog,
+    QFormLayout, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
     QGridLayout, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSplitter,
     QTableWidget,
     QTableWidgetItem, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -67,20 +84,22 @@ from ..batch import (BATCH_EXT, HELD, MISMATCH_LEAD, NOT_INVOICED, Doc, Job, cas
                      split_forgotten)
 from ..extract_llm import OllamaExtractor
 from ..extract_regex import find_dates, use_firm_answers
-from ..dates import quick_date
+from ..dates import us_date
 from ..deliver import backup_folder, backup_records, generate, ledger_for
 from ..ingest import ingest_file, ingest_pil, ingest_text
-from ..merge import apply_defaults, apply_speed_rule, refresh_delivery_date, refresh_rate
+from ..merge import apply_defaults, apply_speed_rule, refresh_dates, refresh_delivery_date, refresh_rate
+from ..workdays import date_warning, delivery_day, document_day, quick_day
 from ..models import (Attorney, CaseInfo, FIELD_LABELS, FieldState, PROC_TYPES, REQUIRED_KEYS, SRC_AI,
                       SRC_DEFAULT, SRC_DERIVED, SRC_PDF, SRC_RECORDS, SRC_USER)
 from ..runsheet import SheetUnreadable, find_sheets, run_sheet_summary, runsheets_folder, transcript_pages
 from .. import courthouses
 from ..courthouses.base import resolve
-from ..settings import OUTPUTS, Settings
+from ..settings import LOCAL, OUTPUTS, Settings
 from .dialogs import ClarifyDialog, RunSheetDialog, SettingsDialog
+from .help_window import help_topic_of, open_help
 from .theme import apply_theme
-from .widgets import (ASSETS, QuietCombo, open_path, open_url, plural, refill_combo, repolish, round_corners, rounded,
-                      set_checks, show_save_error)
+from .widgets import (ASSETS, ClickLabel, ElidedLabel, QuietCombo, open_path, open_url, plural, refill_combo, repolish,
+                      round_corners, rounded, set_checks, show_save_error)
 from .workers import Runner
 from . import zoom as zooming
 from .zoom import sized, z
@@ -123,6 +142,42 @@ JOB_TIPS = {
 }
 # the Who ordered what row of a day nobody is ticked on, when other days of its case have attorneys ticked
 NOBODY_DAY = "⚠ nobody ticked on this day: no invoice for the case until you tick who ordered it"
+# how the Who ordered what card's rows are billed: its ? button's (the card says only which day it shows)
+ORDERS_HELP = ("Each attorney is billed for the pages written in its row and nothing else; \"Your pages billed\"\n"
+               "counts the pages billed among them: on a transcript of several reporters only yours (or those\n"
+               "chosen under Whose pages…), and the Pages field's number when you typed one. Firms that ordered\n"
+               "the same pages commit to a speed (Generate asks when one isn't set); a firm ordering alone may\n"
+               "choose one from its invoice.")
+ATT_DETAIL_COLS = (3, 4, 5, 6, 8)  # the attorney table's columns shown under it for the row selected, not in it
+# the fields of the Case card and of the Minute agreement form details card (a folded card's ⚠: _card_summaries)
+CASE_KEYS = ("court", "county", "part", "index_no", "judge", "dates", "case_name", "proc_other")
+DETAIL_KEYS = ("delivery", "rate", "copies", "est_pages", "delivery_date", "agreement_date")
+# The help topic F1 opens for each part of the window (help_window.help_topic_of: the focused widget's, else the
+# nearest parent's): the cards, a few fields, the Outputs box's panels, the job list and the drop zone.
+CARD_TOPICS = {"case": "check-badges", "details": "inv-speeds", "attorneys": "check-attorneys",
+               "pays": "inv-who-pays", "orders": "inv-who-ordered"}
+FIELD_TOPICS = {"index_no": "check-index", "est_pages": "check-pages", "copies": "check-copies",
+                "delivery_date": "dates-turnaround", "agreement_date": "dates-business-days"}
+OUTPUT_TOPICS = {"agreement": "make-agreement", "invoice": "inv-panel", "mofr": "make-mofr",
+                 "runsheet": "run-overview"}
+# A field's badge: where its value came from, in plain words (the source itself, models.SRC_*, picks its colour)
+BADGE_WORDS = {"regex": "found", "derived": "worked out"}
+BADGE_TIPS = {"regex": "Found in the document", "AI": "Suggested by the AI model - please check",
+              "default": "Your default setting", "derived": "Worked out from the other details",
+              "PDF": "Counted from the transcript PDF, without the word index (the line under it says which pages)",
+              "records": "From your records: an earlier job with the same index number - please check",
+              "you": "Entered by you"}
+BADGE_WIDTH = 74  # (px at 100 %: "worked out" fits)
+RECORDS_TIP = "Invoices (mark them paid) and everything made so far (Ctrl+R)"
+# what the start card says while nothing is loaded (_show_start)
+START_TEXT = ("Drop a transcript, an e-mail or a photo anywhere in the window, or paste with Ctrl+V; check the "
+              "details, tick what to make, then Generate.")
+UNDO_MS = 10000  # how long New job's Undo is offered
+
+
+def badge_word(source: str) -> str:
+    """What a badge says for a source: "regex" -> "found", "derived" -> "worked out", the others as they are."""
+    return BADGE_WORDS.get(source, source)
 
 
 SPEEDS_TIP = ("The speeds the invoice offers, each at its own price (the attorney chooses one). One ticked:\n"
@@ -190,6 +245,9 @@ WARN_WIDTH = 72  # the longest line of a warning in the Invoice panel (character
 # here, not word-wrapped by the label, as a word-wrapped label in a row the form shows later (Billed) was given
 # the height of one line less than it needed, its last line cut off
 LINE_WIDTH = 40
+# how long a rate sheet opened to be filled in is left alone after it changes before it is read again: Excel saves
+# in steps (a new file in the old one's place), and a read in between finds it half written or not there
+SHEET_SAVED_MS = 1000
 
 
 def _lines(text: str, width: int = LINE_WIDTH) -> str:
@@ -296,6 +354,15 @@ def _and(words: list[str]) -> str:
 def _or(words: list[str]) -> str:
     """['Email'] -> 'Email'; ['Copy', 'Email', 'Index'] -> 'Copy, Email or Index'."""
     return " or ".join(words) if len(words) < 3 else ", ".join(words[:-1]) + " or " + words[-1]
+
+
+def _file_mark(path: Path) -> tuple | None:
+    """A file's size and last change, to tell whether it was saved since (None when it isn't there)."""
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return st.st_size, st.st_mtime_ns
 
 
 def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str = "", own: str = "copy",
@@ -419,16 +486,19 @@ def _reason(error: str, width: int = 160) -> str:
 # ------------------------------------------------------------------ widgets
 
 class FieldRow(QWidget):
-    """Editor + suggestions menu + source badge for one form field.
+    """Editor + suggestions menu + source badge for one form field (and, for a date, a calendar to pick it from).
 
     Typing makes the value the user's own (source "you") and calls on_edit(key). Values set by the program
-    (set_text, set_state) do not call on_edit.
+    (set_text, set_state) do not call on_edit. The badge says where the value came from in plain words
+    (BADGE_WORDS: "found" for a value read from the document); show_missing False (nothing loaded yet) leaves a
+    required field that is blank unmarked.
     """
 
-    def __init__(self, key: str, on_edit, multiline: bool = False):
+    def __init__(self, key: str, on_edit, multiline: bool = False, calendar: bool = False):
         super().__init__()
         self.key, self.on_edit, self.multiline = key, on_edit, multiline
         self.state = FieldState()
+        self.show_missing = True
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(6)
@@ -442,17 +512,80 @@ class FieldRow(QWidget):
         # QPlainTextEdit has no textEdited (user-only) signal, so set_text raises this flag instead.
         self._loading = False
         lay.addWidget(self.edit, 1)
+        self.calendar = None
+        self.marks = None  # a function (year, month) -> {date: name}: the days its calendar marks (the court holidays)
+        if calendar:
+            self._add_calendar(lay)
+        # the other readings of the field: "2 more ▾" (shown only when there are some)
         self.alts = QToolButton()
+        self.alts.setObjectName("alts")
         self.alts.setText("▾")
         self.alts.setPopupMode(QToolButton.InstantPopup)
         self.alts.setMenu(QMenu(self.alts))
-        sized(self.alts, "setFixedWidth", 28)
+        sized(self.alts, "setMinimumWidth", 28)
         lay.addWidget(self.alts)
         self.badge = QLabel("")
         self.badge.setObjectName("badge")
-        sized(self.badge, "setFixedSize", 58, 20)
+        sized(self.badge, "setFixedSize", BADGE_WIDTH, 20)
         self.badge.setAlignment(Qt.AlignCenter)
         lay.addWidget(self.badge, 0, Qt.AlignTop if multiline else Qt.AlignVCenter)
+
+    def _add_calendar(self, lay: QHBoxLayout) -> None:
+        """A 📅 button beside the field: a month to click a day in (the field's own date selected), which
+        becomes the user's value, as typed ("10/20/2026": a weekend or a court holiday isn't moved, unlike the quick
+        buttons; the note under the dates warns of it). The days `marks` gives for the month shown (the court
+        holidays) are in bold red, their name as the tooltip."""
+        from PySide6.QtGui import QTextCharFormat
+        from PySide6.QtWidgets import QCalendarWidget, QWidgetAction
+        b = self.calendar = QToolButton()
+        b.setText("📅")
+        b.setToolTip("Pick the day from a calendar")
+        b.setPopupMode(QToolButton.InstantPopup)
+        menu = QMenu(b)
+        cal = self.month = QCalendarWidget()
+        cal.setGridVisible(False)
+        cal.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+        action = QWidgetAction(menu)
+        action.setDefaultWidget(cal)
+        menu.addAction(action)
+        b.setMenu(menu)
+
+        def mark(year: int, month: int) -> None:
+            """The marked days of the month shown and the ones beside it (the grid shows a few of each)."""
+            from PySide6.QtCore import QDate
+            cal.setDateTextFormat(QDate(), QTextCharFormat())  # (a null date: every format cleared)
+            if self.marks is None:
+                return
+            for y, m in ((year - (month == 1), month - 1 or 12), (year, month),
+                         (year + (month == 12), month % 12 + 1)):
+                for d, name in self.marks(y, m).items():
+                    f = QTextCharFormat()
+                    f.setForeground(QColor("#dc2626"))
+                    f.setFontWeight(700)
+                    f.setToolTip(name)
+                    cal.setDateTextFormat(QDate(d.year, d.month, d.day), f)
+
+        def shown() -> None:
+            """The month of the field's date (today's when it has none), that day selected."""
+            from PySide6.QtCore import QDate
+            from datetime import datetime
+            try:
+                d = datetime.strptime(self.text(), "%m/%d/%Y").date()
+            except ValueError:
+                d = date.today()
+            cal.setSelectedDate(QDate(d.year, d.month, d.day))
+            mark(d.year, d.month)
+
+        def picked(qd) -> None:
+            """A day clicked: the field's value, and the calendar closes."""
+            self.choose(f"{qd.month()}/{qd.day()}/{qd.year()}")
+            menu.close()
+
+        cal.currentPageChanged.connect(mark)
+        menu.aboutToShow.connect(shown)
+        cal.clicked.connect(picked)
+        cal.activated.connect(picked)
+        lay.addWidget(b)
 
     def text(self) -> str:
         """What the box shows, without leading or trailing spaces."""
@@ -481,17 +614,12 @@ class FieldRow(QWidget):
         A value not typed by the user is marked for review when the AI suggested it or its confidence is
         below 0.6."""
         st = self.state
-        self.badge.setText(st.source if st.value else "")
-        self.badge.setProperty("src", st.source if st.value else "")
-        tip = {"regex": "Found in the document", "AI": "Suggested by the AI model - please check",
-               "default": "Your default setting", "derived": "Calculated",
-               "PDF": "Counted from the transcript PDF, without the word index (the line under it says which pages)",
-               "records": "From your records: an earlier job with the same index number - please check",
-               "you": "Entered by you"}
-        self.badge.setToolTip(tip.get(st.source, ""))
+        self.badge.setText(badge_word(st.source) if st.value else "")
+        self.badge.setProperty("src", st.source if st.value else "")  # (the source itself: the badge's colour)
+        self.badge.setToolTip(BADGE_TIPS.get(st.source, ""))
         review = st.value and st.source != SRC_USER and (st.confidence < 0.6 or st.source in (SRC_AI, SRC_RECORDS))
         self.edit.setProperty("review", bool(review))
-        self.edit.setProperty("missing", self.key in REQUIRED_KEYS and not st.value)
+        self.edit.setProperty("missing", self.key in REQUIRED_KEYS and not st.value and self.show_missing)
         others = [a for a in st.alternatives if a != st.value]
         menu = self.alts.menu()
         menu.clear()
@@ -499,7 +627,8 @@ class FieldRow(QWidget):
             act = menu.addAction(alt if len(alt) < 110 else alt[:107] + "...")
             act.triggered.connect(lambda _=False, v=alt: self.pick(v))
         self.alts.setVisible(bool(others))
-        self.alts.setToolTip(f"{len(others)} other suggestion(s)")
+        self.alts.setText(f"{len(others)} more ▾")
+        self.alts.setToolTip(f"{plural(len(others), 'other reading')} of this field: click to pick one")
         for w in (self.badge, self.edit):
             repolish(w)
 
@@ -512,7 +641,7 @@ class FieldRow(QWidget):
         self.choose(value)
 
     def choose(self, value: str) -> None:
-        """Takes a value (a quick delivery date), as if the user had typed it."""
+        """Takes a value (a quick delivery date, a day picked from the calendar), as if the user had typed it."""
         self.set_text(value)
         self._changed()
 
@@ -526,6 +655,8 @@ class FieldRow(QWidget):
 
 
 COMPACT_BELOW = 960  # before the window is shown: window height (px at 100 % zoom) under which the drop zone is small
+DROP_TEXT = "Drop documents here"
+DROP_MORE_TEXT = "Drop more here, or"  # (the slim drop zone, Browse... beside it: the column is narrow)
 
 
 SWIRLS = ("idle", "working")  # the drop zone's moods that show the swirling yin-yang
@@ -553,7 +684,9 @@ class Picture(QLabel):
 
 class DropZone(QFrame):
     """The big drop target. Dropped files go to on_files(paths), text to on_text(str), a picture to
-    on_image(QImage); the Browse button calls on_browse(). It also shows the yin-yang pictures."""
+    on_image(QImage); the Browse button calls on_browse(). It also shows the yin-yang pictures. Three layouts: big,
+    compact (a smaller picture, set_compact) and slim (one row, once documents are loaded: set_slim), when the
+    whole window takes drops anyway (MainWindow.dropEvent)."""
 
     def __init__(self, on_files, on_text, on_image, on_browse):
         super().__init__()
@@ -573,6 +706,7 @@ class DropZone(QFrame):
         self.mood = None     # (mood, width) of the picture loaded now, so it is not reloaded for nothing
         self.wanted = None   # the mood asked for last: shown again by set_compact and rezoom, and after a swirl
         self.compact = False
+        self.slim = False
         # the first day of the year the app was used ("2027-01-07", see note_opened): "done" is the New Year
         # yin-yang on that day only (checked each time, as the app may be left open overnight)
         self.new_year_day = ""
@@ -588,7 +722,7 @@ class DropZone(QFrame):
         self._settle.setSingleShot(True)
         self._settle.timeout.connect(lambda: self.set_mood(self.wanted))
         self.movie.frameChanged.connect(self._frame)
-        t = QLabel("Drop documents here")
+        self.text = t = QLabel(DROP_TEXT)
         t.setObjectName("dropText")
         t.setAlignment(Qt.AlignCenter)
         sub = QLabel("PDF, photo or text file - or many at once, or a whole folder: "
@@ -597,9 +731,9 @@ class DropZone(QFrame):
         sub.setAlignment(Qt.AlignCenter)
         sub.setWordWrap(True)
         self.sub = sub
-        b = QPushButton("Browse...")
+        self.browse_btn = b = QPushButton("Browse...")
         b.clicked.connect(on_browse)
-        sized(b, "setFixedWidth", 120)
+        self._fit_browse()
         for w in (icon, t, sub):
             lay.addWidget(w)
         lay.addSpacing(6)
@@ -621,14 +755,14 @@ class DropZone(QFrame):
                 self._settle.start(int(left))  # (then set_mood(self.wanted) again)
                 return
         width, height = self._size()
-        self.sub.setVisible(not self.compact)
+        self.sub.setVisible(not self.compact and not self.slim)
         if mood not in SWIRLS:
             self.movie.stop()
         if mood is None:
             self.mood = None  # (else the same mood asked for again is taken as shown, and doesn't swirl)
             self.yin.setVisible(False)
-            self.icon.setVisible(not self.compact)
-            self.setMinimumHeight(z(110) if self.compact else z(215))
+            self.icon.setVisible(not self.compact and not self.slim)
+            self.setMinimumHeight(z(48) if self.slim else z(110) if self.compact else z(215))
             return
         self.icon.setVisible(False)
         self.yin.setVisible(True)
@@ -642,7 +776,7 @@ class DropZone(QFrame):
         self.mood = (mood, width)
         if (mood, width) not in self._pixmaps:  # (idle swirls too: its first picture is the working one)
             picture = "working" if mood == "idle" else mood
-            self._pixmaps[(mood, width)] = rounded(ASSETS / f"yin_{picture}.jpg", width, z(12))
+            self._pixmaps[(mood, width)] = rounded(ASSETS / f"yin_{picture}.jpg", width, self._radius())
         self.yin.setPixmap(self._pixmaps[(mood, width)])
         self.yin.setToolTip({"idle": "Drop a document to begin", "working": "Working on it…",
                              "done": "Ready to fill!", "stumped": "Something needs your attention",
@@ -662,23 +796,31 @@ class DropZone(QFrame):
         """Shows the moving picture's next frame, at the size of the still one (not while the window is
         minimised: nobody sees it)."""
         if self.mood and self.mood[0] in SWIRLS and self.yin.isVisible() and not self.window().isMinimized():
-            self.yin.setPixmap(round_corners(self.movie.currentPixmap(), self.mood[1], z(12)))
+            self.yin.setPixmap(round_corners(self.movie.currentPixmap(), self.mood[1], self._radius()))
 
     def _size(self) -> tuple[int, int]:
-        """The picture's width and the drop zone's least height, in the layout it has now (set_compact)."""
+        """The picture's width and the drop zone's least height, in the layout it has now (set_compact,
+        set_slim)."""
+        if self.slim:
+            return z(56), z(48)
         return (z(150), z(170)) if self.compact else (z(300), z(330))
+
+    def _radius(self) -> int:
+        """How round the picture's corners are (less on the slim bar's small one)."""
+        return z(6) if self.slim else z(12)
 
     def _swirl_size(self) -> None:
         """While the swirl goes on a while yet (after a read, or a click: _settle), the layout of now: the swirl
         at its width, the line under it, the least height. (Before, a smaller window or another zoom then kept
         the big layout, and the window measured the wrong one.)"""
         width, height = self._size()
-        self.sub.setVisible(not self.compact)
+        self.sub.setVisible(not self.compact and not self.slim)
         self.setMinimumHeight(height)
         self.mood = ("working", width)
 
     def rezoom(self) -> None:
         """Shows the picture again at the new zoom's size (the swirl that goes on a while yet goes on)."""
+        self._fit_browse()
         if self._settle.isActive():
             self._swirl_size()
             return
@@ -691,6 +833,22 @@ class DropZone(QFrame):
         if on != self.compact:
             self.compact = on
             self.set_mood(self.wanted)
+
+    def set_slim(self, on: bool) -> None:
+        """Switches to one row (on: documents are loaded, and the list of jobs and the form need the room) or
+        back: a small picture, "Drop more here, or" (DROP_MORE_TEXT) and Browse... side by side."""
+        if on == self.slim:
+            return
+        self.slim = on
+        self.layout().setDirection(QBoxLayout.LeftToRight if on else QBoxLayout.TopToBottom)
+        self.text.setText(DROP_MORE_TEXT if on else DROP_TEXT)
+        self.text.setWordWrap(on)  # (a narrow column: two lines rather than the row cut off)
+        self._fit_browse()
+        self.set_mood(self.wanted)
+
+    def _fit_browse(self) -> None:
+        """Browse... is narrower in the slim row (the left column's width must hold the picture, the words and it)."""
+        self.browse_btn.setFixedWidth(z(84) if self.slim else z(120))
 
     def _hover(self, on: bool):
         """Highlights the drop zone while something is dragged over it (the style sheet's [hover="true"])."""
@@ -709,10 +867,15 @@ class DropZone(QFrame):
         self._hover(False)
 
     def dropEvent(self, e):
-        """Passes what was dropped to its handler (handle_mime)."""
+        """Passes what was dropped to its handler (handle_mime). Text from one of the window's own boxes is copied,
+        not moved: the box keeps it."""
         self._hover(False)
         handle_mime(e.mimeData(), self.on_files, self.on_text, self.on_image)
-        e.acceptProposedAction()
+        if e.source() is not None:
+            e.setDropAction(Qt.CopyAction)
+            e.accept()
+        else:
+            e.acceptProposedAction()
 
 
 def note_opened(s: Settings, today: date | None = None) -> bool:
@@ -760,17 +923,47 @@ def _path_key(path: str) -> str:
     return str(Path(path).resolve()).lower()
 
 
-def card(title: str | None = None) -> tuple[QFrame, QVBoxLayout]:
-    """A section card (with a heading when title is given) and the layout to put its contents in."""
+def card(title: str | None = None, key: str = "") -> tuple[QFrame, QVBoxLayout]:
+    """A section card (with a heading when title is given) and the layout to put its contents in. The frame keeps
+    its heading label as .heading (None without a title). With a key, the card folds to its heading and a line
+    that sums it up: a ▾ button before the heading (or a click on the heading) folds it, and its contents are in
+    .body (hidden when folded; the card itself stays shown), with .fold (the button), .summary (the line) and .key
+    (Settings.folded_cards); MainWindow._fold_card does the folding."""
     fr = QFrame()
     fr.setObjectName("card")
     lay = QVBoxLayout(fr)
     lay.setContentsMargins(16, 14, 16, 16)
     lay.setSpacing(10)
+    fr.heading = fr.fold = fr.summary = fr.body = None
+    fr.key = key
     if title:
-        lbl = QLabel(title)
+        lbl = ClickLabel(title) if key else QLabel(title)
         lbl.setObjectName("section")
-        lay.addWidget(lbl)
+        fr.heading = lbl
+        if key:
+            top = QHBoxLayout()
+            top.setSpacing(6)
+            fr.fold = QToolButton()
+            fr.fold.setObjectName("fold")
+            fr.fold.setArrowType(Qt.DownArrow)  # (drawn, not a character the fonts must be searched for)
+            fr.fold.setToolTip("Fold this card to one line (click again to unfold it)")
+            top.addWidget(fr.fold)
+            top.addWidget(lbl)
+            lbl.set_clickable(True)
+            fr.summary = ElidedLabel()
+            fr.summary.setObjectName("summary")
+            fr.summary.setVisible(False)
+            top.addWidget(fr.summary, 1)
+            lay.addLayout(top)
+        else:
+            lay.addWidget(lbl)
+    if key:
+        fr.body = QWidget()
+        body = QVBoxLayout(fr.body)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(10)
+        lay.addWidget(fr.body)
+        return fr, body
     return fr, lay
 
 
@@ -815,12 +1008,34 @@ class MainWindow(QMainWindow):
         # the incomplete rate sheets warned about this session, by rates.sheet_fingerprint (one edited and read
         # again is warned about again): see _check_rate_sheet
         self._sheets_warned: set[str] = set()
+        # the incomplete rate sheet opened from that warning to be filled in: read again and checked each time it
+        # is saved (_watch_sheet, _sheet_saved). Its path and the file's size and time as last read; the watcher
+        # is made when first needed
+        self._sheet_watched: tuple[Path, tuple] | None = None
+        self._sheet_watch = None
+        self._sheet_timer = QTimer(self)
+        self._sheet_timer.setSingleShot(True)
+        self._sheet_timer.setInterval(SHEET_SAVED_MS)
+        self._sheet_timer.timeout.connect(self._sheet_saved)
         # the Run sheet box was ticked or unticked by the user since the last New job: it is no longer ticked by
         # how many reporters wrote the transcripts (see _auto_runsheet)
         self._runsheet_touched = False
         self._runsheet_auto: bool | None = None  # what _auto_runsheet decided; None = as Settings.outputs say
         self._math_previewed = False  # the last preview showed "The math" (see _preview)
         self.excerpts = None  # the Excerpts window, made when first opened (see _who_ordered)
+        # what New job cleared, for its Undo (None: nothing to undo; see new_job, _undo_clear)
+        self._undo: dict | None = None
+        # the Records button's count: bumped by each count asked for, so an older one finishing late is dropped
+        # (see _count_records); when the window was last activated (counted again then, not more than every 2 s)
+        self._counting = 0
+        self._activated = 0.0
+        self._count_later = QTimer(self)  # (back within 2 s, from a tick in Records: counted once the 2 s are up)
+        self._count_later.setSingleShot(True)
+        self._count_later.timeout.connect(self._count_on_activation)
+        self._mirrored = self._csv_columns()  # what the CSV copies have columns for (see _records_changed)
+        # what the fields complete from (records.past_values): one list each, filled once the records are read
+        self._completions: dict[str, QStringListModel] = {}
+        self._left_mode = ""  # "single" / "batch": the left column's divider was placed for it (_place_left_split)
 
         self.setWindowTitle("YinItAgreementForm")
         if zooming.zoom() != settings.zoom:  # (main() sets it before the style sheet is made)
@@ -834,7 +1049,9 @@ class MainWindow(QMainWindow):
             self.resize(z(1320), z(860))
         self._fit_screen()
         self._wheel = 0  # Ctrl + wheel turned since the last zoom step (see eventFilter)
-        app.installEventFilter(self)  # Ctrl + the mouse wheel zooms, and the form follows its width (eventFilter)
+        # Ctrl + the mouse wheel zooms, the form follows its width, and files dragged over a text box are read
+        # (eventFilter)
+        app.installEventFilter(self)
         self._show_case()
         self._set_status("Drop a document to begin", "")
         QTimer.singleShot(50, self._startup)
@@ -869,8 +1086,9 @@ class MainWindow(QMainWindow):
 
     # ---------------------------------------------------------- layout
     def _build(self):
-        """Builds the window: header, the left column (drop zone, job list, paste box), the scrolling form
-        on the right, the Outputs box (with the Generate buttons) at the bottom, the menu and the shortcuts."""
+        """Builds the window: the status and the Records, New job and Settings buttons at the right of the menu
+        bar, the left column (drop zone, job list, paste box), the scrolling form on the right with its cards, the
+        Outputs box (with the Generate buttons) under a divider, the menu and the shortcuts."""
         central = QWidget()
         central.setObjectName("central")
         # On a small screen (or a large zoom) the whole window scrolls, rather than the Outputs box and the
@@ -881,46 +1099,57 @@ class MainWindow(QMainWindow):
         outer.setWidget(central)
         self.setCentralWidget(outer)
         root = QVBoxLayout(central)
-        root.setContentsMargins(18, 14, 18, 14)
+        root.setContentsMargins(18, 8, 18, 14)
         root.setSpacing(10)
+        self.setAcceptDrops(True)  # documents dropped anywhere in the window are read (dropEvent, eventFilter)
 
-        # header
-        head = QHBoxLayout()
-        title_box = QVBoxLayout()
-        title_box.setSpacing(0)
-        t = QLabel("YinItAgreementForm")
-        t.setObjectName("title")
-        sub = QLabel("Drop a document, check the details, fill the form.")
-        sub.setObjectName("subtitle")
-        title_box.addWidget(t)
-        title_box.addWidget(sub)
-        head.addLayout(title_box)
-        head.addStretch(1)
-        self.status = QLabel("")
+        # the status and the buttons, at the right of the menu bar (the window's title names the app: a header
+        # row of its own took room the form needs on a laptop's screen)
+        # (kept on the window: PySide doesn't hand a corner widget over to the menu bar, and would delete it once the
+        # local name is gone; _fit_corner sets it again)
+        self.head_box = head_box = QWidget()
+        head_box.setObjectName("menuCorner")
+        head = QHBoxLayout(head_box)
+        head.setContentsMargins(0, 3, 12, 3)
+        head.setSpacing(8)
+        self.status = ClickLabel("")
         self.status.setObjectName("status")
+        self.status.clicked.connect(self._go_to_problem)
         head.addWidget(self.status)
+        # a newer version is out (_show_update): up here, where it is seen, until it is installed
+        self.update_btn = QPushButton()
+        self.update_btn.setObjectName("update")
+        self.update_btn.setProperty("help_topic", "trouble-install")
+        self.update_btn.clicked.connect(lambda: open_url(self.s.update_page))
+        self.update_btn.setVisible(False)
+        head.addWidget(self.update_btn)
         self.new_btn = new_btn = QPushButton("New job")
-        new_btn.setToolTip("Clear everything and start over (Ctrl+N)")
+        new_btn.setToolTip("Clear everything and start over (Ctrl+N); Undo at the bottom of the window brings it back\n"
+                           "for a few seconds (not while documents are still being read)")
         new_btn.clicked.connect(self.new_job)
         set_btn = QPushButton("⚙  Settings")
         set_btn.clicked.connect(self.open_settings)
         self.rec_btn = rec_btn = QPushButton("Records")
         rec_btn.setObjectName("records")  # a hue of its own: the records are apart from making the forms
-        rec_btn.setToolTip("Invoices (mark them paid) and everything made so far (Ctrl+R)")
+        rec_btn.setToolTip(RECORDS_TIP)
         rec_btn.clicked.connect(self.open_records)
         head.addWidget(rec_btn)
         head.addWidget(new_btn)
         head.addWidget(set_btn)
-        root.addLayout(head)
+        self.menuBar().setCornerWidget(head_box, Qt.TopRightCorner)
         self.busy = QProgressBar()
         self.busy.setRange(0, 0)
         self.busy.setTextVisible(False)
         self.busy.setVisible(False)
         root.addWidget(self.busy)
 
+        # the form (and the left column) above the Outputs box, a divider between them to drag
+        self.vsplit = QSplitter(Qt.Vertical)
+        self.vsplit.setChildrenCollapsible(False)
+        root.addWidget(self.vsplit, 1)
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
-        root.addWidget(split, 1)
+        self.vsplit.addWidget(split)
 
         # left column
         left = QWidget()
@@ -928,6 +1157,7 @@ class MainWindow(QMainWindow):
         ll.setContentsMargins(0, 0, 8, 0)
         ll.setSpacing(10)
         self.drop = DropZone(self.add_files, self.add_text, self.add_qimage, self.browse)
+        self.drop.setProperty("help_topic", "input-documents")
         note_opened(self.s)
         self.drop.new_year_day = self.s.new_year_day
         ll.addWidget(self.drop)
@@ -941,6 +1171,7 @@ class MainWindow(QMainWindow):
         # the jobs (a batch) or the job on screen, a row each, and under a job of several documents a row per
         # document (their own pages, the right-click to move one out); see _refresh_jobs
         self.job_list = QTreeWidget()
+        self.job_list.setProperty("help_topic", "batch-job-list")
         self.job_list.setColumnCount(len(JOB_COLS))
         self.job_list.setHeaderLabels(JOB_COLS)
         for c, name in enumerate(JOB_COLS):
@@ -962,7 +1193,15 @@ class MainWindow(QMainWindow):
         self.job_list.setContextMenuPolicy(Qt.CustomContextMenu)
         self.job_list.customContextMenuRequested.connect(self._job_menu)
         self._collapsed: set[Job] = set()  # the jobs whose documents the user folded away (kept on a rebuild)
-        ll.addWidget(self.job_list, 3)
+        # the job list above the paste box, a divider between them to drag (placed for one job or a batch:
+        # _place_left_split)
+        self.left_split = QSplitter(Qt.Vertical)
+        self.left_split.setChildrenCollapsible(False)
+        top = QWidget()
+        tl = QVBoxLayout(top)
+        tl.setContentsMargins(0, 0, 0, 4)
+        tl.setSpacing(8)
+        tl.addWidget(self.job_list, 1)
         # what the documents say about the index number that needs a look (Job.index_number_notes): one with
         # none, or documents whose numbers don't match, with a link to keep them together
         self.index_note = QLabel("")
@@ -971,10 +1210,15 @@ class MainWindow(QMainWindow):
         self.index_note.setTextFormat(Qt.RichText)
         self.index_note.linkActivated.connect(lambda _: self._keep_index_numbers())
         self.index_note.setVisible(False)
-        ll.addWidget(self.index_note)
+        tl.addWidget(self.index_note)
+        self.left_split.addWidget(top)
+        bottom = QWidget()
+        bl = QVBoxLayout(bottom)
+        bl.setContentsMargins(0, 4, 0, 0)
+        bl.setSpacing(8)
         lbl = QLabel("…or paste an e-mail or notes")
         lbl.setObjectName("fieldLabel")
-        ll.addWidget(lbl)
+        bl.addWidget(lbl)
         self.paste = QPlainTextEdit()
         self.paste.setPlaceholderText("e.g. \"Please send the minutes for Smith v. Jones, Index 712345/2024, "
                                       "before Justice Lopez on 9/14/2026, expedited…\"")
@@ -983,10 +1227,18 @@ class MainWindow(QMainWindow):
         # its preferred 190 px and shows a scroll bar in a window with room to spare
         self.paste.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         self.paste.textChanged.connect(self._update_header_buttons)
-        ll.addWidget(self.paste, 1)
+        self.paste.setProperty("help_topic", "input-email")
+        bl.addWidget(self.paste, 1)
         pb = QPushButton("Extract from text")
         pb.clicked.connect(self._extract_paste)
-        ll.addWidget(pb)
+        bl.addWidget(pb)
+        self.left_split.addWidget(bottom)
+        self.left_split.setStretchFactor(0, 1)
+        self.left_split.setStretchFactor(1, 1)
+        # it takes the room left over, asking only for its least (as the paste box did on its own): the column's
+        # height asked would otherwise leave no room for the big picture (see _size_drop)
+        self.left_split.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
+        ll.addWidget(self.left_split, 1)
         self.ai_label = QLabel("Checking AI…")
         self.ai_label.setObjectName("muted")
         self.ai_label.setWordWrap(True)
@@ -1020,15 +1272,27 @@ class MainWindow(QMainWindow):
         split.setSizes([360, 940])
 
         self.rows: dict[str, FieldRow] = {}
+        self.cards: dict[str, QFrame] = {}  # the cards that fold, by key (see card, _fold_card)
 
-        def row(form: QFormLayout, key: str, multiline=False):
+        def row(form: QFormLayout, key: str, multiline=False, calendar=False):
             """The FieldRow of the case field `key`, with its label, added to `form` and kept in self.rows."""
-            r = FieldRow(key, self._field_edited, multiline)
+            r = FieldRow(key, self._field_edited, multiline, calendar)
+            if key in FIELD_TOPICS:
+                r.setProperty("help_topic", FIELD_TOPICS[key])
             self.rows[key] = r
             lab = QLabel(FIELD_LABELS[key])
             lab.setObjectName("fieldLabel")
             form.addRow(lab, r)
             return r
+
+        def folding(title: str, key: str) -> tuple[QFrame, QVBoxLayout]:
+            """A card that folds to a line (card), kept in self.cards."""
+            fr, lay = card(title, key)
+            self.cards[key] = fr
+            fr.setProperty("help_topic", CARD_TOPICS.get(key, ""))
+            fr.fold.clicked.connect(lambda _=False, f=fr: self._fold_card(f, not f.body.isHidden()))
+            fr.heading.clicked.connect(lambda f=fr: self._fold_card(f, not f.body.isHidden()))
+            return fr, lay
 
         def form_in(lay: QVBoxLayout) -> QFormLayout:
             """A form (labels right-aligned beside their fields) added to `lay`."""
@@ -1061,8 +1325,29 @@ class MainWindow(QMainWindow):
             self._pairs.append((g, wa, wb))
             return cols[0], cols[1]
 
-        # Case card: two columns
-        c, cl = card("Case")
+        # While nothing is loaded: the jobs made lately, to open one again, and how to begin (_show_start)
+        self.start_card, sl = card("Recent jobs")
+        self.start_list = QVBoxLayout()
+        self.start_list.setSpacing(2)
+        sl.addLayout(self.start_list)
+        foot_row = QHBoxLayout()
+        self.start_text = QLabel(START_TEXT)
+        self.start_text.setObjectName("muted")
+        self.start_text.setWordWrap(True)
+        foot_row.addWidget(self.start_text, 1)
+        recent_docs = QToolButton()
+        recent_docs.setText("Recent documents ▾")
+        recent_docs.setObjectName("quick")
+        recent_docs.setPopupMode(QToolButton.InstantPopup)
+        self.recent_docs = recent_docs  # (its menu is File -> Open recent's, set by _build_menu)
+        foot_row.addWidget(recent_docs, 0, Qt.AlignTop)
+        sl.addLayout(foot_row)
+        # records.recent_jobs, read at startup and when the records change (_read_records_side)
+        self._recent_jobs: list[tuple[str, str, str, str]] = []
+        rl.addWidget(self.start_card)
+
+        # Case card: two columns, then the case's name and the type of proceeding
+        c, cl = folding("Case", "case")
         colA, colB = two_cols(cl)
         fa, fb = form_in(colA), form_in(colB)
         for k in ("court", "county", "part"):
@@ -1071,11 +1356,8 @@ class MainWindow(QMainWindow):
             row(fb, k)
         fc = form_in(cl)
         row(fc, "case_name", multiline=True)
-        rl.addWidget(c)
-
-        # Proceeding card
-        c, cl = card("Type of proceeding")
         pr = QHBoxLayout()
+        pr.setSpacing(12)
         self.proc_boxes: dict[str, QCheckBox] = {}
         for p in PROC_TYPES:
             cb = QCheckBox(p)
@@ -1083,14 +1365,15 @@ class MainWindow(QMainWindow):
             self.proc_boxes[p] = cb
             pr.addWidget(cb)
         pr.addStretch(1)
-        cl.addLayout(pr)
-        f = form_in(cl)
-        row(f, "proc_other")
+        lab = QLabel("Proceeding")
+        lab.setObjectName("fieldLabel")
+        fc.addRow(lab, pr)
+        row(fc, "proc_other")
         rl.addWidget(c)
 
         # Minute agreement form details: the rate sheet, the one speed and one rate the form names (among the
         # speeds the invoice offers, ticked in the Invoice panel), No. of copies, the pages and the dates
-        c, cl = card("Minute agreement form details")
+        c, cl = folding("Minute agreement form details", "details")
         colA, colB = two_cols(cl)
         fa, fb = form_in(colA), form_in(colB)
 
@@ -1118,7 +1401,7 @@ class MainWindow(QMainWindow):
         speed_row = QHBoxLayout()
         speed_row.setSpacing(6)
         self.delivery = QuietCombo()
-        # (its items are long, "Expedite · $5.40/pg · copy $1.10 · 7 days": sized to them, the card's two
+        # (its items are long, "Expedite · $5.40/pg · copy $1.10 · 5 days": sized to them, the card's two
         # columns no longer fitted side by side in a window of an ordinary width)
         self.delivery.setMinimumContentsLength(20)
         self.delivery.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
@@ -1131,7 +1414,7 @@ class MainWindow(QMainWindow):
         speed_row.addWidget(self.speed_reset)
         self.speed_badge = QLabel("")
         self.speed_badge.setObjectName("badge")
-        sized(self.speed_badge, "setFixedSize", 58, 20)
+        sized(self.speed_badge, "setFixedSize", BADGE_WIDTH, 20)
         self.speed_badge.setAlignment(Qt.AlignCenter)
         speed_row.addWidget(self.speed_badge)
         lab = QLabel("Speed")
@@ -1177,30 +1460,44 @@ class MainWindow(QMainWindow):
         fb.addRow("", help_box)
         self.pages_help_row = help_box
         self.order_form = fb
-        row(fb, "delivery_date")
+        row(fb, "delivery_date", calendar=True)
         # three buttons a row: six in one row would make the card too wide for a small screen
         quick = QGridLayout()
         quick.setHorizontalSpacing(4)
         quick.setVerticalSpacing(4)
+        self.quick_buttons = []  # (button, label, days, months): their tooltips name the day (_quick_tips)
         for n, (label, days, months) in enumerate((("Today", 0, 0), ("Tomorrow", 1, 0), ("1 week", 7, 0),
                                                    ("2 weeks", 14, 0), ("3 weeks", 21, 0), ("1 month", 0, 1))):
             b = QToolButton()
             b.setText(label)
             b.setObjectName("quick")
-            when = quick_date(days, months)
-            b.setToolTip(f"Estimated delivery {when}" + ("" if label in ("Today", "Tomorrow") else " - from today")
-                         + "\n(a Saturday or Sunday becomes the Monday after)")
-            b.clicked.connect(lambda _=False, d=days, m=months: self.rows["delivery_date"].choose(quick_date(d, m)))
+            b.clicked.connect(lambda _=False, d=days, m=months: self.rows["delivery_date"].choose(
+                quick_day(self.s, d, m)))
+            self.quick_buttons.append((b, label, days, months))
             quick.addWidget(b, n // 3, n % 3)
         quick.setColumnStretch(3, 1)
         fb.addRow("", quick)
-        row(fb, "agreement_date")
+        # what moved the dates (a weekend, a court holiday: Settings -> Dates), or a day typed that is one
+        self.date_notes = {}
+        for key in ("delivery_date", "agreement_date"):
+            if key == "agreement_date":
+                row(fb, "agreement_date", calendar=True)
+            note = self.date_notes[key] = QLabel("")
+            note.setObjectName("muted")
+            note.setWordWrap(True)
+            fb.addRow("", note)
+            fb.setRowVisible(note, False)  # (a hidden row takes no room: _show_date_notes shows it)
+        self.date_form = fb
+        for key in self.date_notes:
+            self.rows[key].marks = self._holidays_of
+        self._dated = None  # the day the jobs' dates were last worked out for (_redate)
+        self._quick_tips()
         rl.addWidget(c)
         self._fill_sheet_box()
 
-        # Attorneys card
-        c, cl = card("Attorneys  —  one form is made for each checked row")
-        cl.itemAt(0).widget().setToolTip(  # (the heading)
+        # Attorneys card: the table shows who (tick, name, firm, role); the row selected is spelled out under it
+        c, cl = folding("Attorneys  —  one form is made for each checked row", "attorneys")
+        c.heading.setToolTip(
             "Each checked attorney gets a minute agreement (and an invoice) of its own: the agreement\n"
             "shows the pages that attorney ordered, whoever wrote them; the invoice bills your pages of them.")
         self.att = QTableWidget(0, len(ATT_COLS))
@@ -1214,9 +1511,15 @@ class MainWindow(QMainWindow):
         hh.setStretchLastSection(False)
         for i, w in enumerate([30, 140, 190, 230, 115, 105, 190, 170, 60]):
             sized(self.att, "setColumnWidth", i, w, keep=1)
-        sized(self.att, "setMinimumHeight", 240)
+        for i in ATT_DETAIL_COLS:  # (in the details under the table; the columns stay, as the rows' data)
+            self.att.setColumnHidden(i, True)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        sized(self.att, "setMinimumHeight", 150)
         self.att.itemChanged.connect(self._att_changed)
+        self.att.currentCellChanged.connect(lambda *_: self._show_att_details())
         cl.addWidget(self.att)
+        self._build_att_details(cl, two_cols, form_in)
         # two rows that may be one firm or attorney ("Smith Law" and "Smith Law Group"): the user says (Same firm,
         # Not the same), and the answer is kept for later documents too (batch.firm_questions, Settings.firm_answers),
         # or with Remember unticked only until the app is closed
@@ -1249,19 +1552,20 @@ class MainWindow(QMainWindow):
         add.clicked.connect(self._add_att_row)
         rem = QPushButton("Remove selected")
         rem.clicked.connect(self._remove_att_rows)
-        hint = QLabel("Double-click a cell to edit. Separate address lines with  /")
+        hint = QLabel("Click a row to see and change all its details below; tick the attorneys who get a form.")
         hint.setObjectName("muted")
+        hint.setWordWrap(True)
         br.addWidget(add)
         br.addWidget(rem)
-        br.addStretch(1)
-        br.addWidget(hint)
+        br.addSpacing(12)
+        br.addWidget(hint, 1)
         cl.addLayout(br)
         rl.addWidget(c)
 
         # Who pays what: each invoice in short, right under the ticks that change it, kept up to date as
         # attorneys, speeds, Parties, Peripherals or Excerpts change (shown when an invoice is to be made)
-        self.pays_card, cl = card("Who pays what (the invoices)")
-        self.pays_title = cl.itemAt(0).widget()
+        self.pays_card, cl = folding("Who pays what (the invoices)", "pays")
+        self.pays_title = self.pays_card.heading
         self.pays_title.setToolTip(PAYS_TIP.format(**_who_splits(self.s)))
         self.pays = QLabel("")
         self.pays.setObjectName("payTable")
@@ -1278,12 +1582,19 @@ class MainWindow(QMainWindow):
 
         # Who ordered what: every attorney's order of every day the invoice covers, spelled out (shown while
         # Invoice is ticked and the job has a transcript or pages to bill)
-        self.orders_card, cl = card("Who ordered what")
+        self.orders_card, cl = folding("Who ordered what", "orders")
         top = QHBoxLayout()
-        self.orders_info = QLabel("")
+        self.orders_info = QLabel("")  # (the day shown, in a sentence: the rest is the ? button's, ORDERS_HELP)
         self.orders_info.setObjectName("muted")
         self.orders_info.setWordWrap(True)
+        self.orders_info.setToolTip(ORDERS_HELP)
         top.addWidget(self.orders_info, 1)
+        self.orders_help = QToolButton()
+        self.orders_help.setText("?")
+        self.orders_help.setObjectName("quick")
+        self.orders_help.setToolTip(ORDERS_HELP + "\n\nClick for more in the help.")
+        self.orders_help.clicked.connect(lambda: self.show_help("inv-who-ordered"))
+        top.addWidget(self.orders_help, 0, Qt.AlignTop)
         self.orders_edit = QPushButton("Edit excerpts…")
         self.orders_edit.clicked.connect(self._edit_orders)
         top.addWidget(self.orders_edit)
@@ -1309,16 +1620,38 @@ class MainWindow(QMainWindow):
         rl.addWidget(self.orders_card)
         rl.addStretch(1)
 
-        # footer: the Outputs box - the Generate buttons by its title, then a column per output with its own options
-        foot = QFrame()
+        # footer: the Outputs box - the Generate buttons by its title, then a column per output with its own options;
+        # folded, a line of small boxes instead of the panels (_fold_outputs)
+        self.foot = foot = QFrame()
         foot.setObjectName("card")
+        foot.setProperty("help_topic", "make-outputs")
         fv = QVBoxLayout(foot)
         fv.setContentsMargins(16, 10, 16, 10)
         fv.setSpacing(6)
         top = QHBoxLayout()
-        title = QLabel("Outputs")
+        self.outputs_fold = QToolButton()
+        self.outputs_fold.setObjectName("fold")
+        self.outputs_fold.setArrowType(Qt.DownArrow)
+        self.outputs_fold.setToolTip("Fold the Outputs box to one line (more room for the form); click again to "
+                                     "unfold it")
+        self.outputs_fold.clicked.connect(lambda: self._fold_outputs(not self.s.outputs_folded))
+        top.addWidget(self.outputs_fold)
+        title = ClickLabel("Outputs")
         title.setObjectName("section")
+        title.set_clickable(True)
+        title.clicked.connect(lambda: self._fold_outputs(not self.s.outputs_folded))
         top.addWidget(title)
+        # folded: a small box per output, ticked as its panel's is (_sync_mini_outputs), the invoice's speeds after it
+        self.outputs_line = QWidget()
+        ol = QHBoxLayout(self.outputs_line)
+        ol.setContentsMargins(12, 0, 0, 0)
+        ol.setSpacing(14)
+        self.mini_outputs: dict[str, QCheckBox] = {}
+        self.mini_speeds = QLabel("")
+        self.mini_speeds.setObjectName("muted")
+        self.outputs_line_layout = ol
+        self.outputs_line.setVisible(False)
+        top.addWidget(self.outputs_line)
         top.addStretch(1)
         self.fill_btn = QPushButton("Generate")
         self.fill_btn.setObjectName("generate")  # (the theme makes it stand out: the one thing to click at the end)
@@ -1330,10 +1663,12 @@ class MainWindow(QMainWindow):
         self.fill_all_btn.clicked.connect(self.fill_all_jobs)
         top.addWidget(self.fill_all_btn)
         fv.addLayout(top)
-        self.output_grid = QGridLayout()  # a panel per output, in a row or the last two stacked (_place_output_cols)
+        self.outputs_body = QWidget()  # (hidden while the box is folded)
+        self.output_grid = QGridLayout(self.outputs_body)  # a panel per output, in a row or the last two stacked
+        self.output_grid.setContentsMargins(0, 0, 0, 0)    # (_place_output_cols)
         self.output_grid.setHorizontalSpacing(10)
         self.output_grid.setVerticalSpacing(10)
-        fv.addLayout(self.output_grid)
+        fv.addWidget(self.outputs_body)
         self._output_cols: list[QWidget] = []
         self._cols_per_row = 0
         self.output_boxes: dict[str, QCheckBox] = {}
@@ -1347,6 +1682,7 @@ class MainWindow(QMainWindow):
             key = spec.key
             holder = QFrame()
             holder.setObjectName("outputPanel")
+            holder.setProperty("help_topic", OUTPUT_TOPICS.get(key, "make-outputs"))
             col = QVBoxLayout(holder)
             col.setContentsMargins(12, 8, 12, 10)
             col.setSpacing(6)
@@ -1357,6 +1693,14 @@ class MainWindow(QMainWindow):
             cb.toggled.connect(lambda _=False, k=key: self._outputs_changed(k))
             self.output_boxes[key] = cb
             col.addWidget(cb)
+            mini = QCheckBox(spec.label)
+            mini.setToolTip(spec.tip)
+            mini.setChecked(cb.isChecked())
+            mini.toggled.connect(lambda on, k=key: self.output_boxes[k].setChecked(on))
+            self.mini_outputs[key] = mini
+            self.outputs_line_layout.addWidget(mini)
+            if key == "invoice":
+                self.outputs_line_layout.addWidget(self.mini_speeds)
             rule = QFrame()
             rule.setObjectName("outputRule")
             rule.setFixedHeight(1)
@@ -1388,10 +1732,39 @@ class MainWindow(QMainWindow):
         if "invoice" in self.output_boxes:
             self._fill_invoice_speeds()
         self._place_output_cols()
-        root.addWidget(foot)
+        self.vsplit.addWidget(foot)
+        self.vsplit.setStretchFactor(0, 1)
+        self.vsplit.setStretchFactor(1, 0)
+        self._restore_splits()
         self._refresh_jobs()
 
         self._build_menu()
+        self.recent_docs.setMenu(self.recent_menu)
+        # Undo for New job, at the bottom of the window for a few seconds (_offer_undo)
+        self.undo_box = QWidget()
+        ub = QHBoxLayout(self.undo_box)
+        ub.setContentsMargins(4, 0, 4, 0)
+        ub.setSpacing(8)
+        self.undo_text = QLabel("")
+        ub.addWidget(self.undo_text)
+        self.undo_btn = QPushButton("Undo")
+        self.undo_btn.setToolTip("Bring back what New job cleared")
+        self.undo_btn.clicked.connect(self._undo_clear)
+        ub.addWidget(self.undo_btn)
+        self.statusBar().addWidget(self.undo_box)
+        self.undo_box.setVisible(False)
+        self._undo_timer = QTimer(self)
+        self._undo_timer.setSingleShot(True)
+        self._undo_timer.timeout.connect(self._drop_undo)
+        # the dates follow the day: past midnight, or the evening hour of Settings -> Dates (_redate)
+        self._day_timer = QTimer(self)
+        self._day_timer.setInterval(60_000)
+        self._day_timer.timeout.connect(self._redate)
+        self._day_timer.start()
+        for key, fr in self.cards.items():
+            if key in self.s.folded_cards:
+                self._fold_card(fr, True, save=False)
+        self._fold_outputs(self.s.outputs_folded, save=False)
         QShortcut(QKeySequence.Paste, self, activated=self._paste_shortcut)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=self.new_job)
         QShortcut(QKeySequence("Ctrl+O"), self, activated=self.browse)
@@ -1400,12 +1773,14 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Enter"), self, activated=self.fill)  # (the Enter of the number keys)
         QShortcut(QKeySequence("Ctrl+Shift+Enter"), self, activated=self.fill_all_jobs)
         QShortcut(QKeySequence("Ctrl+R"), self, activated=self.open_records)
-        QShortcut(QKeySequence("F1"), self, activated=self.show_guide)
+        QShortcut(QKeySequence("F1"), self, activated=lambda: self.show_help(help_topic_of(self.focusWidget())))
         for keys, step in (("Ctrl++", 1), ("Ctrl+=", 1), ("Ctrl+-", -1), ("Ctrl+0", 0)):
             QShortcut(QKeySequence(keys), self, activated=lambda s=step: self.zoom_step(s))
 
     def _build_menu(self):
-        """The File and Help menus (zoom has no menu: Ctrl + / Ctrl - / Ctrl 0 and Ctrl + wheel)."""
+        """The File, View and Help menus. View's zoom items only name their keys, after a tab (Ctrl + / Ctrl - /
+        Ctrl 0 are the window's shortcuts, see _build, and Ctrl + wheel its eventFilter's): as shortcuts of the menu
+        too, they would be taken twice."""
         from .dialogs import AboutDialog, FEEDBACK_URL, WEBSITE_URL
         mb = self.menuBar()
         m = mb.addMenu("&File")
@@ -1425,8 +1800,31 @@ class MainWindow(QMainWindow):
         m.addAction("&Lock finished PDFs (no more changes)…", self.lock_pdfs)
         m.addSeparator()
         m.addAction("E&xit", self.close)
+        m = self.view_menu = mb.addMenu("&View")
+        m.addAction("Zoom &in\tCtrl++", lambda: self.zoom_step(1))
+        m.addAction("Zoom &out\tCtrl+-", lambda: self.zoom_step(-1))
+        m.addAction("&Actual size\tCtrl+0", lambda: self.zoom_step(0))
+        theme = m.addMenu("&Theme")
+        self.theme_actions = QActionGroup(self)
+        for key, label in (("system", "&As Windows is"), ("light", "&Light"), ("dark", "&Dark")):
+            act = theme.addAction(label, lambda k=key: self._set_theme(k))
+            act.setCheckable(True)
+            act.setData(key)
+            act.setChecked(key == (self.s.theme if self.s.theme in ("light", "dark") else "system"))
+            self.theme_actions.addAction(act)
+        m.addSeparator()
+        self.fold_outputs_action = m.addAction("&Fold the Outputs box", lambda: self._fold_outputs(
+            self.fold_outputs_action.isChecked()))
+        self.fold_outputs_action.setCheckable(True)
+        self.fold_outputs_action.setChecked(self.s.outputs_folded)
+        m.addAction("Fold all &cards", lambda: self._fold_all(True))
+        m.addAction("&Unfold all cards", lambda: self._fold_all(False))
+        m.addSeparator()
+        self.yin_action = m.addAction("Show the &yin-yang", lambda: self._show_yin(self.yin_action.isChecked()))
+        self.yin_action.setCheckable(True)
+        self.yin_action.setChecked(self.s.show_yin)
         m = mb.addMenu("&Help")
-        m.addAction("&How to use YinItAgreementForm…\tF1", self.show_guide)
+        m.addAction("&How to use YinItAgreementForm…\tF1", lambda: self.show_help())
         m.addAction("The &website (pictures and the latest version)", lambda: open_url(WEBSITE_URL))
         m.addAction("Check for a &newer version", lambda: self._check_update(asked=True))
         m.addSeparator()
@@ -1437,14 +1835,467 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction("&About YinItAgreementForm", lambda: AboutDialog(self).exec())
 
+    # --------------------------------------------------------- folding, dividers, drops
+    def _restore_splits(self) -> None:
+        """The dividers where the user left them (Settings.window_splits). The left column's, restored, is kept
+        for the first job too (_place_left_split places it only when one job becomes a batch or back)."""
+        for name, sp in (("outer", self.vsplit), ("left", self.left_split)):
+            state = self.s.window_splits.get(name)
+            if state and sp.restoreState(QByteArray.fromBase64(state.encode())) and name == "left":
+                self._left_mode = "single"
+
+    def _save_splits(self) -> None:
+        """Remembers where the dividers are (closeEvent): the Outputs box's as it is unfolded."""
+        if self.s.outputs_folded and getattr(self, "_unfolded", None):
+            with QSignalBlocker(self.vsplit):
+                now = self.vsplit.sizes()
+                self.vsplit.setSizes(self._unfolded)
+                outer = self.vsplit.saveState()
+                self.vsplit.setSizes(now)
+        else:
+            outer = self.vsplit.saveState()
+        self.s.window_splits = {"outer": bytes(outer.toBase64()).decode(),
+                                "left": bytes(self.left_split.saveState().toBase64()).decode()}
+
+    def _place_left_split(self, multi: bool) -> None:
+        """The divider between the job list and the paste box, when one job becomes a batch or back: one job
+        leaves the list a few rows (its documents) and the paste box the rest; a batch gives the list the room,
+        leaving the paste box a few lines. Dragged, it stays until the next change."""
+        mode = "batch" if multi else "single"
+        # (a taller window gives its room to the paste box for one job, to the list for a batch)
+        self.left_split.setStretchFactor(0, 1 if multi else 0)
+        self.left_split.setStretchFactor(1, 0 if multi else 1)
+        if mode == self._left_mode:
+            return
+        sizes = self.left_split.sizes()
+        total = sum(sizes)
+        if total <= 0 or not self.left_split.isVisible():
+            return  # (not laid out yet: placed when the window shows, see showEvent)
+        self._left_mode = mode
+        if multi:
+            bottom = self.left_split.widget(1).minimumSizeHint().height() + z(16)
+            self.left_split.setSizes([max(total - bottom, z(140)), bottom])
+        else:
+            top = z(110) + (self.index_note.sizeHint().height() if not self.index_note.isHidden() else 0)
+            self.left_split.setSizes([top, max(total - top, z(120))])
+
+    def _fold_outputs(self, folded: bool, save: bool = True) -> None:
+        """Folds the Outputs box to one line (its title, a small box per output and the Generate buttons) or
+        unfolds it, as the divider had it before. Kept for the next time (Settings.outputs_folded)."""
+        if folded and not self.outputs_body.isHidden() and self.vsplit.sizes()[1] > 0:
+            self._unfolded = self.vsplit.sizes()  # (to put back on unfolding)
+        self.outputs_body.setVisible(not folded)
+        self.outputs_line.setVisible(folded)
+        self.outputs_fold.setArrowType(Qt.RightArrow if folded else Qt.DownArrow)
+        self.outputs_fold.setToolTip("Unfold the Outputs box (each output's options)" if folded else
+                                     "Fold the Outputs box to one line (more room for the form)")
+        self._sync_mini_outputs()
+        if folded:
+            self.foot.layout().activate()
+            h = self.foot.sizeHint().height()
+            self.foot.setMaximumHeight(h)
+            total = sum(self.vsplit.sizes())
+            if total > 0:  # (the room it leaves goes to the form)
+                self.vsplit.setSizes([max(total - h, 1), h])
+        else:
+            self.foot.setMaximumHeight(16777215)  # (QWIDGETSIZE_MAX)
+            self.foot.layout().activate()
+            sizes = getattr(self, "_unfolded", None)
+            total = sum(self.vsplit.sizes())
+            if sizes and total > 0:
+                self.vsplit.setSizes(sizes)
+            elif total > 0:
+                h = self.foot.sizeHint().height()
+                self.vsplit.setSizes([max(total - h, 1), h])
+        if hasattr(self, "fold_outputs_action"):
+            self.fold_outputs_action.setChecked(folded)
+        if self.s.outputs_folded != folded:
+            self.s.outputs_folded = folded
+            if save:
+                self._save_settings()
+
+    def _sync_mini_outputs(self) -> None:
+        """The folded Outputs box's small boxes ticked (and greyed) as the panels' are, and the speeds the invoice
+        offers after Invoice ("(Regular, Expedite)")."""
+        if not getattr(self, "_outputs_built", False):
+            return
+        for key, mini in self.mini_outputs.items():
+            big = self.output_boxes[key]
+            with QSignalBlocker(mini):
+                mini.setChecked(big.isChecked())
+            mini.setEnabled(big.isEnabled())
+        if "invoice" in self.output_boxes:
+            speeds = [name for name, cb in getattr(self, "inv_speed_boxes", {}).items() if cb.isChecked()]
+            on = self.output_boxes["invoice"].isChecked() and bool(speeds)
+            self.mini_speeds.setText(f"({', '.join(speeds)})" if on else "")
+            self.mini_speeds.setVisible(on)
+
+    def _fold_card(self, fr: QFrame, folded: bool, save: bool = True) -> None:
+        """Folds a card to its heading and a line that sums it up (_card_summaries), or unfolds it. The card stays
+        shown (or hidden) as it was. Kept for the next time (Settings.folded_cards)."""
+        fr.body.setVisible(not folded)
+        fr.summary.setVisible(folded)
+        fr.fold.setArrowType(Qt.RightArrow if folded else Qt.DownArrow)
+        fr.fold.setToolTip("Unfold this card" if folded else "Fold this card to one line (click again to unfold it)")
+        if folded:
+            self._card_summaries()
+        keys = [k for k in self.s.folded_cards if k != fr.key] + ([fr.key] if folded else [])
+        if keys != self.s.folded_cards:
+            self.s.folded_cards = keys
+            if save:
+                self._save_settings()
+
+    def _fold_all(self, folded: bool) -> None:
+        """View -> Fold all cards / Unfold all cards."""
+        for fr in self.cards.values():
+            self._fold_card(fr, folded, save=False)
+        self._save_settings()
+
+    def _card_summaries(self) -> None:
+        """The line each folded card shows: what it holds in short, "⚠ " first when something in it needs a look
+        (a required field blank, nobody ticked, a speed to choose)."""
+        if not hasattr(self, "cards"):
+            return
+        folded = {k for k, fr in self.cards.items() if fr.body.isHidden()}
+        if not folded:
+            return
+        case, job = self.case, self.cur
+        missing = set(case.missing_required()) if not job.is_empty() else set()
+        lines = {}
+        if "case" in folded:
+            judge = case.get("judge")
+            bits = [case.get("case_name"), case.get("index_no"), case.get("dates"),
+                    f"Justice {judge}" if judge else "", f"Part {case.get('part')}" if case.get("part") else "",
+                    ", ".join(sorted(case.proc_types))]
+            lines["case"] = (bool(missing & set(CASE_KEYS)), bits)
+        if "details" in folded:
+            pages, copies = case.get("est_pages"), case.get("copies")
+            rate = case.get("rate")
+            bits = [self.sheet_box.currentText(),
+                    f"{case.get('delivery')} ${rate}/pg" if case.get("delivery") and rate else case.get("delivery"),
+                    f"{pages} pages" if pages else "", f"{copies} {'copy' if copies == '1' else 'copies'}" if copies
+                    else "", f"delivery {case.get('delivery_date')}" if case.get("delivery_date") else ""]
+            lines["details"] = (bool(missing & set(DETAIL_KEYS)) or bool(job.speed_question()), bits)
+        if "attorneys" in folded:
+            atts = [a for a in case.attorneys if (a.name or a.firm).strip()]
+            ticked = [a.name or a.firm for a in atts if a.checked]
+            text = f"{len(ticked)} of {len(atts)} ticked" + (f": {', '.join(ticked)}" if ticked else "")
+            lines["attorneys"] = (bool(atts) and not ticked, [text if atts else "No attorneys yet"])
+        if "pays" in folded:
+            names = [(f.atty.firm or f.atty.name) if f.atty else "(no one ticked)" for f in self._pay_firms]
+            lines["pays"] = (False, [f"{plural(len(names), 'invoice')}: {', '.join(names)}" if names else
+                                     "Nothing to bill yet"])
+        if "orders" in folded:
+            t = self.orders
+            rows = [" ".join(t.item(r, c).text() for c in (0,) if t.item(r, c)) + ": " +
+                    ", ".join(t.item(r, c).text() for c in (1, 2) if t.item(r, c) and t.item(r, c).text())
+                    for r in range(t.rowCount())]
+            lines["orders"] = (self.orders_info.text().startswith("⚠"), ["; ".join(rows) or "Nobody yet"])
+        for key, (warn, bits) in lines.items():
+            text = "  ·  ".join(b for b in bits if b and b.strip())
+            self.cards[key].summary.setText(("⚠ " if warn else "") + text)
+
+    # (a file dragged over the window: read wherever it is dropped, as on the drop zone; a text box would take
+    # its path as typed text)
+    @staticmethod
+    def _files_or_picture(md) -> bool:
+        """Whether a drag holds files of this computer or a picture (what any part of the window takes)."""
+        return (md.hasUrls() and any(u.isLocalFile() for u in md.urls())) or md.hasImage()
+
+    def dragEnterEvent(self, e) -> None:
+        """Files, a picture or text dragged over the window (outside the drop zone, which takes its own): the drop
+        zone lights up. Text dragged from one of the window's own boxes is not taken: let go over a card by mistake,
+        it would be cut from its box and read as a new e-mail."""
+        md = e.mimeData()
+        if e.source() is not None and not self._files_or_picture(md):
+            return
+        if md.hasUrls() or md.hasText() or md.hasImage():
+            e.acceptProposedAction()
+            self.drop._hover(True)
+
+    def dragMoveEvent(self, e) -> None:
+        """Keeps taking the drag while it moves over the window."""
+        e.acceptProposedAction()
+
+    def dragLeaveEvent(self, e) -> None:
+        """The drag left the window: the drop zone's light goes off."""
+        self.drop._hover(False)
+
+    def dropEvent(self, e) -> None:
+        """Dropped anywhere in the window: read as on the drop zone (handle_mime)."""
+        self.drop._hover(False)
+        handle_mime(e.mimeData(), self.add_files, self.add_text, self.add_qimage)
+        e.acceptProposedAction()
+
+    def _drag_filter(self, obj, e) -> bool:
+        """(eventFilter) Files or a picture dragged over any part of this window but the drop zone (which takes its
+        own): taken by the window, so a text box or table doesn't take a path as typed text. True when the event was
+        handled."""
+        w = obj if isinstance(obj, QWidget) else None
+        if w is None or w.window() is not self or w is self.drop or self.drop.isAncestorOf(w):
+            return False
+        md = e.mimeData()
+        if not self._files_or_picture(md):
+            return False
+        if e.type() == QEvent.Drop:
+            self.dropEvent(e)
+        else:
+            e.acceptProposedAction()
+            self.drop._hover(True)
+        return True
+
+    # --------------------------------------------------------- the attorney table's details
+    def _build_att_details(self, cl: QVBoxLayout, two_cols, form_in) -> None:
+        """Under the attorney table: every detail of the row selected (the table shows who, firm and role),
+        typed into here (_att_detail_edited) and written into the table's row, as a cell typed into is."""
+        self.att_details = QWidget()
+        lay = QVBoxLayout(self.att_details)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.att_which = QLabel("")  # whose details these are ("Details of the row selected: Dana Smith")
+        self.att_which.setObjectName("muted")
+        lay.addWidget(self.att_which)
+        colA, colB = two_cols(lay)
+        fa, fb = form_in(colA), form_in(colB)
+        self.att_edits: dict[int, QWidget] = {}
+        # the boxes typed in (or filled from their list of past values) since they last showed or wrote their row:
+        # only those are kept through a refresh and written back (_att_typed); one only clicked into holds nothing
+        # of the user's, and what the AI or a read puts in the row meanwhile wins
+        self._att_dirty: set[int] = set()
+        self._att_filling = False  # (set while _show_att_details fills the boxes: that isn't typing)
+        for col, form in ((1, fa), (2, fa), (3, fa), (4, fb), (5, fb), (6, fb), (7, fb)):
+            if col == 3:
+                w = QPlainTextEdit()
+                sized(w, "setFixedHeight", 58)
+                w.setPlaceholderText("One line per line of the address")
+                w.installEventFilter(self)  # (written into the table when it loses the focus: eventFilter)
+                w.textChanged.connect(lambda c=col: self._att_box_changed(c))
+            else:
+                w = QLineEdit()
+                w.editingFinished.connect(lambda c=col: self._att_detail_edited(c))
+                w.textChanged.connect(lambda _text, c=col: self._att_box_changed(c))
+            self.att_edits[col] = w
+            lab = QLabel(ATT_COLS[col])
+            lab.setObjectName("fieldLabel")
+            form.addRow(lab, w)
+        self.att_source = QLabel("")
+        self.att_source.setObjectName("muted")
+        lab = QLabel("Source")
+        lab.setObjectName("fieldLabel")
+        fb.addRow(lab, self.att_source)
+        cl.addWidget(self.att_details)
+        self._att_row = -1  # the row the details show
+        self._att_job = None  # and of which job
+        self._show_att_details()
+
+    def _show_att_details(self) -> None:
+        """The details of the row selected (the first when none is); hidden while the table has no row."""
+        if not hasattr(self, "att_edits"):
+            return
+        r = self.att.currentRow()
+        if r < 0 and self.att.rowCount():
+            r = 0
+        # (the same row of the same job: what is being typed stays; another row, or another job shown meanwhile, as
+        # when a read finishes, has details of its own, which replace it)
+        same = r == self._att_row and self.cur is self._att_job
+        self._att_row, self._att_job = r, self.cur
+        on = 0 <= r < self.att.rowCount()
+        self.att_details.setVisible(on)  # (no rows: nothing to spell out)
+        for col, w in self.att_edits.items():
+            if same and w.hasFocus() and self._att_typed(col):
+                continue  # (being typed in: a refresh meanwhile mustn't take the typing back)
+            item = self.att.item(r, col) if on else None
+            text = item.text() if item else ""
+            self._att_filling = True
+            try:
+                if col == 3:
+                    lines = "\n".join(p.strip() for p in re.split(r"\s+/\s*|\s*/\s+", text) if p.strip())
+                    if w.toPlainText() != lines:
+                        w.setPlainText(lines)
+                elif w.text() != text:
+                    w.setText(text)
+            finally:
+                self._att_filling = False
+            self._att_dirty.discard(col)  # (what the row holds: nothing to write back)
+        source = self.att.item(r, 8).text() if on and self.att.item(r, 8) else ""
+        self.att_source.setText(badge_word(source))
+        self.att_source.setToolTip(BADGE_TIPS.get(source, ""))
+        who = " — ".join(self.att.item(r, c).text() for c in (1, 2) if on and self.att.item(r, c)
+                         and self.att.item(r, c).text().strip())
+        self.att_which.setText(f"Details of row {r + 1}: {who}" if on else "")
+
+    def _att_detail_edited(self, col: int) -> None:
+        """A detail typed (Enter, or the box left): written into the row's cell, which updates the job as typing
+        in the cell does (_att_changed). An address's lines are joined with " / ", as the table writes them."""
+        r = self._att_row
+        if not 0 <= r < self.att.rowCount():
+            return
+        w = self.att_edits[col]
+        text = (" / ".join(line.strip() for line in w.toPlainText().splitlines() if line.strip()) if col == 3
+                else w.text().strip())
+        item = self.att.item(r, col)
+        if item is None:
+            item = QTableWidgetItem("")
+            self.att.setItem(r, col, item)
+        self._att_dirty.discard(col)
+        if item.text() != text:
+            item.setText(text)  # (fires itemChanged: _att_changed)
+
+    def _att_box_changed(self, col: int) -> None:
+        """A detail box's text changed: by the user (typed, pasted, picked from its list), unless the window is
+        filling it from the row."""
+        if not self._att_filling:
+            self._att_dirty.add(col)
+
+    def _att_typed(self, col: int) -> bool:
+        """Whether the detail box of that column was typed in since it last showed or wrote the row (a box only
+        clicked into holds nothing of the user's: what the AI or a read put in the row meanwhile wins)."""
+        return col in self._att_dirty
+
+    def _commit_att_details(self) -> None:
+        """A detail still being typed is written into the table first (Ctrl+Enter generates without leaving the
+        box: see _commit_edit)."""
+        if not hasattr(self, "att_edits"):
+            return
+        fw = QApplication.focusWidget()
+        for col, w in self.att_edits.items():
+            if w is fw and self._att_typed(col):
+                self._att_detail_edited(col)
+
+    # --------------------------------------------------------- what the records hold (read off the window's thread)
+    def _read_records_side(self) -> None:
+        """Reads what the window shows from the records: the jobs made lately (the start card), the values the
+        fields complete from, and the Records button's count. At startup and after the records change."""
+        from ..records import past_values, recent_jobs
+
+        def jobs_read(found) -> None:
+            self._recent_jobs = list(found or [])
+            self._show_start()
+
+        self.runner.start(recent_jobs, on_done=jobs_read, on_error=lambda _m: None)
+        self.runner.start(past_values, on_done=self._fill_completions, on_error=lambda _m: None)
+        self._count_records()
+
+    def _fill_completions(self, values: dict) -> None:
+        """The court, part and judge fields and the attorney details' name and firm complete what is typed from
+        the records' values (records.past_values): a list under the box, any part of a value matching."""
+        boxes = {"court": [self.rows["court"].edit], "part": [self.rows["part"].edit],
+                 "judge": [self.rows["judge"].edit], "firm": [self.att_edits[2]], "name": [self.att_edits[1]]}
+        for key, edits in boxes.items():
+            model = self._completions.get(key)
+            if model is None:
+                model = self._completions[key] = QStringListModel(self)
+                for edit in edits:
+                    comp = QCompleter(model, edit)
+                    comp.setCaseSensitivity(Qt.CaseInsensitive)
+                    comp.setFilterMode(Qt.MatchContains)
+                    comp.setCompletionMode(QCompleter.PopupCompletion)
+                    edit.setCompleter(comp)
+            model.setStringList(list((values or {}).get(key, [])))
+
+    def _show_start(self) -> None:
+        """The start card, shown while nothing is loaded: a link per job made lately (records.recent_jobs) that
+        opens it again, Recent documents, and how to begin. Hidden as soon as anything is loaded, typed or pasted,
+        or being read (_loaded)."""
+        if not hasattr(self, "start_card"):
+            return
+        empty = not self._loaded()
+        self.start_card.setVisible(empty)
+        if not empty or getattr(self, "_start_shown", None) == self._recent_jobs:
+            return
+        self._start_shown = list(self._recent_jobs)  # (the links are made again only when the list changed)
+        while self.start_list.count():
+            item = self.start_list.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for case, dates, ts, origin in self._recent_jobs:
+            made = f"made {us_date(ts[:10])}" if ts else ""
+            text = "  ·  ".join(b for b in (case or "(no case name)", dates, made) if b)
+            link = ClickLabel(text)
+            link.setTextFormat(Qt.PlainText)
+            link.setObjectName("startLink")
+            link.set_clickable(True)
+            link.setToolTip("Open this job again, as it was made")
+            link.clicked.connect(lambda o=origin: self.open_past_job(o))
+            self.start_list.addWidget(link)
+        self.start_card.heading.setText("Recent jobs" if self._recent_jobs else "Start")
+
+    # --------------------------------------------------------- the Records button's count
+    def _count_records(self) -> None:
+        """Counts the invoices of the status Settings -> Records names (records_count: "Ready to send", "Not paid",
+        or "" for none) off the window's thread, for the Records button (_show_count). A count asked for meanwhile
+        replaces this one."""
+        from ..records import live_invoices
+        from ..tracking import count_of
+        self._counting += 1
+        n, name = self._counting, self.s.records_count
+        if not name:
+            self._show_count(name, 0)
+            return
+        boxes, rules = self.s.boxes(), self.s.rules()
+
+        def count() -> int | None:
+            try:
+                return count_of(name, live_invoices(), boxes, rules)
+            except OSError:  # (the records can't be read just now, a restore: the count stays as it was; not an
+                return None  # error each time the window comes back, which would fill the log)
+
+        def done(found: int | None) -> None:
+            if n == self._counting and found is not None:  # (a newer count is on its way: this one is out of date)
+                self._show_count(name, found)
+
+        self.runner.start(count, on_done=done, on_error=lambda _m: None)
+
+    def _show_count(self, name: str, n: int) -> None:
+        """The Records button with its count ("Records · Ready to send: 3"), or plain at 0 or with none chosen."""
+        if n and name:
+            self.rec_btn.setText(f"Records · {name}: {n}")
+            self.rec_btn.setToolTip(f"{plural(n, 'invoice')} {'is' if n == 1 else 'are'} {name} (Settings → Records → "
+                                    f"Count on the Records button changes or turns off this count).\n{RECORDS_TIP}")
+        else:
+            self.rec_btn.setText("Records")
+            self.rec_btn.setToolTip(RECORDS_TIP)
+        self._fit_corner()
+
+    def _fit_corner(self) -> None:
+        """The menu bar makes room for its corner (the status and the buttons) again when their text got longer or
+        shorter: it measures the corner only when it is set, not as it changes."""
+        box = getattr(self, "head_box", None)
+        if box is None:
+            return
+        hint = box.sizeHint()
+        if hint != getattr(self, "_corner_hint", None):
+            self._corner_hint = hint
+            self.menuBar().setCornerWidget(box, Qt.TopRightCorner)
+
+    def changeEvent(self, e) -> None:
+        """Back to the window (from the Records window, where invoices are ticked, or another program): the
+        Records button counts again, at most every 2 s, and the dates follow the day if it changed meanwhile
+        (_redate: the computer woke up the next morning)."""
+        super().changeEvent(e)
+        if e.type() == QEvent.ActivationChange and self.isActiveWindow() and hasattr(self, "rec_btn"):
+            self._redate()
+            self._count_on_activation()
+
+    def _count_on_activation(self) -> None:
+        """The Records button counts again, unless it did less than 2 s ago: then once those are up (a tick in the
+        Records window and straight back would otherwise leave the count as it was)."""
+        wait = 2 - (time.monotonic() - self._activated)
+        if wait > 0:
+            if not self._count_later.isActive():
+                self._count_later.start(int(wait * 1000) + 1)
+            return
+        self._activated = time.monotonic()
+        self._count_records()
+
     # --------------------------------------------------------- startup
     def _startup(self):
         """Runs once the window is on screen: the welcome questions on the first run (no name yet; asked once),
-        then the AI check, the day's backup of the records, once a day the look for a newer version, and a warning
-        when the rate sheet in use is incomplete and the user hasn't said to use it as it is (_check_rate_sheet).
-        A settings file that couldn't be read is said so instead of the welcome: the app runs on the defaults, and
-        nothing is written over the file until the user presses Save in Settings or imports settings
-        (Settings.save(force=True))."""
+        then the AI check, the day's backup of the records, what the window shows from the records (the jobs made
+        lately, the completions, the Records button's count), the Update button of a newer version found before and,
+        once a day, the look for a newer version, and a warning when the rate sheet in use is incomplete and the
+        user hasn't said to use it as it is (_check_rate_sheet). A settings file that couldn't be read is said so
+        instead of the welcome: the app runs on the defaults, and nothing is written over the file until the user
+        presses Save in Settings or imports settings (Settings.save(force=True))."""
         if self.s.unreadable:
             QMessageBox.warning(self, "Your settings couldn't be read",
                                 "Your settings file couldn't be read (it may be damaged, or held by another "
@@ -1457,6 +2308,8 @@ class MainWindow(QMainWindow):
             self.welcome()
         self._check_ai()
         self.runner.start(backup_records, backup_folder(self.s))  # off the UI thread: a big database takes a moment
+        self._read_records_side()  # (the jobs made lately, what fields complete from, the Records button's count)
+        self._show_known_update()  # (found on an earlier day, or earlier today: shown every time until installed)
         if self.s.check_updates and self.s.update_checked != date.today().isoformat():
             self._check_update()
         self._check_rate_sheet()  # (edited since the app last ran, or incomplete and never answered)
@@ -1478,21 +2331,26 @@ class MainWindow(QMainWindow):
             logfile.error("could not save the settings", e)
 
     def _check_update(self, asked: bool = False) -> None:
-        """Asks GitHub, in the background, whether there is a newer version (see update.py) and shows a line
-        with a link in the status bar when there is. asked: Help -> Check for a newer version, which also says
-        so when there is none, or when GitHub can't be reached; the daily look says nothing then."""
+        """Asks GitHub, in the background, whether there is a newer version (see update.py) and shows the Update
+        button at the top when there is (_show_update; remembered, so it shows every time until installed).
+        asked: Help -> Check for a newer version, which also says so when there is none, or when GitHub can't be
+        reached; the daily look says nothing then."""
         from .. import update
 
         def done(found):
             self.s.update_checked = date.today().isoformat()
-            self._save_settings()
             if found:
                 self._show_update(*found)
                 if asked:
-                    QMessageBox.information(self, "A newer version", f"Version {found[0]} is available. The link "
-                                            "at the bottom of the window opens its download page.")
-            elif asked:
-                QMessageBox.information(self, "Up to date", f"You have the latest version ({update.__version__}).")
+                    QMessageBox.information(self, "A newer version", f"Version {found[0]} is available. The "
+                                            "Update button at the top of the window opens its download page.")
+            else:  # (none newer: one remembered was installed, or taken back)
+                self.s.update_version = self.s.update_page = ""
+                self._show_known_update()
+                if asked:
+                    QMessageBox.information(self, "Up to date",
+                                            f"You have the latest version ({update.__version__}).")
+            self._save_settings()
 
         def failed(msg):
             if asked:
@@ -1502,14 +2360,34 @@ class MainWindow(QMainWindow):
         self.runner.start(update.newer, on_done=done, on_error=failed)
 
     def _show_update(self, version: str, page: str) -> None:
-        """A newer version is out: a line in the status bar that stays, with a link to its download page."""
-        if getattr(self, "update_label", None) is None:
-            self.update_label = QLabel()
-            self.update_label.linkActivated.connect(open_url)
-            self.statusBar().addPermanentWidget(self.update_label)
-        self.update_label.setText(f'Version {version} is available: <a href="{page}">get it</a>')
-        self.update_label.setToolTip("Opens the download page in your browser. Nothing is installed by itself.\n"
-                                     "Settings → Options turns this daily check off.")
+        """A newer version is out: remembered (Settings.update_version, update_page), and a button at the top of
+        the window, beside Records, that opens its download page. (A line in the status bar, as before 2.8.0, went
+        unseen at the bottom of a laptop's screen.)"""
+        from .. import update
+        self.s.update_version, self.s.update_page = version, page
+        self.update_btn.setText(f"⬆  Update to {version}")
+        self.update_btn.setToolTip(f"Version {version} is out (you have {update.__version__}). Click to open its "
+                                   "download page in your browser; nothing is installed by itself.\n"
+                                   "Settings → Options turns the daily look for a newer version off.")
+        self.update_btn.setVisible(True)
+        self._fit_corner()
+
+    def _show_known_update(self) -> None:
+        """The newer version found earlier, shown again (each time the app starts, until this copy is that version
+        or newer: then it is forgotten). Hidden while the daily look is turned off in Settings."""
+        from .. import update
+        version = self.s.update_version
+        if version and update.version_key(version) <= update.version_key(update.__version__):
+            self.s.update_version = self.s.update_page = version = ""  # (installed)
+        if version and self.s.check_updates:
+            # (read back from settings.json, which anyone could edit: the button opens only a page of this project
+            # in the browser, as update.latest gives it)
+            page = self.s.update_page
+            self._show_update(version, page if page.startswith(update.RELEASES_PAGE + "/")
+                              else update.RELEASES_PAGE + "/latest")
+        else:
+            self.update_btn.setVisible(False)
+            self._fit_corner()
 
     # ------------------------------------------------------ recent files, settings to and from a file
     def _fill_recent(self) -> None:
@@ -1591,9 +2469,12 @@ class MainWindow(QMainWindow):
             new.write_imported_sheets()  # (only now: answering No leaves the rate sheet folder as it was)
             if self.s.path.exists():
                 self.s.path.with_name("settings before import.json").write_bytes(self.s.path.read_bytes())
-            # the Settings object is shared (the Records window, the AI helper): filled in place
+            # the Settings object is shared (the Records window, the AI helper): filled in place. This computer's
+            # own (LOCAL) are left as they are now: `new` copied them before the question, and the day's look for
+            # a newer version, or a divider moved, may have changed them while it waited
             for name in Settings.__dataclass_fields__:
-                setattr(self.s, name, getattr(new, name))
+                if name not in LOCAL:
+                    setattr(self.s, name, getattr(new, name))
             self.s.save(force=True)  # (the user's own choice: written even over a settings file that couldn't be read)
         except OSError as e:
             show_save_error(self, e, "Could not import the settings")
@@ -1601,10 +2482,10 @@ class MainWindow(QMainWindow):
         self._settings_changed(sheet=sheet)
         self._toast("Settings imported.")
 
-    def show_guide(self):
-        """Help -> How to use (F1): what goes in, what comes out, the steps and tips."""
-        from .dialogs import GuideDialog
-        GuideDialog(self).exec()
+    def show_help(self, topic: str = ""):
+        """Help -> How to use, and F1 (the topic of the part of the window that has the focus): the Help window, at
+        that topic (or where it was), left open beside the window (gui/help_window)."""
+        return open_help(topic, self)
 
     def _ai_help(self, _link=""):
         """Shows the Ollama setup help, then checks the AI again (a model may have been installed)."""
@@ -1947,16 +2828,17 @@ class MainWindow(QMainWindow):
     def _refresh_jobs(self):
         """Rebuilds the list on the left: a row per job (_shown_jobs), its documents' rows under it (_sync_job_row),
         then their text (_refresh_job_labels), the job on screen selected. A batch gets a tick per job, Generate
-        all and "Generate this job"; a single job a short list, leaving room for the big picture (see
-        _size_drop). The jobs whose documents the user folded away stay folded."""
+        all and "Generate this job", and most of the column (the divider above the paste box: _place_left_split);
+        a single job a short list. The jobs whose documents the user folded away stay folded."""
         multi = len(self.jobs) > 1
         self.fill_all_btn.setVisible(multi)
         # (set here, not with sized(): a zoom change must not give a single job the batch's height)
         self.job_list.setMinimumHeight(z(140) if multi else z(56))
-        self.job_list.setMaximumHeight(16777215 if multi else z(110))
+        # (the divider's least height, its panes' least: asked of the column although it asks for no more)
+        self.left_split.setMinimumHeight(self.left_split.minimumSizeHint().height())
+        self._place_left_split(multi)
         self._size_drop()
-        self.paste.setMaximumHeight(z(64) if multi else 16777215)
-        self.fill_btn.setText("Generate this job" if multi else "Generate")
+        self._fill_btn_text()
         self.fill_btn.setToolTip("Make the ticked outputs for the day shown alone: its own agreements, MOFR and "
                                  "invoice (Ctrl+Enter)" if multi else "Make the ticked outputs (Ctrl+Enter)")
         self.fill_btn.setObjectName("" if multi else "generate")  # (Generate all is the one to click then)
@@ -2267,7 +3149,9 @@ class MainWindow(QMainWindow):
         not those the window showed last)."""
         self.cur.refresh_copies(self.s)
         apply_speed_rule(self.case, self.s)
+        loaded = self._loaded()
         for key, r in self.rows.items():
+            r.show_missing = loaded  # (an empty window has nothing missing yet)
             r.set_state(self.case.fields[key])
         self._fill_speeds()
         for p, cb in self.proc_boxes.items():
@@ -2277,15 +3161,36 @@ class MainWindow(QMainWindow):
         self._show_attorneys()
         self._refresh_outputs()
         self._show_index_notes()
+        self._show_start()
+        self._show_date_notes()
+
+    def _loaded(self) -> bool:
+        """Whether anything is loaded or typed: a job with documents or details, pasted text, or a read going
+        on. Until then the window shows the start card and no field is marked missing."""
+        return not all(j.is_empty() for j in self.jobs) or bool(self.paste.toPlainText().strip()) or self.work > 0
+
+    def _mark_missing(self) -> None:
+        """The required fields left blank are marked once something is loaded (FieldRow.show_missing), and no
+        longer when the window is emptied."""
+        loaded = self._loaded()
+        for r in self.rows.values():
+            if r.show_missing != loaded:
+                r.show_missing = loaded
+                r._refresh()
 
     def _show_attorneys(self):
-        """Fills the attorney table from the current case (without counting as an edit by the user)."""
+        """Fills the attorney table from the current case (without counting as an edit by the user), and the
+        details under it with the row that was selected (by its place), or the first."""
+        row = self.att.currentRow()
         self.att.blockSignals(True)
         self.att.setRowCount(0)
         for a in self.case.attorneys:
             self._append_att(a)
         self.att.resizeRowsToContents()
+        if row >= 0 and self.att.rowCount():  # (none selected before: none now, so Remove selected removes nothing)
+            self.att.setCurrentCell(min(row, self.att.rowCount() - 1), 1)
         self.att.blockSignals(False)
+        self._show_att_details()
 
     def _append_att(self, a: Attorney):
         """Adds a table row for one attorney. Address lines show joined by " / "; a placeholder row is greyed."""
@@ -2351,6 +3256,8 @@ class MainWindow(QMainWindow):
             st = FieldState(str(whole), SRC_PDF, self.cur.count_confidence(), st.alternatives)
             self.rows[key].set_state(st)
         self.case.fields[key] = st
+        if key in self.date_notes:  # (a day typed or picked: a weekend or a court holiday is said)
+            self._show_date_notes()
         self._update_status()
 
     def _proc_toggled(self, _):
@@ -2360,9 +3267,11 @@ class MainWindow(QMainWindow):
         self.case.proc_types = {p for p, cb in self.proc_boxes.items() if cb.isChecked()}
 
     def _att_changed(self, _item):
-        """A cell or tick of the attorney table changed: later merges keep the user's table."""
+        """A cell or tick of the attorney table changed: later merges keep the user's table, and the details under
+        it show the change."""
         self.att_touched = True
         self._attorneys_edited()
+        self._show_att_details()
 
     def _attorneys_edited(self):
         """A tick or an edit in the attorney table: No. of copies (the ordering parties, unless typed), the
@@ -2396,7 +3305,9 @@ class MainWindow(QMainWindow):
         self.att.blockSignals(False)
         self.att_touched = True
         self._attorneys_edited()
-        self.att.editItem(self.att.item(self.att.rowCount() - 1, 1))
+        last = self.att.rowCount() - 1
+        self.att.setCurrentCell(last, 1)  # (so the details under the table are the new row's)
+        self.att.editItem(self.att.item(last, 1))
 
     def _remove_att_rows(self):
         """Removes the selected attorney rows."""
@@ -2406,6 +3317,7 @@ class MainWindow(QMainWindow):
         if rows:
             self.att_touched = True
             self._attorneys_edited()
+            self._show_att_details()  # (the row they showed may be gone: the current cell moved before it went)
 
     # ------------------------------------------------ rate sheets / speed
     def _fill_sheet_box(self):
@@ -2421,7 +3333,8 @@ class MainWindow(QMainWindow):
             gaps = missing_prices(sh)
             return ("\n⚠ Missing: " + "; ".join(f"{name}: {', '.join(what)}" for name, what in gaps)) if gaps else ""
 
-        tips = ["\n".join(sp.label() + (f"  ·  {sp.days} days" if sp.days is not None else "") for sp in sh.speeds)
+        days = "business days" if self.s.turnaround_business_days else "days"
+        tips = ["\n".join(sp.label() + (f"  ·  {sp.days} {days}" if sp.days is not None else "") for sp in sh.speeds)
                 + (f"\nRates last updated {sh.updated}" if sh.updated else "")
                 + "".join(f'\nThe "{heading}" column is read as the {label} price'
                           for heading, label in sh.read_as.items())
@@ -2461,7 +3374,7 @@ class MainWindow(QMainWindow):
         than the one shown (Job.speed_question): the box is marked and Keep answers it."""
         f = self.case.fields["delivery"]
         src = f.source if f.value else ""
-        self.speed_badge.setText(src)
+        self.speed_badge.setText(badge_word(src))
         self.speed_badge.setProperty("src", src)
         self.speed_badge.setToolTip({SRC_USER: "Chosen by you for this job",
                                      SRC_DEFAULT: "Picked by the rule in Settings → Invoice"}.get(src, ""))
@@ -2681,6 +3594,7 @@ class MainWindow(QMainWindow):
 
     def _sheet_in_use(self) -> None:
         """The rate sheet in use changed: saved, and every job priced again from it."""
+        self._drop_undo()  # (the jobs New job cleared were priced from the sheet before)
         self._save_settings()
         self._fill_invoice_speeds()
         self._apply_speed_rule()
@@ -2695,11 +3609,13 @@ class MainWindow(QMainWindow):
         Settings or an import. Use it anyway remembers the sheet as it was read (Settings.rate_sheets_ok, by
         rates.sheet_fingerprint, the last RATE_SHEETS_OK_KEPT): not asked again until its file is changed and read
         again. Go back to <previous> (the sheet in use before; offered when it is another, still in the folder)
-        picks that one again, which is checked in turn; Open the rate sheets folder leaves this one in use, to be
-        filled in. Asked once a session for the same file as read unless `again` (picked, ⟳, another chosen in
-        Settings). priced: the jobs were priced from the sheet already (they are priced from `previous` again on
-        Go back). sheet: the one to check, when it isn't in use yet (picked in the dropdown: Settings names it
-        only once it is kept). False = Go back was clicked (the sheet before is in use again)."""
+        picks that one again, which is checked in turn; Open the sheet to fill it in leaves this one in use and
+        opens its file, read again and checked each time it is saved (_watch_sheet); Not now (offered, and Esc,
+        when there is no Go back: at start, ⟳) leaves it in use as it is. Asked once a session for the same file as
+        read unless `again` (picked, ⟳, another chosen in Settings). priced: the jobs were priced from the sheet
+        already (they are priced from `previous` again on Go back). sheet: the one to check, when it isn't in use
+        yet (picked in the dropdown: Settings names it only once it is kept). False = Go back was clicked (the
+        sheet before is in use again)."""
         from ..rates import missing_prices, sheet_fingerprint
         from ..settings import RATE_SHEETS_OK_KEPT
         sheet = sheet or self.s.sheet()
@@ -2725,10 +3641,12 @@ class MainWindow(QMainWindow):
         names = [sh.name for sh in self.s.sheets()[0]]
         back = box.addButton(f"Go back to {previous}", QMessageBox.RejectRole) \
             if previous and previous != sheet.name and previous in names else None
-        fix = box.addButton("Open the rate sheets folder", QMessageBox.ActionRole)
+        fix = box.addButton("Open the sheet to fill it in", QMessageBox.ActionRole)
+        fix.setToolTip(f'Opens "{sheet.path.name}" in Excel (or the program that opens CSV files on this '
+                       "computer).\nEach time you save it, it is read again and checked.")
+        later = box.addButton("Not now", QMessageBox.RejectRole) if back is None else None
         box.setDefaultButton(back or fix)
-        if back is not None:
-            box.setEscapeButton(back)
+        box.setEscapeButton(back or later)
         box.exec()
         if box.clickedButton() is use:
             self.s.rate_sheets_ok = [m for m in self.s.rate_sheets_ok if m != mark][-(RATE_SHEETS_OK_KEPT - 1):] + [mark]
@@ -2741,8 +3659,71 @@ class MainWindow(QMainWindow):
             self._check_rate_sheet()  # (that one may be incomplete too)
             return False
         elif box.clickedButton() is fix:
-            self._open_sheets_folder()
+            self._watch_sheet(sheet.path)
+            open_path(sheet.path)
         return True
+
+    def _watch_sheet(self, path: Path) -> None:
+        """The rate sheet at `path` was opened to be filled in: each time it is saved, it is read again and
+        checked (_sheet_saved). Its folder is watched too: Excel saves a new file in place of the old one, which
+        a watch on the file alone loses."""
+        from PySide6.QtCore import QFileSystemWatcher
+        if self._sheet_watch is None:
+            self._sheet_watch = QFileSystemWatcher(self)
+            self._sheet_watch.fileChanged.connect(lambda _p: self._sheet_timer.start())
+            self._sheet_watch.directoryChanged.connect(lambda _p: self._sheet_timer.start())
+        self._unwatch_sheet()
+        self._sheet_watched = (path, _file_mark(path))
+        self._sheet_watch.addPaths([str(path), str(path.parent)])
+
+    def _unwatch_sheet(self) -> None:
+        """No rate sheet is watched any more (_watch_sheet)."""
+        self._sheet_watched = None
+        self._sheet_timer.stop()
+        if self._sheet_watch is not None:
+            paths = self._sheet_watch.files() + self._sheet_watch.directories()
+            if paths:
+                self._sheet_watch.removePaths(paths)
+
+    def _sheet_saved(self) -> None:
+        """The rate sheet opened to be filled in, or its folder, changed (a second ago: SHEET_SAVED_MS). When the
+        file itself was saved and can be read: the sheets are read again and every job priced again, as ⟳ does,
+        and the note at the bottom says whether the sheet has all its prices now or what it still misses (no box:
+        the user may save as they go). Watched until it has them all, or isn't the sheet in use any more. Waits
+        while a question is on screen or Generate all runs: what they show isn't priced again under them."""
+        from ..rates import load_sheet, missing_prices, sheet_fingerprint
+        if self._sheet_watched is None:
+            return
+        if QApplication.activeModalWidget() is not None or self.filling:
+            self._sheet_timer.start()  # (again in a second)
+            return
+        path, mark = self._sheet_watched
+        if path.exists() and all(Path(p) != path for p in self._sheet_watch.files()):
+            self._sheet_watch.addPath(str(path))  # (Excel's new file in place of the old one)
+        now = _file_mark(path)
+        if now is None or now == mark:
+            return  # (gone for a moment while Excel saves, or another file in the folder: Excel's "~$" one)
+        if self.s.sheet().path != path:
+            self._unwatch_sheet()  # (another sheet was picked meanwhile)
+            return
+        try:
+            load_sheet(path)
+        except (OSError, ValueError, UnicodeDecodeError):
+            return  # (half written: read when it is saved again)
+        self._sheet_watched = (path, now)
+        self._read_sheets_again()
+        sheet = self.s.sheet()
+        if sheet.path != path:  # (no longer read as a sheet: _fill_sheet_box said why)
+            self._unwatch_sheet()
+            return
+        gaps = missing_prices(sheet)
+        self._sheets_warned.add(sheet_fingerprint(sheet))  # (told below: no box about it again this session)
+        if gaps:
+            self._toast(f'Read "{sheet.name}" again. Still missing: '
+                        + "; ".join(f"{name}: {_or(what)}" for name, what in gaps))
+        else:
+            self._unwatch_sheet()
+            self._toast(f'Read "{sheet.name}" again: it has all its prices now.')
 
     def _remerge_others(self):
         """New rates or settings also apply to the batch's other jobs."""
@@ -2770,6 +3751,7 @@ class MainWindow(QMainWindow):
         for k in ("rate", "delivery_date"):
             if self.rows[k].state.source != SRC_USER:
                 self.rows[k].set_state(self.case.fields[k])
+        self._show_date_notes()
         self._show_rate_info()
         self._show_speed_state()
         self._refresh_outputs()
@@ -2783,6 +3765,84 @@ class MainWindow(QMainWindow):
             apply_speed_rule(job.case, self.s)
         self._fill_speeds()
         self._apply_speed()
+
+    # --------------------------------------------------------- the dates (Settings -> Dates, workdays.py)
+    def _holidays_of(self, year: int, month: int) -> dict:
+        """The court holidays of a month, {date: name}: what the date fields' calendars mark ({} for a month of a
+        year a date can't have: the calendar asks for the months beside the one shown, 12/9999's too)."""
+        if not MINYEAR <= year <= MAXYEAR:
+            return {}
+        first = date(year, month, 1)
+        last = first.replace(day=monthrange(year, month)[1])
+        return dict(self.s.holiday_calendar().between(first, last))
+
+    def _quick_tips(self) -> None:
+        """The quick buttons' tooltips, with the day each gives as of now ("Estimated delivery 10/20/2026 - a
+        week from the form's date")."""
+        since = "the form's date" if self.s.turnaround_from == "form" else "today"
+        words = {"Tomorrow": "a day", "1 week": "a week", "1 month": "a month"}
+        for b, label, days, months in self.quick_buttons:
+            when = quick_day(self.s, days, months)
+            how = f": {since}" if label == "Today" else f" - {words.get(label, label)} from {since}"
+            b.setToolTip(f"Estimated delivery {when}{how}\n(a weekend or a court holiday becomes the next business "
+                         "day)")
+
+    def _show_date_notes(self) -> None:
+        """Under the two dates, what moved them: the form dated the next business day ("Dated Tue 10/13/2026, the
+        next business day: today is a Sunday and Mon 10/12 is Columbus Day."), the delivery date counted in
+        business days ("5 business days from Tue 10/13/2026") or moved off a weekend; or, for a day typed, picked
+        or read from a document, a warning when it is a weekend or a court holiday ("⚠ 11/11/2026 is Veterans Day,
+        a court holiday."). A note with nothing to say takes no room."""
+        if not hasattr(self, "date_notes"):  # (the window is still being built)
+            return
+        f = self.case.fields
+        dating = document_day(self.s)
+        for key, note in self.date_notes.items():
+            st, text = f[key], ""
+            if key == "agreement_date" and st.source == SRC_DEFAULT and st.value == us_date(dating.day):
+                text = dating.note()
+            elif key == "delivery_date" and st.source == SRC_DERIVED:
+                n = self.s.days_for(self.case.get("delivery"))
+                if n is not None:
+                    d, why = delivery_day(self.s, n, dating.day)
+                    text = why if us_date(d) == st.value else ""
+                    sp = self.s.sheet().find(self.case.get("delivery"))
+                    if text and sp is not None and sp.days is not None:
+                        # (where the number comes from: a sheet filled in before 2.8.0 still says 7 and 21, which
+                        # were calendar days then; Settings -> Dates' 5 and 15 are used only without a Days column)
+                        text += " (the rate sheet's Days column)"
+            elif st.value:
+                text = date_warning(st.value, self.s)
+            if note.text() != text:
+                note.setText(text)
+            look = "dateWarn" if text.startswith("⚠") else "muted"  # (a day to look at stands out)
+            if note.objectName() != look:
+                note.setObjectName(look)
+                repolish(note)
+            self.date_form.setRowVisible(note, bool(text))
+
+    def _redate(self, force: bool = False) -> None:
+        """The day a form made now is dated (workdays.document_day) changed: midnight, the evening hour of
+        Settings -> Dates, or its settings (force). Every job's date of agreement filled in by default and
+        delivery date not typed become that day's (merge.refresh_dates), and the window shows them. Runs each
+        minute (_day_timer), when the window is active again and after Settings."""
+        if not hasattr(self, "date_notes"):
+            return
+        day = document_day(self.s).day
+        # (and the real day it is: with the turnaround counted from the day you make the form, Settings.turnaround_from
+        # "today", the delivery date moves at midnight even when the form's date doesn't, after the evening hour or
+        # over a weekend)
+        dated = (day, day.made_on)
+        if dated != self._dated or force:
+            self._dated = dated
+            for job in self.jobs:
+                refresh_dates(job.case, self.s, day)
+            for key in self.date_notes:
+                if self.rows[key].state.source != SRC_USER:
+                    self.rows[key].set_state(self.case.fields[key])
+            self._quick_tips()
+            self._card_summaries()  # (Details folded: its line names the delivery date)
+        self._show_date_notes()
 
     def _open_log_folder(self):
         open_path(logfile.log_dir())
@@ -2800,13 +3860,19 @@ class MainWindow(QMainWindow):
         """⟳: reads the rate sheet files again (after they were edited) and prices every job again. The sheet in
         use, still incomplete or newly so, is warned about again, unless the user said to use it as it is
         (_check_rate_sheet)."""
+        self._read_sheets_again()
+        self._toast(f"Loaded {len(self.s.sheets()[0])} rate sheet(s).")
+        self._check_rate_sheet(again=True)  # (edited in Excel: still incomplete, or newly so)
+
+    def _read_sheets_again(self) -> None:
+        """The rate sheet files are read again (⟳, or the one opened to be filled in was saved: _sheet_saved), and
+        every job priced again from the sheet in use."""
+        self._drop_undo()  # (the jobs New job cleared were priced from the sheets as they were)
         self.s.reload_rates()
         self._fill_sheet_box()
         self._fill_invoice_speeds()  # the sheet's speeds may have changed
         self._apply_speed_rule()
         self._remerge_others()
-        self._toast(f"Loaded {len(self.s.sheets()[0])} rate sheet(s).")
-        self._check_rate_sheet(again=True)  # (edited in Excel: still incomplete, or newly so)
 
     def _set_opt(self, name, value):
         """Sets a setting and saves it: an option changed in the Outputs box (the outputs ticked and each one's
@@ -2824,6 +3890,7 @@ class MainWindow(QMainWindow):
         self.status.setText(text)
         self.status.setProperty("state", state)
         repolish(self.status)
+        self._fit_corner()
         if self.s.show_yin:
             self.drop.set_mood(mood or {"busy": "working", "ok": "done", "warn": "stumped"}.get(state, "idle"))
         else:
@@ -2832,13 +3899,14 @@ class MainWindow(QMainWindow):
 
     def _update_status(self):
         """Brings the Outputs box and the cards under the attorneys (_refresh_outputs, which also brings the
-        Excerpts window along), the status pill, the question about rows that may be one firm and the list
-        of jobs on the left up to date."""
+        Excerpts window along), the status pill, the question about rows that may be one firm, the list of jobs
+        on the left and the folded cards' lines up to date."""
         self._all_counts = None
         self._refresh_outputs()  # (it counts what Generate all makes: _all_counts)
         self._show_firm_question()
         self._job_status()
         self._refresh_job_labels(self._all_counts)
+        self._card_summaries()
 
     def _show_firm_question(self) -> None:
         """The Attorneys card's question when two rows of the job, or of its case's other days, may be one firm or
@@ -2944,34 +4012,116 @@ class MainWindow(QMainWindow):
 
     def _job_status(self):
         """The status pill for the job on screen: reading (documents still being read, whatever the job on
-        screen says: a single file read while a folder is still coming in), asking the AI, fields missing or to
-        review, or ready."""
+        screen says: a single file read while a folder is still coming in), asking the AI, what needs a look
+        ("⚠ 1 missing, 2 to check, 1 to review": required fields blank, the job's own checks as the job list's ⚠
+        has them, guessed fields), or ready. Its tooltip lists them; a click goes to the first (_go_to_problem)."""
         busy = self.ai_pending > 0
         self.busy.setVisible(busy or self.work > 0)
+        self.status.set_clickable(False)
         if self.work > 0:
             if self.status.property("state") != "busy":  # ("Reading 2 of 5: ..." is kept as it is)
                 self._set_status("Reading…", "busy")
             return
         if not self.cur.docs:
             self._set_status("Drop a document to begin", "")
+            self.status.setToolTip("")
             return
         self._sync_from_ui(commit=False)  # (a name being typed in the attorney table stays open)
         missing = [FIELD_LABELS[k] for k in self.case.missing_required()]
-        review = [k for k, r in self.rows.items() if r.edit.property("review")]
+        checks = self._job_checks()
+        review = [FIELD_LABELS.get(k, k) for k, r in self.rows.items() if r.edit.property("review")]
         if busy:
             self._set_status(f"Asking {self.s.ollama_model}…  (you can keep editing)", "busy")
-        elif missing or review:
+        elif missing or checks or review:
             parts = []
             if missing:
                 parts.append(f"{len(missing)} missing")
+            if checks:
+                parts.append(f"{len(checks)} to check")
             if review:
                 parts.append(f"{len(review)} to review")
+            lines = ([f"Missing: {', '.join(missing)}"] if missing else []) + [f"⚠ {c}" for c in checks] + (
+                [f"Guesses to look at (highlighted): {', '.join(review)}"] if review else [])
+            if missing or checks:
+                text = "⚠  " + ", ".join(parts)
+            else:
+                text = "Ready to fill  ·  " + ", ".join(parts)
             # the yin-yang only cracks when something required is missing
-            self._set_status("Ready to fill  ·  " + ", ".join(parts), "warn", "stumped" if missing else "done")
-            self.status.setToolTip("Missing: " + ", ".join(missing) if missing else "Highlighted fields are guesses")
+            self._set_status(text, "warn", "stumped" if missing else "done")
+            self.status.setToolTip("\n".join(lines) + "\n\nClick to go to the first one.")
+            self.status.set_clickable(True)
         else:
             self._set_status("✓  Ready to fill", "ok")
             self.status.setToolTip("")
+
+    def _job_checks(self) -> list[str]:
+        """What the job on screen needs looked at besides its blank required fields: the job list's ⚠ lines
+        (Job.issues: nobody ticked, a speed to choose, Whose pages… or Excerpts…, index numbers that don't match,
+        no pages to bill...), without the "… is missing" ones the pill counts already."""
+        missing = {f"{FIELD_LABELS[k]} is missing" for k in self.case.missing_required()}
+        return [i for i in self.cur.issues(self._outputs()) if i not in missing]
+
+    def _go_to_problem(self) -> None:
+        """A click on the status pill: to the first thing that needs a look, in this order (not Generate's, which
+        asks about the index numbers first) - a required field blank, nobody ticked, a speed to choose, index
+        numbers that don't match, Whose pages… or Excerpts…, no pages to bill, no transcript for the run sheet, then
+        a guessed field. Its card is unfolded and scrolled to (or the Outputs box unfolded); a field gets the cursor,
+        and it, or the note or button to look at, lights up for a moment (_flash)."""
+        job, case = self.cur, self.case
+        if job.is_empty() or self.work > 0:
+            return
+        self._commit_att_details()  # (the pill takes no focus: an attorney detail being typed is kept first)
+        outputs = self._outputs()
+        issues = job.issues(outputs)
+        missing = case.missing_required()
+        if missing:
+            return self._go_to(self.rows[missing[0]].edit, "case" if missing[0] in CASE_KEYS else "details")
+        if job.no_attorney_chosen():
+            if self.att.rowCount():
+                self.att.setCurrentCell(0, 1)
+            return self._go_to(self.att, "attorneys")
+        if job.speed_question():
+            return self._go_to(self.delivery, "details")
+        if job.index_number_asks():
+            return self._flash(self.index_note)
+        hold = job.invoice_hold() if "invoice" in outputs else ""
+        if hold:
+            self._fold_outputs(False)
+            return self._flash(self.inv_whose if hold.startswith("Whose pages") else self.inv_who)
+        from ..invoice import NO_INVOICE
+        from ..runsheet import NO_RUNSHEET
+        if NO_INVOICE in issues:
+            return self._go_to(self.rows["est_pages"].edit, "details")
+        if NO_RUNSHEET in issues and "runsheet" in self.output_boxes:
+            self._fold_outputs(False)
+            return self._flash(self.output_boxes["runsheet"])
+        review = [r for r in self.rows.values() if r.edit.property("review")]
+        if review:
+            return self._go_to(review[0].edit, "case" if review[0].key in CASE_KEYS else "details")
+
+    def _go_to(self, w: QWidget, card_key: str = "") -> None:
+        """Unfolds the card (by key) holding w, scrolls the form to it and gives it the cursor."""
+        fr = self.cards.get(card_key)
+        if fr is not None and fr.body.isHidden():
+            self._fold_card(fr, False)
+        self.form_scroll.ensureWidgetVisible(w, 0, z(60))
+        w.setFocus(Qt.OtherFocusReason)
+        self._flash(w)
+
+    def _flash(self, w: QWidget, ms: int = 1500) -> None:
+        """Lights a widget up for a moment (the style sheet's [flash="true"]), to show where to look."""
+        if w.isHidden():
+            return
+        if self.form_scroll.widget().isAncestorOf(w):
+            self.form_scroll.ensureWidgetVisible(w, 0, z(60))
+        w.setProperty("flash", True)
+        repolish(w)
+
+        def off() -> None:
+            w.setProperty("flash", False)
+            repolish(w)
+
+        QTimer.singleShot(ms, w, off)
 
     def _idle(self):
         """A piece of background work is done: the progress bar goes back to 'busy' style, and stays only
@@ -3015,7 +4165,9 @@ class MainWindow(QMainWindow):
         """A cell of the attorney table still being typed in (Ctrl+Enter pressed in it, a merge, an answer about
         the firms) is taken as typed. The editor is found in the table itself, not by the keyboard focus: a
         background answer arrives while the focus may be anywhere. Returns (column, text, cursor position) when
-        the user was typing in it (it had the focus), for _resume_edit, else None."""
+        the user was typing in it (it had the focus), for _resume_edit, else None. A detail being typed under the
+        table is written into it first (_commit_att_details)."""
+        self._commit_att_details()
         if self.att.state() != QAbstractItemView.EditingState or getattr(self, "_committing", False):
             return None  # (committing fires itemChanged, whose handlers sync the editor again: once is enough)
         editor = QApplication.focusWidget()
@@ -3214,10 +4366,13 @@ class MainWindow(QMainWindow):
         speeds = job.ordered_speeds()  # and the speed(s) it ordered them at, where set
         docs = list(job.docs)
         previewed = False  # the preview showed the math
+        # the day every file is dated (today, or the next business day: Settings -> Dates), the preview's too: one
+        # made at 4:59 PM is saved as it was shown, though the evening hour came while it was open
+        dating = document_day(self.s)
         if self.s.preview_before_saving:
             # what is saved is what was shown: the case as it is now, whatever comes in while the preview is up
             case = deepcopy(case)
-            if not self._preview(case, outputs, opts, ordered, speeds):
+            if not self._preview(case, outputs, opts, ordered, speeds, dating.day):
                 job.folder, job.folder_named = folder_was
                 return
             previewed = self._math_previewed
@@ -3232,7 +4387,7 @@ class MainWindow(QMainWindow):
         try:
             paths = generate(case, self.s, out_dir, outputs, opts, runsheet=sheet, folders=input_folders(job),
                              invoiced=keys, origin=origin, math=math, detailed=detailed, ordered=ordered,
-                             speeds=speeds)
+                             speeds=speeds, day=dating.day)
         except Exception as e:
             made = list(getattr(e, "made", []))
             job.saved, job.error = made, f"{type(e).__name__}: {e}"
@@ -3264,12 +4419,15 @@ class MainWindow(QMainWindow):
         folders = list(dict.fromkeys(p.parent for p in made))  # an output may have a folder of its own
         where = f"\n\nin {folders[0]}" if len(folders) == 1 else "\n\nin " + ", ".join(map(str, folders))
         text = f"Saved {plural(len(made), 'file')}:\n\n" + "\n".join(p.name for p in made) + where if made else ""
+        if made and dating.moved():  # ("Dated Tue 10/13/2026, the next business day: today is a Sunday and ...")
+            text = f"{dating.note()}\n\n{text}"
         if sheet and sheet.path:
             text += ("\n\n" if text else "") + run_sheet_summary(sheet)
             folders.append(sheet.path.parent)
         # (Print...: the PDFs but those kept; the run sheet is a workbook, printed from Excel)
         self._saved_box("Saved", text, list(dict.fromkeys(folders)),
                         files=[p for p in paths if p.suffix.lower() == ".pdf" and p not in kept])
+        self._redate()  # (generate dated the job's case as its files, or the preview's copy: the window catches up)
         self._update_status()
         self._set_status(f"✓  Saved {len(paths)} file(s)", "ok")
         self._records_changed()
@@ -3295,7 +4453,7 @@ class MainWindow(QMainWindow):
             self._refresh_job_labels()
 
     def _preview(self, case: CaseInfo, outputs: list[str], opts, ordered: dict | None = None,
-                 speeds: dict | None = None) -> bool:
+                 speeds: dict | None = None, day: date | None = None) -> bool:
         """Shows the files Generate is about to make, as pictures (preview.PreviewDialog); True = save them.
         They are made in a temporary folder with a records database of its own (Ledger.preview_copy: the
         invoice shows the number it will get, and none is taken). The run sheet is not shown: it is a
@@ -3304,7 +4462,7 @@ class MainWindow(QMainWindow):
         themselves is then said as usual). With invoices among them, "The math" is a tab of the preview (unless
         Settings.show_math is off); self._math_previewed then says it was shown, so it isn't shown again after
         saving. ordered, speeds: each attorney's pages and speeds (Job.ordered_pages, Job.ordered_speeds), as
-        generate() takes them."""
+        generate() takes them; day: the day the files are dated, the one the saved files get too."""
         from .preview import PreviewDialog
         self._math_previewed = False
         show = _previewed(outputs)
@@ -3317,7 +4475,7 @@ class MainWindow(QMainWindow):
             math: list = []
             try:
                 files = generate(deepcopy(case), s, Path(tmp), show, opts, math=math, ordered=ordered, speeds=speeds,
-                                 ledger=ledger_for(self.s).preview_copy(Path(tmp) / "records"))
+                                 ledger=ledger_for(self.s).preview_copy(Path(tmp) / "records"), day=day)
                 dlg = PreviewDialog([f for f in files if f.suffix.lower() == ".pdf"], self.s, self,
                                     _not_previewed(outputs), math if self.s.show_math else None)
                 self._math_previewed = dlg.math is not None
@@ -3660,6 +4818,7 @@ class MainWindow(QMainWindow):
                     for j in self.jobs}
         copies = copy_jobs()
         todo, settings = [copies[id(j)] for j in chosen], deepcopy(self.s)
+        dating = document_day(self.s)  # (every file's date, the preview's too: today, or the next business day)
         if self.s.preview_before_saving and _previewed(outputs):
             # the files are shown first, with the math, made from copies of their own: what is saved is what was
             # shown (the copies above), and Go back saves nothing
@@ -3668,19 +4827,21 @@ class MainWindow(QMainWindow):
                 settings.save_math, settings.math_layout = self.s.save_math, self.s.math_layout
                 for j in chosen:  # (the folders chosen: kept, so the same jobs generating again use them)
                     j.folder, j.folder_named = copies[id(j)].folder, copies[id(j)].folder_named
-                self._run_batch(chosen, copies, todo, settings, outputs, previewed)
+                self._run_batch(chosen, copies, todo, settings, outputs, previewed, dating)
             shown = copy_jobs()
             for j in chosen:  # (until Save: Go back saves nothing, and the folders are asked about next time)
                 j.folder, j.folder_named = folder_was.get(id(j), (j.folder, j.folder_named))
-            self._preview_batch(chosen, shown, outputs, save)
+            self._preview_batch(chosen, shown, outputs, save, dating.day)
         else:
-            self._run_batch(chosen, copies, todo, settings, outputs, False)
+            self._run_batch(chosen, copies, todo, settings, outputs, False, dating)
 
-    def _preview_batch(self, chosen: list[Job], copies: dict, outputs: list[str], then) -> None:
+    def _preview_batch(self, chosen: list[Job], copies: dict, outputs: list[str], then,
+                       day: date | None = None) -> None:
         """Generate all's preview before saving: the batch made on another thread into a temporary folder, with a
         records database of its own (Ledger.preview_copy: the numbers the invoices will get, none taken), then
         shown in one PreviewDialog with "The math" of every invoice. Save calls then(math shown); Go back saves
-        nothing. The run sheets are not made for it (they are spreadsheets, and would add to the real ones)."""
+        nothing. The run sheets are not made for it (they are spreadsheets, and would add to the real ones). day:
+        the day the files are dated, the saved ones too."""
         from .preview import PreviewDialog
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         s = deepcopy(self.s)
@@ -3749,13 +4910,15 @@ class MainWindow(QMainWindow):
                 then(False)
 
         self.runner.start(fill_jobs, [copies[id(j)] for j in chosen], s, batch=list(copies.values()),
-                          outputs=shown, ledger=ledger, math=math, on_done=done, on_error=failed)
+                          outputs=shown, ledger=ledger, math=math, day=day, on_done=done, on_error=failed)
 
     def _run_batch(self, chosen: list[Job], copies: dict, todo: list[Job], settings, outputs: list[str],
-                   previewed: bool) -> None:
+                   previewed: bool, dating=None) -> None:
         """Makes Generate all's files on another thread from the copies of the jobs, and copies what happened
         back to the jobs when it ends. previewed: the preview showed the math (else it is shown after, when
-        Settings.show_math is on)."""
+        Settings.show_math is on). dating: the day every file is dated (workdays.document_day, as Generate all
+        started; default: now's), which the message at the end says when it isn't today."""
+        dating = dating or document_day(self.s)
         math: list = []
         self.filling = True
         self.work += 1
@@ -3807,6 +4970,8 @@ class MainWindow(QMainWindow):
             folders = list(dict.fromkeys(str(p.parent) for p in paths))
             text = f"Saved {len(paths)} file{'s' if len(paths) != 1 else ''} for {plural(made, 'job')}"
             text += f" in\n{folders[0]}" if len(folders) == 1 else f" in {len(folders)} folders." if folders else "."
+            if paths and dating.moved():  # ("Dated Tue 10/13/2026, the next business day: today is a Sunday ...")
+                text = f"{dating.note()}\n\n{text}"
             held = _held_cases(held_days)  # a file of a case couldn't be saved: nothing (more) made for its days
             if held:
                 # ("more": a trial's run sheet is written first, and may be saved before another of its files fails)
@@ -3848,23 +5013,78 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Could not fill the forms", msg)
 
         self.runner.start(fill_jobs, todo, settings, batch=list(copies.values()), outputs=outputs, math=math,
-                          on_done=done, on_error=crashed, on_progress=step)
+                          day=dating.day, on_done=done, on_error=crashed, on_progress=step)
 
     # ------------------------------------------------------- misc
     def new_job(self):
-        """Clears every job and starts over (Ctrl+N), asking first in a batch. Work already running in the
-        background is not stopped, but its results are dropped (self.gen goes up), and AI questions still
-        waiting their turn are never asked (_clear_jobs). Nothing happens when there is nothing to clear (the
-        button is greyed out then)."""
+        """Clears every job and starts over (Ctrl+N), without asking: Undo at the bottom of the window brings
+        them back for a few seconds (_offer_undo). Work already running in the background is not stopped, but
+        its results are dropped (self.gen goes up), and AI questions still waiting their turn are never asked
+        (_clear_jobs); with such work, there is no Undo (what it would have added is lost). Nothing happens when
+        there is nothing to clear (the button is greyed out then)."""
         if not self._anything_to_clear():
             return
         if self._batch_running():
             return
-        if len(self.jobs) > 1 and QMessageBox.question(
-                self, "New job", f"Clear all {len(self.jobs)} jobs of this batch and start over?"
-        ) != QMessageBox.Yes:
-            return
+        self._sync_from_ui()  # (an attorney's name being typed, and the details under the table, kept)
+        snapshot = None
+        if self.work == 0 and self.ai_pending == 0:
+            snapshot = {"jobs": self.jobs, "cur": self.cur, "paste": self.paste.toPlainText(),
+                        "collapsed": set(self._collapsed), "touched": self._runsheet_touched,
+                        "auto": self._runsheet_auto,
+                        "runsheet": self.output_boxes["runsheet"].isChecked() if "runsheet" in self.output_boxes
+                        else None}
+        n = sum(1 for j in self.jobs if not j.is_empty())
         self._clear_jobs()
+        self._offer_undo(snapshot, n)
+
+    def _offer_undo(self, snapshot: dict | None, n: int) -> None:
+        """After New job: "Cleared 4 jobs." and Undo at the bottom of the window for UNDO_MS (just "Cleared."
+        without a snapshot)."""
+        self._undo = snapshot
+        self.statusBar().clearMessage()
+        what = plural(n, "job") if n else "the pasted text"
+        self.undo_text.setText(f"Cleared {what}." if snapshot else "Cleared.")
+        self.undo_btn.setVisible(snapshot is not None)
+        self.undo_box.setVisible(True)
+        self._undo_timer.start(UNDO_MS)
+
+    def _drop_undo(self) -> None:
+        """New job's Undo is no longer offered: its time is up, something new was loaded or typed (an undo would
+        throw it away), or the settings or rate sheets the cleared jobs were priced with changed."""
+        self._undo = None
+        if hasattr(self, "undo_box"):
+            self._undo_timer.stop()
+            self.undo_box.setVisible(False)
+
+    def _undo_clear(self) -> None:
+        """Undo: the jobs New job cleared come back as they were, the job that was shown on screen again, with the
+        pasted text and the Run sheet box. (The Excerpts window, closed by New job, stays closed.)"""
+        snap = self._undo
+        self._drop_undo()
+        # (a file dropped or a recent one opened since New job is still being read: bringing the old jobs back
+        # would drop it without a word)
+        if snap is None or self._batch_running() or self.work or self.ai_pending:
+            return
+        self.gen += 1  # (anything started since is dropped)
+        self.ai_runner.drop_queued()
+        self.ai_pending = self.work = 0
+        self._loading.clear()
+        self.jobs, self.cur = snap["jobs"], snap["cur"]
+        self._collapsed = set(snap["collapsed"])
+        self._runsheet_touched, self._runsheet_auto = snap["touched"], snap["auto"]
+        if snap["touched"] and snap["runsheet"] is not None:  # (the user's own tick, as they left it)
+            with QSignalBlocker(self.output_boxes["runsheet"]):
+                self.output_boxes["runsheet"].setChecked(snap["runsheet"])
+        else:
+            self._auto_runsheet()
+        with QSignalBlocker(self.paste):
+            self.paste.setPlainText(snap["paste"])
+        self._refresh_jobs()
+        self._show_job()
+        self._redate(force=True)  # (dated as of now: midnight or the evening hour may have passed meanwhile)
+        self._update_status()
+        self._toast("Brought back what New job cleared.")
 
     def _anything_to_clear(self) -> bool:
         """Whether New job would do anything: a job with documents or typed details, pasted text, or documents
@@ -3872,12 +5092,18 @@ class MainWindow(QMainWindow):
         return not all(j.is_empty() for j in self.jobs) or bool(self.paste.toPlainText().strip()) or self.work > 0
 
     def _update_header_buttons(self) -> None:
-        """New job (button and menu) is greyed out while there is nothing to clear, or Generate all runs."""
+        """New job (button and menu) is greyed out while there is nothing to clear, or Generate all runs. The
+        start card shows while nothing is loaded, and blank required fields are marked once something is (as the
+        status changes, or text is pasted)."""
         if not hasattr(self, "new_action"):  # still building the window
             return
         on = self._anything_to_clear() and not self.filling
         self.new_btn.setEnabled(on)
         self.new_action.setEnabled(on)
+        if self._undo is not None and self._loaded():
+            self._drop_undo()  # (something new was loaded or typed since New job: an Undo would throw it away)
+        self._show_start()
+        self._mark_missing()
 
     def _clear_jobs(self, job: Job | None = None) -> None:
         """Drops every job and starts with one (a blank one, or `job`); results of work still running are
@@ -3966,18 +5192,23 @@ class MainWindow(QMainWindow):
         self.activateWindow()
         return True
 
-    def open_settings(self, _checked: bool = False):
+    def open_settings(self, _checked: bool = False, tab: str = ""):
         """Opens Settings (not while Generate all is making files: it reads the settings, and the answers about
-        the firms, on its thread). After Save, the theme, the window's options, the rate sheets and the AI check
-        are refreshed and every job is merged and priced again, with the answers about rows that may be one firm
-        as they are now (one forgotten, for now or for good, splits its rows again and is asked about again)."""
+        the firms, on its thread), at the tab named (Records' "Tick boxes and colours…": "Records"). After Save,
+        the theme, the window's options, the rate sheets and the AI check are refreshed and every job is merged
+        and priced again, with the answers about rows that may be one firm as they are now (one forgotten, for now
+        or for good, splits its rows again and is asked about again)."""
         if self._batch_running():
             return
         def pairs() -> set[frozenset]:
             return {frozenset(r[:2]) for r in self.s.firm_answers + self._session_answers}
         before, sheet = pairs(), self.s.sheet().name  # (the one in use: the one Settings names may be gone)
         dlg = SettingsDialog(self.s, self, self._session_answers)
-        if dlg.exec():
+        if tab:
+            dlg.show_tab(tab)
+        ok = dlg.exec()
+        dlg.deleteLater()  # (closed is only hidden: each visit's dialog, and a help window it opened, would stay)
+        if ok:
             self._session_answers = dlg.session_answers
             self._settings_changed({k for pair in before - pairs() for k in pair}, sheet)
 
@@ -3989,6 +5220,7 @@ class MainWindow(QMainWindow):
         sheet: the rate sheet Settings named before (Settings, an import); the one in use now is checked
         (_check_rate_sheet), with Go back to that one, and asked about even if it was this session when it is
         another."""
+        self._drop_undo()  # (the jobs New job cleared were merged and priced with the settings before)
         self._use_answers()
         if forgotten:
             self._sync_from_ui()
@@ -4018,7 +5250,13 @@ class MainWindow(QMainWindow):
             self._remerge()
         self._apply_speed_rule()  # (a job without documents too: the rule may be another now)
         self._remerge_others()
+        self._redate(force=True)  # (Settings -> Dates: the business days, the evening hour, the holidays)
         self._update_status()
+        for act in self.theme_actions.actions():  # (View -> Theme and Show the yin-yang, as Settings has them now)
+            act.setChecked(act.data() == (self.s.theme if self.s.theme in ("light", "dark") else "system"))
+        self.yin_action.setChecked(self.s.show_yin)
+        self._records_changed()  # (an open Records window: its tick boxes and colours, Settings -> Records; the count)
+        self._show_known_update()  # (Settings -> Options: the daily look turned off hides the Update button)
 
     # ------------------------------------------------------- outputs and records
     def _auto_runsheet(self) -> None:
@@ -4104,7 +5342,9 @@ class MainWindow(QMainWindow):
         self._show_orders()
         self._place_output_cols()  # the prices may need more room than the panels have
         self._update_header_buttons()
+        self._sync_mini_outputs()
         self._follow_excerpts()
+        self._card_summaries()  # (a folded card's line: the speed and its price may have changed)
 
     def _show_invoice_prices(self) -> tuple[list | None, int]:
         """The Invoice panel's parties, Includes line (Peripherals…) and prices for the current job. When Generate
@@ -4267,6 +5507,8 @@ class MainWindow(QMainWindow):
         if len(self.jobs) > 1:
             everyone = output_counts([j for j in self.jobs if j.include and not j.is_empty()], outputs, self.s)
         self._all_counts = everyone
+        self._job_files = sum(counts.values()) if counts else 0
+        self._fill_btn_text()
         held = ""
         if shown and "invoice" in outputs and job.invoice_hold():  # (Generate asks first: see invoice_hold)
             held = "Excerpts… is checked" if job.portions_problem() else "Whose pages… is chosen" \
@@ -4275,6 +5517,13 @@ class MainWindow(QMainWindow):
             on = key in outputs and (shown or everyone is not None)
             label.setText(_count_text(key, counts, everyone, held if key == "invoice" else "") if on else "")
             label.setVisible(on)
+
+    def _fill_btn_text(self) -> None:
+        """Generate says how many files it makes for the job shown ("Generate  (3 files)"; "Generate this job  (2
+        files)" in a batch), as Generate all does for the batch; the bare words when it makes none yet."""
+        words = "Generate this job" if len(self.jobs) > 1 else "Generate"
+        n = getattr(self, "_job_files", 0) if not self.cur.is_empty() else 0
+        self.fill_btn.setText(f"{words}  ({plural(n, 'file')})" if n else words)
 
     def _show_live_math(self, _link: str = "") -> None:
         """The links of the Who pays what card and the Invoice panel: the whole math of the invoices the card
@@ -4450,12 +5699,7 @@ class MainWindow(QMainWindow):
             where = "The day shown. Generate all may bill it with other days."
         else:
             where = "The day shown."
-        self.orders_info.setText(where + " Each attorney is billed for the pages written in its row and nothing "
-                                 "else; \"Your pages billed\" counts the pages billed among them: on a transcript "
-                                 "of several reporters only yours (or those chosen under Whose pages…), and the "
-                                 "Pages field's number when you typed one. Firms that ordered the same pages "
-                                 "commit to a speed (Generate asks when one isn't set); a firm ordering alone may "
-                                 "choose one from its invoice.")
+        self.orders_info.setText(where)  # (how the rows are billed: the ? beside it, ORDERS_HELP)
 
     def _speed_box(self, job: Job, key: str) -> QuietCombo:
         """The "Who ordered what" card's Speed box of one firm on one day: the speed it ordered (Job.speeds, or the
@@ -4708,11 +5952,13 @@ class MainWindow(QMainWindow):
             g.setColumnStretch(1, 1 if side else 0)
 
     def _size_drop(self):
-        """The drop zone shows the small picture for a batch (room for the list of jobs), and the big one when
-        the left column has room for it above the list and the paste box. It is tried and measured, since the
-        column's height depends on fonts and wrapped text."""
-        if len(self.jobs) > 1:
-            self.drop.set_compact(True)
+        """The drop zone is one slim row once documents are loaded (the whole window takes more of them), and
+        otherwise shows the big picture when the left column has room for it above the list and the paste box,
+        the small one when not. It is tried and measured, since the column's height depends on fonts and wrapped
+        text."""
+        slim = len(self.jobs) > 1 or any(j.docs for j in self.jobs)
+        self.drop.set_slim(slim)
+        if slim:
             return
         scroll = getattr(self, "left_scroll", None)
         if scroll is None or not scroll.isVisible():
@@ -4746,6 +5992,11 @@ class MainWindow(QMainWindow):
         super().showEvent(e)
         self._place_pairs()
         self._size_drop_later()
+        # the dividers once the window is laid out (measured earlier, they would be placed in proportion to
+        # sizes that aren't the window's): the left column's, and a folded Outputs box's height
+        QTimer.singleShot(0, self, lambda: self._place_left_split(len(self.jobs) > 1))
+        if self.s.outputs_folded:
+            QTimer.singleShot(0, self, lambda: self._fold_outputs(True, save=False))
 
     def _fill_invoice_speeds(self):
         """The Invoice panel's Speeds offered: a box per speed of the current rate sheet with its price
@@ -4857,6 +6108,7 @@ class MainWindow(QMainWindow):
         if win is None:
             win = self._records_win = RecordsWindow(self.s, self)
             win.on_reopen = self.open_past_job
+            win.on_settings = lambda tab: self.open_settings(tab=tab)
         win.reload()
         win.show()
         win.raise_()
@@ -4904,10 +6156,27 @@ class MainWindow(QMainWindow):
             self._save_settings()
 
     def _records_changed(self):
-        """Files were made: an open Records window shows them."""
+        """Files were made, or Settings saved: an open Records window shows them, and the window reads again what
+        it shows from the records (the jobs made lately, the fields' completions, the Records button's count). A
+        tick box switched on, off or renamed in Settings -> Records gets its column in the CSV copies at once, as
+        the Records window does when it is open."""
         win = getattr(self, "_records_win", None)
-        if win is not None and win.isVisible():
+        open_ = win is not None and win.isVisible()
+        if open_:
             win.reload()
+        columns = self._csv_columns()
+        if columns != self._mirrored and not open_:
+            from ..records import Ledger
+            folder, boxes = self.s.records_folder(), list(columns[1])  # (read here: the thread has its own copy)
+            self.runner.start(lambda: Ledger(mirror_dir=folder, boxes=boxes).mirror(), on_done=lambda _r: None,
+                              on_error=lambda _m: None)
+        self._mirrored = columns
+        self._read_records_side()
+
+    def _csv_columns(self) -> tuple:
+        """What the CSV copies of the records have columns for (deliver.ledger_for): the records folder and the
+        tick boxes in use besides Paid."""
+        return self.s.records_dir, tuple((b.key, b.name) for b in self.s.boxes() if b.on and b.kind == "tick")
 
     def _save_invoice_template(self):
         """Saves a copy of the invoice spreadsheet template that ships with the app where the user picks."""
@@ -4948,8 +6217,23 @@ class MainWindow(QMainWindow):
         # the Who ordered what table is as tall as its rows, which are taller or shorter now
         self._show_orders()
         QTimer.singleShot(0, self, self._show_orders)  # again once the new sizes are laid out
+        if self.s.outputs_folded:  # (its one line is taller or shorter now)
+            QTimer.singleShot(0, self, lambda: self._fold_outputs(True, save=False))
         self._set_opt("zoom", f)
         self._toast(f"Zoom {round(f * 100)} %")
+
+    def _set_theme(self, theme: str) -> None:
+        """View -> Theme: as Windows is ("system"), light or dark, at once and for the next time (as Settings ->
+        Options -> Theme)."""
+        self.s.theme = theme
+        apply_theme(self.app, theme)
+        self._save_settings()
+
+    def _show_yin(self, on: bool) -> None:
+        """View -> Show the yin-yang (as Settings -> Options): the drop zone's picture comes or goes at once."""
+        self.s.show_yin = on
+        self._save_settings()
+        self._job_status()  # (it sets the status again, and with it the picture: _set_status)
 
     def _avail(self):
         """The part of the window's screen not taken by the taskbar (logical pixels, after Windows scaling)."""
@@ -4986,8 +6270,18 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, obj, e):
         """Ctrl + the mouse wheel over this window zooms (a text box would otherwise zoom only its own text):
-        a step per notch of the wheel (120), as a touchpad sends a notch in many small turns. And when the form
-        gets wider or narrower (the splitter dragged), its cards' columns are placed again (_place_pairs)."""
+        a step per notch of the wheel (120), as a touchpad sends a notch in many small turns. When the form
+        gets wider or narrower (the splitter dragged), its cards' columns are placed again (_place_pairs). Files
+        dragged over a text box are the window's to read (_drag_filter), and the attorney's address, typed under
+        the table, is written into it when its box is left (_att_detail_edited)."""
+        t = e.type()
+        if t in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop) and self._drag_filter(obj, e):
+            return True
+        if t == QEvent.DragLeave and getattr(self, "drop", None) is not None and isinstance(obj, QWidget) \
+                and obj.window() is self:
+            self.drop._hover(False)  # (left a text box: lit again by the next part of the window it is over)
+        if t == QEvent.FocusOut and obj is getattr(self, "att_edits", {}).get(3) and self._att_typed(3):
+            self._att_detail_edited(3)  # (only when typed in: an address the AI filled meanwhile isn't wiped)
         if e.type() == QEvent.Wheel and e.modifiers() & Qt.ControlModifier:
             w = obj if isinstance(obj, QWidget) else None
             if w is not None and w.window() is self:
@@ -5006,12 +6300,13 @@ class MainWindow(QMainWindow):
         return super().eventFilter(obj, e)
 
     def closeEvent(self, e):
-        """Asks first while a batch is being made; remembers the window's size and place."""
+        """Asks first while a batch is being made; remembers the window's size and place, and its dividers'."""
         if self.filling and QMessageBox.question(
                 self, "Still working", "The files of the batch are still being made. Close anyway?\n\n"
                 "(The file being written may be left incomplete.)") != QMessageBox.Yes:
             e.ignore()
             return
         self.s.window_geometry = bytes(self.saveGeometry().toBase64()).decode()
+        self._save_splits()
         self._save_settings()  # (a file that can't be written must not keep the window from closing)
         super().closeEvent(e)

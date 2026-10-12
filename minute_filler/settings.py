@@ -4,12 +4,15 @@ Settings holds every choice (the defaults are what a new user gets) and load() b
 The tables here name the choices the window and the Settings dialog offer: the outputs (OUTPUTS, the
 courthouse's: see courthouses/), the speeds (SPEEDS) and which one the agreement form names when its first
 choice isn't offered (AGREEMENT_FALLBACKS), which days of an invoice get an index (INDEX_RULES), who pays the
-index of pages several firms ordered together (INDEX_SHARED), what "Show granular detail" adds to an invoice
-(DETAIL_ITEMS), how the math of the invoices is laid out and which of it is saved (MATH_LAYOUTS, MATH_SAVES),
-where the invoice's own text goes and when it is shown (TEXT_PLACES, TEXT_WHEN, default_invoice_texts), when the
-AI may tick who ordered (AI_TICKS), the folders the outputs go to when they have none of their own
-(OUTPUT_FOLDERS, see Settings.folder_for), and what to do when a case's own folder is there already
-(CASE_FOLDER_EXISTING).
+index of pages several firms ordered together (INDEX_SHARED), how a price a page of part of a cent is rounded
+(ROUNDINGS), what "Show granular detail" adds to an invoice (DETAIL_ITEMS), how the math of the invoices is laid
+out and which of it is saved (MATH_LAYOUTS, MATH_SAVES), where the invoice's own text goes and when it is shown
+(TEXT_PLACES, TEXT_WHEN, default_invoice_texts), when the AI may tick who ordered (AI_TICKS), the folders the
+outputs go to when they have none of their own (OUTPUT_FOLDERS, see Settings.folder_for), what to do when a case's
+own folder is there already (CASE_FOLDER_EXISTING), and, under Settings -> Dates, the day the turnaround days are
+counted from (TURNAROUND_FROM) and what a court holiday on a weekend does (HOLIDAY_WEEKEND). The dating itself and
+the holidays' rules are workdays.py's (Settings.holiday_calendar); the Records window's tick boxes and row colours
+are tracking.py's (Settings.boxes, Settings.rules).
 
 A settings.json that load() can't read (locked by a sync, damaged) is never written over on the app's own: the
 app runs on the defaults (Settings.unreadable), and only the user's own Save does (save(force=True)).
@@ -31,6 +34,9 @@ from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 
 from .courthouses import OUTPUT_FOLDERS, OUTPUTS  # (re-exported: the outputs are the courthouse's)
+from .courthouses import current as current_courthouse, holiday_rows
+from .tracking import (ColourRule, TrackBox, box_rows, clean_boxes, clean_rules, default_boxes, default_rules,
+                       rule_rows)
 
 APP_NAME = "YinItAgreementForm"
 FILENAME_PATTERN = "Minute Agreement - {case} - {index} - {attorney} - {today}"
@@ -43,8 +49,10 @@ RECENT_MAX = 10  # how many documents and folders File -> Open recent keeps
 RATE_SHEETS_OK_KEPT = 20  # how many incomplete rate sheets used anyway are remembered (Settings.rate_sheets_ok)
 # What belongs to this computer and this copy of the app: left out of an exported settings file, and kept as
 # it is when one is imported (an incomplete rate sheet used anyway here is warned about on another computer)
-LOCAL = ("window_geometry", "recent_files", "update_checked", "recap_month", "recap_year", "welcomed",
-         "signature_image", "opened_year", "new_year_day", "rate_sheets_ok")
+LOCAL = ("window_geometry", "recent_files", "update_checked", "update_version", "update_page", "recap_month",
+         "recap_year", "welcomed",
+         "signature_image", "opened_year", "new_year_day", "rate_sheets_ok", "window_splits", "outputs_folded",
+         "folded_cards")
 # What says who the user is: left out of a settings file exported "without my details" (for a colleague), and
 # kept as it is when such a file is imported. The invoice's payment text (who to pay, and how) is left out
 # with them. The folders are among them: their paths name the user's Windows account.
@@ -300,6 +308,13 @@ CASE_FOLDER_EXISTING = {
     "new": "Make a new one beside it (\"712345-2021 (2)\")",
 }
 CASE_FOLDER_PATTERN = "{index}"  # the name of a case's own folder (pdfout.case_folder_name): "712345-2021"
+# Settings -> Dates: the day the turnaround days are counted from (workdays.turnaround_start): key -> label
+TURNAROUND_FROM = {"form": "the date on the form", "today": "the day you make it"}
+# what a court holiday that falls on a weekend does (workdays.Holidays): key -> label
+HOLIDAY_WEEKEND = {
+    "nearest": "closed the Friday before or the Monday after",  # (as New York's courts are)
+    "none": "not moved (no day off)",
+}
 
 
 def clean_folder_pattern(pattern: str) -> str:
@@ -326,6 +341,13 @@ INDEX_RULES = {
 INDEX_SHARED = {
     "each": "Each firm pays its own",
     "split": "Split between the firms",
+}
+# How a party's amount is rounded when its price a page comes to part of a cent (invoice_calc.Quote.per_party):
+# key -> label. Four parties at Immediate pay $6.6125 a page: exactly, $6,612.50 for 1,000 pages; to the cent first,
+# as by hand, $6.61 a page, $6,610.00 (and $6.6175 would be $6.62: it goes either way)
+ROUNDINGS = {
+    "exact": "Exact (rounded up to the cent at the end)",
+    "page": "The price a page, to the cent (as by hand)",
 }
 # How the math of the invoices is laid out (invoice_math.explain, gui.preview.MathView): key -> label
 MATH_LAYOUTS = {
@@ -445,12 +467,27 @@ class Settings:
     # Incomplete rate sheets the user chose to use anyway, as they were then (rates.sheet_fingerprint, the last
     # RATE_SHEETS_OK_KEPT): not warned about again until the file changes (MainWindow._check_rate_sheet)
     rate_sheets_ok: list = field(default_factory=list)
-    # Turnaround used when the rate sheet has no Days column
+    # Turnaround used when the rate sheet has no Days column: business days when turnaround_business_days (5 and 15:
+    # one and three working weeks; 7 and 21 calendar days before settings v14)
     days_immediate: int = 0
     days_daily: int = 1
-    days_expedited: int = 7
-    days_regular: int = 21
+    days_expedited: int = 5
+    days_regular: int = 15
     fill_delivery_date: bool = True
+
+    # Settings -> Dates (workdays.py). business_day_dating: forms and invoices made on a weekend or a court holiday
+    # are dated the next business day. turnaround_business_days: turnaround days are business days (off: calendar
+    # days, the last one moved to a business day), counted from turnaround_from (one of TURNAROUND_FROM: the form's
+    # date, or the day it is made). after_hours: those made from after_hours_from ("17:00") on are dated the next
+    # day. holidays: the court holidays, {"name", "when": a rule in plain words, workdays.parse_rule}, the
+    # courthouse's at first; holiday_weekend: what one on a weekend does (one of HOLIDAY_WEEKEND)
+    business_day_dating: bool = True
+    turnaround_business_days: bool = True
+    turnaround_from: str = "form"
+    after_hours: bool = False
+    after_hours_from: str = "17:00"
+    holidays: list = field(default_factory=holiday_rows)
+    holiday_weekend: str = field(default_factory=lambda: current_courthouse().holiday_weekend)
 
     # Checkboxes
     per_email: bool = True            # write "per email" on the attorney signature line
@@ -464,7 +501,7 @@ class Settings:
     # Output
     form_choice: str = "ucs"          # "ucs", "clean" or "original" (see fill.FORMS)
     include_instructions: bool = True  # keep the UCS form's instructions page (page 2)
-    settings_version: int = 12        # bumped when from_dict must change something in older files
+    settings_version: int = 14        # bumped when from_dict must change something in older files
     output_dir: str = ""              # blank = next to the first input file, else Documents\Minute Agreements
     output_dirs: dict = field(default_factory=dict)  # a folder for one output (key of OUTPUTS); none = as above
     # each case's files in a folder of its own inside the one above ("...\Minute Agreements\712345-2021"), named
@@ -498,7 +535,10 @@ class Settings:
     # page. 100 pages, B orders 10 of them -> A pays an index of 100 pages and 95 of the judge's, B an index of
     # 10 and 5 of the judge's. "split" shares the index like the judge's.
     invoice_index_shared: str = "each"
-    invoice_joint: bool = True        # Generate all bills the days of one case on one invoice (False: one per day)
+    # one of ROUNDINGS: "exact" keeps every fraction of a cent and rounds the amount up once; "page" rounds each
+    # price a page to the cent first, as reporters do by hand, so their own math matches (the user, 2026-10-10)
+    invoice_rounding: str = "exact"
+    invoice_joint: bool = True       # Generate all bills the days of one case on one invoice (False: one per day)
     invoice_detail_items: list = field(default_factory=lambda: list(DETAIL_ITEMS))  # what granular detail adds
     # also save a copy of each invoice with granular detail ("... (detailed).pdf": the same number, not recorded
     # again), for when the math is asked for later; a job whose invoice already shows the detail gets none
@@ -525,6 +565,15 @@ class Settings:
     # the Records search's Fuzzy box also matches numbers loosely ("2026-0001" finds "2026-0002"); False: a word
     # with a digit in it must be found as typed (Settings -> Options)
     fuzzy_numbers: bool = True
+    # the Records window's tick boxes (tracking.TrackBox as dicts: Paid in use, the others switched on in
+    # Settings -> Records; the user's own too) and its row colours (tracking.ColourRule as dicts: the first that
+    # matches colours the row); records_colours False: no colours
+    tracking_boxes: list = field(default_factory=lambda: box_rows(default_boxes()))
+    tracking_rules: list = field(default_factory=lambda: rule_rows(default_rules()))
+    records_colours: bool = True
+    # the main window's Records button counts the invoices of this status ("Records · Ready to send: 3"): a
+    # colour's name, or "Not paid"; "" counts nothing (Settings -> Records)
+    records_count: str = "Ready to send"
 
     # Run sheets (who wrote which pages of a trial; see runsheet.py)
     runsheet_filename_pattern: str = RUNSHEET_FILENAME_PATTERN
@@ -547,6 +596,11 @@ class Settings:
     theme: str = "system"             # system / light / dark
     show_yin: bool = True
     window_geometry: str = ""
+    # the main window's dividers, by name ("outer": the form above the Outputs box, "left": the job list above
+    # the paste box), each as QSplitter.saveState() in base64; Outputs folded to one line; the cards folded
+    window_splits: dict = field(default_factory=dict)
+    outputs_folded: bool = False
+    folded_cards: list = field(default_factory=list)
     zoom: float = 1.0                 # Ctrl + / Ctrl - zoom (1.0 = 100 %), on top of the Windows display scaling
     recent_files: list = field(default_factory=list)  # documents and folders opened, newest first (Open recent)
     preview_before_saving: bool = True  # Generate shows the files as pictures first; saved only on Save
@@ -560,6 +614,8 @@ class Settings:
     # The only time the app goes online: once a day it asks GitHub for the number of the latest version
     check_updates: bool = True
     update_checked: str = ""          # the day it last asked ("2026-10-03")
+    update_version: str = ""          # the newer version it found ("2.8.0"): its button shows until it's installed
+    update_page: str = ""             # that version's download page
 
     # Records: "last month you made ..." when Records is first opened in a month (and "last year" in a year)
     recaps: bool = True
@@ -574,6 +630,27 @@ class Settings:
     def path(self) -> Path:
         """The settings file: settings.json in settings_dir()."""
         return settings_dir() / "settings.json"
+
+    # ---- the Records window's tick boxes and row colours (see tracking.py)
+    def boxes(self) -> list[TrackBox]:
+        """The tick boxes of the Records window, in order (those not in use too: TrackBox.on)."""
+        return clean_boxes(self.tracking_boxes)
+
+    def rules(self) -> list[ColourRule]:
+        """The row colours of the Records window, the first that matches a row first."""
+        return clean_rules(self.tracking_rules, self.boxes())
+
+    # ---- Settings -> Dates (see workdays.py)
+    def holiday_calendar(self):
+        """The court holidays of Settings -> Dates as a workdays.Holidays, made once for the list as it is now (a
+        changed list, or what a weekend holiday does, makes it again)."""
+        from .workdays import Holidays
+        key = (tuple((r.get("name"), r.get("when")) for r in self.holidays if isinstance(r, dict)),
+               self.holiday_weekend)
+        made = getattr(self, "_holidays", None)  # read once: another thread may make it again meanwhile
+        if made is None or made[0] != key:
+            made = self._holidays = (key, Holidays(self.holidays, self.holiday_weekend))
+        return made[1]
 
     # ---- rates (the active sheet is cached; call reload_rates() after changing sheets)
     def sheets(self):
@@ -910,6 +987,8 @@ class Settings:
         # saved before says "each" once; "split" chosen since stays
         if s.invoice_index_shared not in INDEX_SHARED or (version < 11 and s.invoice_index_shared == "split"):
             s.invoice_index_shared = "each"
+        if s.invoice_rounding not in ROUNDINGS:
+            s.invoice_rounding = "exact"
         if s.math_layout not in MATH_LAYOUTS:
             s.math_layout = "invoice"
         if s.save_math not in MATH_SAVES:
@@ -954,6 +1033,34 @@ class Settings:
             s.invoice_texts.insert(max(notes, default=first), dict(MIXED_SPEEDS_ROW))
         s.records_columns = {k: [c for c in v if isinstance(c, str)] for k, v in s.records_columns.items()
                              if k in ("invoices", "activity") and isinstance(v, list)}
+        # v13: the Records window's Notes can be typed in its table, so a choice of columns saved before shows it
+        # too (it can be hidden again since)
+        chosen = s.records_columns.get("invoices")
+        if version < 13 and chosen and "notes" not in chosen:  # (none chosen: the usual ones, Notes among them)
+            chosen.append("notes")
+        # v14: turnaround days are business days (Settings -> Dates): a turnaround still at the old defaults, a week
+        # and three weeks in calendar days, is one and three working weeks
+        if version < 14:
+            if s.days_expedited == 7:
+                s.days_expedited = 5
+            if s.days_regular == 21:
+                s.days_regular = 15
+        if s.turnaround_from not in TURNAROUND_FROM:
+            s.turnaround_from = "form"
+        if s.holiday_weekend not in HOLIDAY_WEEKEND:
+            s.holiday_weekend = current_courthouse().holiday_weekend  # (as at first, and as Restore puts back)
+        from datetime import datetime
+        try:  # ("9:5" -> "09:05"; one that can't be read, "5 pm" or "25:00", is the usual 5 PM)
+            t = datetime.strptime(s.after_hours_from.strip(), "%H:%M")
+            s.after_hours_from = f"{t.hour:02}:{t.minute:02}"
+        except ValueError:
+            s.after_hours_from = "17:00"
+        s.holidays = [{"name": r["name"].strip(), "when": r["when"].strip()} for r in s.holidays
+                      if isinstance(r, dict) and isinstance(r.get("name"), str) and isinstance(r.get("when"), str)
+                      and (r["name"].strip() or r["when"].strip())]
+        boxes = clean_boxes(s.tracking_boxes)
+        s.tracking_boxes = box_rows(boxes)
+        s.tracking_rules = rule_rows(clean_rules(s.tracking_rules, boxes))
         if isinstance(data.get("zoom"), int) and not isinstance(data.get("zoom"), bool):
             s.zoom = float(data["zoom"])  # "zoom": 1 typed by hand
         s.zoom = min(1.6, max(0.7, s.zoom)) if s.zoom == s.zoom else 1.0
@@ -961,5 +1068,8 @@ class Settings:
         if isinstance(data.get("show_djinn"), bool) and "show_yin" not in data:
             s.show_yin = data["show_djinn"]
         s.recent_files = [p for p in s.recent_files if isinstance(p, str) and p.strip()][:RECENT_MAX]
+        s.window_splits = {k: v for k, v in s.window_splits.items() if isinstance(k, str) and isinstance(v, str)}
+        s.folded_cards = list(dict.fromkeys(k for k in s.folded_cards if isinstance(k, str)))
+        s.records_count = s.records_count.strip()
         s.settings_version = cls.settings_version
         return s

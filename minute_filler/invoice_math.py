@@ -19,13 +19,17 @@ firm alone" (pages no other firm ordered). A firm's own share is worked out exac
 and spelled out stretch by stretch: the pages it ordered alone at the full price, and the pages ordered with
 other firms divided between them ("50 pages × $4.30 = $215.00 ÷ 2 firms = $107.50"). A line can come to part of
 a cent: it is shown as it is ("$8.175") and the lines add up to "This firm's charges together", which is then
-rounded up to the cent ("This firm pays").
+rounded up to the cent ("This firm pays"). With Settings -> Invoice -> Rounding "the price a page" (Quote.by_page),
+when a price a page came to part of a cent (Quote.page_rounded), what each party pays says how instead: "This
+firm pays: $6.6125 a page, rounded to $6.61, × 1,000 pages", so a firm checking it by hand gets the same. The
+invoice itself never says how it was rounded (the user): only the math does.
+
 Under each invoice's heading (about): the pages the user wrote of the whole transcript ("You wrote 45 of 83
 total pages.") and whether there is an index and why (FirmInvoice.index_note). When several firms are billed for
 the same work, a last section, "All the firms together", adds up what they pay against their exact shares added
-up, which shows what rounding each one up to the cent added. who_pays() is the short version the main window
-keeps up to date as things are ticked: a row per firm, its pages, how it ordered them and what it pays at each
-speed; page_rates() goes under it.
+up, which shows what rounding each one up to the cent added (or what rounding each price a page added or took
+off). who_pays() is the short version the main window keeps up to date as things are ticked: a row per firm,
+its pages, how it ordered them and what it pays at each speed; page_rates() goes under it.
 
 A firm that committed to a speed (an ordered quote, invoice_calc.quote_ordered) has its speed headed "Daily
 (ordered)" (speed_name), and the "firms" layout puts such firms in one table, "As ordered", each at its own
@@ -45,7 +49,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from .invoice import FirmInvoice
-from .invoice_calc import Quote, QuoteLine, Stretch, exact_number, fmt, money_exact
+from .invoice_calc import Quote, QuoteLine, Stretch, exact_number, fmt, money_exact, page_prices_text
 
 # the PDF's look (to_pdf); the window's is gui.preview.MATH_CSS
 CSS = """
@@ -206,7 +210,14 @@ def rows(q: Quote) -> list[Row]:
 def _foot(q: Quote) -> list[tuple[str, str]]:
     """The last rows of a speed's table, (what, amount): a firm's share 'This firm pays' (after 'This firm's
     charges together' when the lines come to part of a cent, and then '(rounded up to the cent)'); a whole
-    invoice its total and what each party pays."""
+    invoice its total and what each party pays. With each price a page rounded to the cent (Quote.page_rounded):
+    the charges together (or the total), then what it pays and how: 'This firm pays: $6.6125 a page, rounded to
+    $6.61, × 1,000 pages'."""
+    if q.page_rounded:
+        who = "This firm pays" if q.share else "Each party pays"
+        total = ("This firm's charges together" if q.share else f"Total, the {q.parties} parties together",
+                 money_exact(q.total))
+        return [total, (f"{who}: {page_prices_text(q)}", fmt(q.per_party))]
     if q.share:
         out = []
         if q.total != q.per_party:
@@ -272,9 +283,14 @@ def _line(l: QuoteLine, q: Quote) -> list[str]:
 
 def _sum(q: Quote) -> list[str]:
     """The total and what each party owes: 'Total: $319.30', '÷ 3 parties = $106.44 each (rounded up to the
-    cent)' (that last only when it does not split evenly); a firm's own
-    share: 'This firm pays: $219.25', after 'This firm's charges together: $219.245' when the lines come to part of
-    a cent."""
+    cent)' (that last only when it does not split evenly); a firm's own share: 'This firm pays: $219.25', after
+    'This firm's charges together: $219.245' when the lines come to part of a cent. With each price a page rounded
+    to the cent (Quote.page_rounded), after the total: 'Each party pays: $6.6125 a page, rounded to $6.61, × 1,000
+    pages = $6,610.00'."""
+    if q.page_rounded:
+        who = "This firm pays" if q.share else "Each party pays"
+        total = f"This firm's charges together: {money_exact(q.total)}" if q.share else f"Total: {fmt(q.total)}"
+        return [total, f"{who}: {page_prices_text(q)} = {fmt(q.per_party)}"]
     if q.share:
         out = []
         if q.total != q.per_party:  # (worked out exactly: $4.30 split three ways is $1.4333…, not whole cents)
@@ -478,9 +494,19 @@ def _firms_table(firms: list[tuple[FirmInvoice, str]], quotes: list[Quote | None
         out.append(_cells([("<b>Charges together</b>", "left"), ("", "right"), ("", "left")]
                           + [(money_exact(q.total) if q else "—", "right") for q in quotes]))
     uneven = any(q is not None and not q.share and q.per_party * q.parties != q.total for q in quotes)
-    pays = ("Each firm pays" if share else "Each party pays") + (" (rounded up to the cent)" if parts or uneven else "")
+    pays = "Each firm pays" if share else "Each party pays"
+    if any(q is not None and q.page_rounded for q in quotes):  # (each price a page rounded: each cell says how)
+        pays += " (its price a page rounded to the cent)"
+    elif parts or uneven:
+        pays += " (rounded up to the cent)"
+
+    def paid(q: Quote) -> str:
+        """What a firm pays, and under it how when its price a page was rounded ('1,000 × $6.61')."""
+        how = f"<br><span class='muted'>{_e(page_prices_text(q, short=True))}</span>" if q.page_rounded else ""
+        return f"<b>{fmt(q.per_party)}</b>{how}"
+
     out.append(_cells([(f"<b>{_e(pays)}</b>", "left"), ("", "right"), ("", "left")]
-                      + [(f"<b>{fmt(q.per_party)}</b>" if q else "—", "right") for q in quotes]))
+                      + [(paid(q) if q else "—", "right") for q in quotes]))
     out.append("</table>")
     return "".join(out)
 
@@ -491,7 +517,8 @@ def together(made: list[tuple[FirmInvoice, str]]) -> list[str]:
     """For the firms billed for the same work (the invoices of one set: one case, one reporter, see
     FirmInvoice.group), what they pay together at each speed against their exact shares added up: 'Regular:
     the 2 firms together pay $618.00 for work that costs $618.00' (+ what rounding each one up to the cent
-    added; another reporter's set says whose: 'Regular (DS invoices): ...'). The firms billed the speeds they
+    added, or rounding each price a page what it added or took off: _together; another reporter's set says whose:
+    'Regular (DS invoices): ...'). The firms billed the speeds they
     ordered are added up together: 'As ordered (Daily, Immediate): the 2 firms together pay $780.00 for work that
     costs $780.00', and when some of their pages were ordered at different speeds, that their parts of each
     original add up to one original at the fastest speed. [] when no set has two firms."""
@@ -524,13 +551,18 @@ def together(made: list[tuple[FirmInvoice, str]]) -> list[str]:
 
 def _together(what: str, quotes: list[Quote]) -> str:
     """'Regular: the 2 firms together pay $618.00 for work that costs $618.00' (+ what rounding each one up to the
-    cent added), for these firms' quotes."""
+    cent added, or, each price a page rounded to the cent, what that added or took off: '(rounding each firm's
+    price a page to the cent takes off $10.00)'), for these firms' quotes."""
     paid = sum((q.per_party for q in quotes), Decimal("0.00"))
     # the exact shares added up first: a third of a cent three times is a whole cent, not 0.99…
     cost = _d(sum((q.due for q in quotes), Fraction(0)))
     line = f"{what}: the {len(quotes)} firms together pay {fmt(paid)} for work that costs {money_exact(cost)}"
     extra = paid - cost
-    if extra > 0:
+    if any(q.page_rounded for q in quotes):
+        if extra:
+            line += (f" (rounding each firm's price a page to the cent {'adds' if extra > 0 else 'takes off'} "
+                     f"{money_exact(abs(extra))})")
+    elif extra > 0:
         line += f" (rounding each one up to the cent adds {money_exact(extra)})"
     return line
 

@@ -387,6 +387,8 @@ def test_selftest_checks_the_fuzzy_search(tmp_path):
     assert report["update_check"] is True and report["printing"] is True and report["math_pdf"] is True
     assert report["single_instance"] is True  # one window at a time needs QtNetwork in the build
     assert report["outputs"] is True  # the outputs' code, imported by name, is in the build (courthouses)
+    assert report["help_search"] is True  # the Help search's word table (the spec's datas) and its typo fixing
+    assert report["tick_marks"] is True  # the tick in a ticked box is an SVG (Qt's svg plugin)
 
 
 def test_an_iphone_heic_photo_is_read(tmp_path, monkeypatch):
@@ -647,8 +649,9 @@ def test_importing_settings_from_2_4_keeps_the_sample_sheet_as_it_ships_now(tmp_
 def test_bringing_the_sample_sheet_up_to_date_never_leaves_half_of_it(tmp_path, monkeypatch):
     """The old Sample Rates is replaced in one step: a copy that stopped part way (the disk full) left half a
     sheet that matched no hash, kept from then on as the user's own. Now it stays as it was, to be brought up to
-    date next time, with nothing left beside it. A sheet no version changed is not read at all (the folder can be
-    on OneDrive)."""
+    date next time, with nothing left beside it. A template of the user's own (no version shipped it) is kept as
+    it is. (Each bundled sheet is read once a version has changed it: since 2.8 the template's Days are business
+    days, so it is read too.)"""
     from minute_filler import rates
     new = (rates.BUNDLED_DIR / "Sample Rates.csv").read_bytes()
     old = new.replace(*OLD_DAILY)
@@ -667,10 +670,9 @@ def test_bringing_the_sample_sheet_up_to_date_never_leaves_half_of_it(tmp_path, 
     assert (d / "Sample Rates.csv").read_bytes() == old
     assert sorted(p.name for p in d.iterdir()) == ["Rate Sheet TEMPLATE.csv", "Sample Rates.csv"]
     monkeypatch.setattr(rates.shutil, "copy2", copy)
-    read, read_bytes = [], Path.read_bytes
-    monkeypatch.setattr(Path, "read_bytes", lambda self: read.append(self.name) or read_bytes(self))
     rates.seed(d)
-    assert (d / "Sample Rates.csv").read_bytes() == new and "Rate Sheet TEMPLATE.csv" not in read
+    assert (d / "Sample Rates.csv").read_bytes() == new
+    assert (d / "Rate Sheet TEMPLATE.csv").read_bytes() == b"Rate,Original\n"
 
 
 def test_each_firms_index_note_says_what_its_own_invoice_charges(tmp_path):

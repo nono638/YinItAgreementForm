@@ -2,8 +2,8 @@
 
 Opens the window, with any files or folders given on the command line ("Open with", dropped on the exe).
 One window at a time: when one is open already, a launch hands it its files and quits (gui/single.py).
-Without a window: --selftest OUTDIR files... checks a build, and --batch OUTDIR [--outputs ...] files...
-makes the forms of a whole folder (see selftest and batch).
+Without a window: --selftest OUTDIR files... checks a build, and --batch OUTDIR [--outputs ...] [--math]
+files... makes the forms of a whole folder (see selftest and batch).
 """
 from __future__ import annotations
 
@@ -14,9 +14,10 @@ from pathlib import Path
 def selftest(out_dir: str, files: list[str]) -> int:
     """Headless check of a build: reads each file and fills its minute agreement on each of the three forms (ucs,
     clean and original: fill.FORMS), checks the libraries a build can lose without anything else failing (fuzzy_search,
-    regex_search, heic_photos, update_check, printing, math_pdf, single_instance, moving_picture: True each,
-    else the error), that the code each output names can be imported (outputs) and that the courthouse's split
-    rule bills a made-up split order as the workbook does (mixed_speeds), then writes selftest.json into out_dir.
+    regex_search, heic_photos, update_check, printing, math_pdf, single_instance, moving_picture, help_search,
+    tick_marks: True each, else the error), that the code each output names can be imported (outputs) and that the
+    courthouse's split rule bills a made-up split order as the workbook does (mixed_speeds), then writes
+    selftest.json into out_dir.
     The default settings are used; the saved ones are not touched."""
     import json
     from minute_filler.extract_regex import RegexExtractor
@@ -120,6 +121,28 @@ def selftest(out_dir: str, files: list[str]) -> int:
         report["mixed_speeds"] = (str(daily.per_party), str(immediate.per_party)) == ("57.50", "72.50")
     except Exception as e:
         report["mixed_speeds"] = f"{type(e).__name__}: {e}"
+    try:  # the Help search's sense of meaning reads data/help_words.bin (the spec's datas) and forgives typos with
+        # rapidfuzz.process: without either it still searches, by keywords alone, so only this would tell
+        from minute_filler import help_meaning, help_search
+        from minute_filler.help_topics import TOPICS
+        m = help_meaning.load(TOPICS)
+
+        def near(a: str, b: str) -> float:
+            return sum(x * y for x, y in zip(m.table.vector(a), m.table.vector(b)))
+        report["help_search"] = (m is not None
+                                 and help_meaning.TABLE.with_name("help_words.LICENSE.txt").is_file()
+                                 and near("closed", "holiday") > near("closed", "invoice")
+                                 and help_search.index(TOPICS).known(help_search.stem("invioce"))
+                                 == help_search.stem("invoice"))
+    except Exception as e:
+        report["help_search"] = f"{type(e).__name__}: {e}"
+    try:  # the tick in a ticked box (the Records' tick boxes, every check box) is an SVG: needs Qt's svg plugin
+        from PySide6.QtCore import QCoreApplication
+        from PySide6.QtGui import QImageReader
+        app = QCoreApplication.instance() or QCoreApplication(["selftest"])  # noqa: F841 (loads the plugins)
+        report["tick_marks"] = b"svg" in [bytes(f) for f in QImageReader.supportedImageFormats()]
+    except Exception as e:
+        report["tick_marks"] = f"{type(e).__name__}: {e}"
     for f in files:
         try:
             case = merge([RegexExtractor(s.profile).extract(ingest_file(f))], s)
@@ -135,15 +158,17 @@ def selftest(out_dir: str, files: list[str]) -> int:
     return 0
 
 
-def batch(out_dir: str, paths: list[str], outputs: list[str] | None = None) -> int:
-    """Headless batch: --batch OUTDIR [--outputs agreement,mofr,invoice,runsheet] files/folders... fills one set of
-    forms per case and date with the saved settings (the math of the invoices saved as Settings.save_math says),
-    and writes batch.json (what was grouped, saved or unreadable, and each job's warnings: a document without
-    an index number, documents whose index numbers don't match, a firm of a split order whose speed wasn't given
-    and is billed at the agreement form's). The files go into OUTDIR whatever folders Settings give each
-    output, and not into a folder per case (OUTDIR is where they were asked for; run sheets still go to their
-    own folder). Without --outputs, the outputs ticked in the window are made. Returns 0, 1 when a file or job
-    had a problem, or 2 for an unknown output (main also returns 2 when OUTDIR or the files are missing)."""
+def batch(out_dir: str, paths: list[str], outputs: list[str] | None = None, math: bool = False) -> int:
+    """Headless batch: --batch OUTDIR [--outputs agreement,mofr,invoice,runsheet] [--math] files/folders... fills
+    one set of forms per case and date with the saved settings, and writes batch.json (what was grouped, saved or
+    unreadable, and each job's warnings: a document without an index number, documents whose index numbers don't
+    match, a firm of a split order whose speed wasn't given and is billed at the agreement form's). The files go
+    into OUTDIR whatever folders Settings give each output, and not into a folder per case (OUTDIR is where they
+    were asked for; run sheets still go to their own folder). Without --outputs, the outputs ticked in the window
+    are made. The math of the invoices is saved only with --math (then as Settings.save_math says): the command
+    line is for looking over what is made, not for the user's files (the user, 2026-10-10). Returns 0, 1 when a
+    file or job had a problem, or 2 for an unknown output (main also returns 2 when OUTDIR or the files are
+    missing)."""
     import json
     from minute_filler.batch import expand_paths, fill_jobs, group, read_docs, settle_split_speeds
     from minute_filler.extract_regex import use_firm_answers
@@ -161,6 +186,8 @@ def batch(out_dir: str, paths: list[str], outputs: list[str] | None = None) -> i
     s.output_dir = str(out)
     s.output_dirs = {k: v for k, v in s.output_dirs.items() if k == "runsheet"}  # everything else into OUTDIR
     s.case_folders = False
+    if not math:
+        s.save_math = "off"
     docs, errors = read_docs(expand_paths(paths), s)
     jobs = group(docs, s)
     chosen = [j for j in jobs if j.include]  # not the documents that name no case
@@ -271,17 +298,20 @@ def main() -> int:
     if len(sys.argv) > 2 and sys.argv[1] == "--selftest":
         return selftest(sys.argv[2], sys.argv[3:])
     if len(sys.argv) > 1 and sys.argv[1] == "--batch":
-        rest, outputs = sys.argv[3:], None
-        if rest[:1] == ["--outputs"]:
-            outputs, rest = [o.strip().lower() for o in (rest[1] if len(rest) > 1 else "").split(",") if o.strip()], \
-                rest[2:]
+        rest, outputs, math = sys.argv[3:], None, False
+        while rest[:1] in (["--outputs"], ["--math"]):  # (either order)
+            if rest[0] == "--math":
+                math, rest = True, rest[1:]
+            else:
+                outputs, rest = [o.strip().lower() for o in (rest[1] if len(rest) > 1 else "").split(",")
+                                 if o.strip()], rest[2:]
         if len(sys.argv) < 3 or not rest or outputs == []:
             # a bare --batch must not open the window, which would read OUTDIR as a folder of documents
             if sys.stderr:
-                print("usage: --batch OUTDIR [--outputs agreement,mofr,invoice,runsheet] files/folders...",
+                print("usage: --batch OUTDIR [--outputs agreement,mofr,invoice,runsheet] [--math] files/folders...",
                       file=sys.stderr)
             return 2
-        return batch(sys.argv[2], rest, outputs)
+        return batch(sys.argv[2], rest, outputs, math)
 
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication

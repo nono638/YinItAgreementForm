@@ -42,6 +42,7 @@ a = Analysis(
         ("minute_filler/assets/yin_*.webp", "minute_filler/assets"),
         ("minute_filler/rate_sheets/*.csv", "minute_filler/rate_sheets"),
         ("minute_filler/templates/*.xlsx", "minute_filler/templates"),
+        ("minute_filler/data/help_words.*", "minute_filler/data"),  # the help search's word table and its licence
     ],
     hiddenimports=hidden,
     excludes=["tkinter", "matplotlib", "numpy", "pandas", "PySide6.QtWebEngineCore", "PySide6.Qt3DCore",

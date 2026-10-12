@@ -2,20 +2,23 @@
 
 pool gathers every field's candidates (one value however it is written: same_value), merge picks the best of
 each and joins the attorneys, and apply_defaults and the refresh_* functions fill in what follows from the
-settings: court, county, the speed the agreement form names, its rate, the copies and the delivery date.
+settings: court, county, the speed the agreement form names, its rate, the copies, the date of agreement and the
+delivery date. Both dates are of the day a form is dated (workdays.document_day: today, or the next business
+day), and refresh_dates brings them up to the day of a Generate.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date
 
-from .dates import next_weekday, us_date
+from .dates import us_date
 from .extract_regex import dedupe_attorneys, find_dates, norm_index
 from .models import (CaseInfo, Candidate, Extraction, FIELD_KEYS, FieldState, SRC_DEFAULT, SRC_DERIVED,
                      SRC_RECORDS, SRC_USER, SRC_AI)
 from .rates import speed_key
 from .settings import Settings
+from .workdays import delivery_day, document_day
 
 CHECK_THRESHOLD = 0.6  # a proceeding type is ticked from this confidence up
 
@@ -136,10 +139,11 @@ def merge(extractions: list[Extraction], s: Settings, previous: CaseInfo | None 
 
 def apply_defaults(case: CaseInfo, s: Settings, cands: dict[str, list[Candidate]] | None = None) -> None:
     """Fills blank fields from Settings: court, county, the rate from the rate sheet, the delivery date (when
-    Settings.fill_delivery_date) and today's agreement date (when Settings.agreement_today). The speed and the
-    copies are set even when not blank (refresh_speed, refresh_copies): the speed is the user's choice, else
-    the Settings rule's, and the parties ticked decide the copies. With the pooled candidates `cands`, a blank
-    page count can also come from an invoice's total at the chosen speed."""
+    Settings.fill_delivery_date) and the date of agreement (when Settings.agreement_today: the day a form made now
+    is dated, workdays.document_day; today, or the next business day). The speed and the copies are set even when
+    not blank (refresh_speed, refresh_copies): the speed is the user's choice, else the Settings rule's, and the
+    parties ticked decide the copies. With the pooled candidates `cands`, a blank page count can also come from an
+    invoice's total at the chosen speed."""
     cands = cands or {}
     f = case.fields
 
@@ -167,31 +171,52 @@ def apply_defaults(case: CaseInfo, s: Settings, cands: dict[str, list[Candidate]
                                                 [str(pages)])
                 break
 
+    day = document_day(s).day  # (the form's date: on a weekend or a court holiday, the next business day's)
     if s.fill_delivery_date:
-        refresh_delivery_date(case, s)
+        refresh_delivery_date(case, s, day)
     if s.agreement_today:
-        default("agreement_date", us_date(), SRC_DEFAULT, 0.9)
+        default("agreement_date", us_date(day), SRC_DEFAULT, 0.9)
 
 
-def refresh_delivery_date(case: CaseInfo, s: Settings) -> None:
-    """Estimated delivery = today + the turnaround days of the chosen speed, moved off a weekend (unless the
-    user typed one; nothing when the speed's turnaround isn't known)."""
+def refresh_delivery_date(case: CaseInfo, s: Settings, day: date | None = None) -> None:
+    """Estimated delivery = the turnaround days of the chosen speed after the form's date (`day`, default: the
+    day a form made now is dated; or after the real day, Settings.turnaround_from "today"), in business days or
+    moved off a weekend or a court holiday as Settings -> Dates says (workdays.delivery_day); a form of several
+    speeds (CaseInfo.form_speeds, fill.speeds_case): the latest of them. Unless the user typed one, or emptied the
+    box (the form then has none, as the window shows); nothing when a speed's turnaround isn't known."""
     f = case.fields["delivery_date"]
-    if f.source == SRC_USER and f.value:
+    if f.source == SRC_USER:
         return
-    days = s.days_for(case.get("delivery"))
-    if days is None:
+    days = [s.days_for(sp) for sp in dict.fromkeys(sp for sp, _, _ in case.form_speeds) or [case.get("delivery")]]
+    if any(n is None for n in days):
         return
-    d = us_date(next_weekday(date.today() + timedelta(days=days)))
+    d = us_date(delivery_day(s, max(days), day)[0])
     case.fields["delivery_date"] = FieldState(d, SRC_DERIVED, 0.8, [d])
 
 
+def refresh_dates(case: CaseInfo, s: Settings, day: date, delivery: bool = True) -> None:
+    """The case's dates as of the day its files are dated (`day`, workdays.document_day): a date of agreement
+    filled in by default (Settings.agreement_today) becomes that day, and the delivery date not typed is worked
+    out from it again (refresh_delivery_date, when Settings.fill_delivery_date; one filled in before that was
+    turned off is emptied; neither with delivery=False: a form of several days shows the latest of theirs,
+    batch.case_forms). A date the user typed, picked or emptied is kept, and a blank date of agreement stays blank
+    (a job only typed in has none until fill.fill dates its form). Generate does this once for every file it
+    makes, and the window when the day changes (midnight, the evening hour)."""
+    f = case.fields["agreement_date"]
+    if s.agreement_today and f.value and f.source == SRC_DEFAULT:
+        case.fields["agreement_date"] = FieldState(us_date(day), SRC_DEFAULT, 0.9, [us_date(day)])
+    if delivery and s.fill_delivery_date:
+        refresh_delivery_date(case, s, day)
+    elif delivery and case.fields["delivery_date"].source == SRC_DERIVED:
+        case.fields["delivery_date"] = FieldState()  # (filled in before the setting was turned off: not any more)
+
+
 def refresh_speed(case: CaseInfo, s: Settings) -> bool:
-    """The agreement form names one speed: the one the user chose for the job (under Minute agreement form details, or when
-    asked about a speed a document mentions: batch.Job.speed_question), while it is still among the speeds
-    offered (or "Other"); else always the one Settings picks (Settings.agreement_speed: by default "Expedited,
-    else the slowest offered"). A speed found in a document doesn't change it: an e-mail's "at your regular
-    rate" is no choice of the user's (the window asks instead). True when it changed."""
+    """The agreement form names one speed: the one the user chose for the job (under Minute agreement form
+    details, or when asked about a speed a document mentions: batch.Job.speed_question), while it is still among
+    the speeds offered (or "Other"); else always the one Settings picks (Settings.agreement_speed: by default
+    "Expedited, else the slowest offered"). A speed found in a document doesn't change it: an e-mail's "at your
+    regular rate" is no choice of the user's (the window asks instead). True when it changed."""
     f = case.fields["delivery"]
     if f.source == SRC_USER and f.value and (f.value == "Other" or s.speed_offered(f.value)):
         return False

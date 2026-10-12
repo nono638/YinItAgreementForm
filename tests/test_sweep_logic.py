@@ -9,14 +9,14 @@ All names made up."""
 import re
 import sqlite3
 import zipfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import openpyxl
 import pymupdf
 import pytest
 
-from minute_filler import deliver, invoice, log, records
+from minute_filler import deliver, log, workdays
 from minute_filler.batch import Job, group, read_docs
 from minute_filler.fill import fill, form_path
 from minute_filler.forms import original_map, ucs_map
@@ -137,18 +137,21 @@ def test_a_file_half_written_is_deleted_and_the_number_given_back(s, tmp_path, m
     assert ledger.next_invoice_no()[0] == f"{date.today().year}-0001"
 
 
+def midnight(monkeypatch) -> None:
+    """The clock (workdays.now, which dates the forms and invoices) says 11:59:59 p.m. on December 31, 2026 the
+    first time it is asked, and past midnight in 2027 after that."""
+    calls = []
+
+    def now():
+        calls.append(1)
+        return datetime(2026, 12, 31, 23, 59, 59) if len(calls) == 1 else datetime(2027, 1, 1, 0, 0, 1)
+    monkeypatch.setattr(workdays, "now", now)
+
+
 def test_an_invoice_made_across_midnight_has_one_date(s, tmp_path, monkeypatch):
     """The number's year, the date on the page and the records' date are one day, asked once: on December 31
     at midnight they would otherwise be a 2026 number on an invoice dated 2027."""
-    class Midnight(date):
-        calls = 0
-
-        @classmethod
-        def today(cls):
-            cls.calls += 1
-            return date(2026, 12, 31) if cls.calls == 1 else date(2027, 1, 1)
-    monkeypatch.setattr(invoice, "date", Midnight)
-    monkeypatch.setattr(records, "date", Midnight)
+    midnight(monkeypatch)
     case = make_case({**ROE, "est_pages": "30"}, attorneys=[ALEX])
     ledger = Ledger(tmp_path / "r.db")
     path, number = make_invoice(case, ALEX, s, tmp_path / "out", InvoiceOpts(30), ledger)
@@ -396,15 +399,7 @@ def test_a_half_written_invoice_that_cannot_be_deleted_keeps_its_number(s, tmp_p
 def test_the_detailed_copy_is_dated_as_its_invoice_across_midnight(s, tmp_path, monkeypatch):
     """The invoice made at 11:59 p.m. on December 31 and its detailed copy a moment later: both are dated as the
     invoice and its record, not the copy a day (and a year) later."""
-    class Midnight(date):
-        calls = 0
-
-        @classmethod
-        def today(cls):
-            cls.calls += 1
-            return date(2026, 12, 31) if cls.calls == 1 else date(2027, 1, 1)
-    for module in (invoice, records, deliver):
-        monkeypatch.setattr(module, "date", Midnight, raising=False)
+    midnight(monkeypatch)
     s.invoice_detailed_copy = True
     s.save_math = "off"  # (the invoice and its copy, each read for its number and date)
     case = make_case({**ROE, "dates": "12/30/2026", "est_pages": "30"}, attorneys=[ALEX])

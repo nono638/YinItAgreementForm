@@ -1,6 +1,6 @@
-"""Signature picture on the forms, and the quick buttons for the delivery date."""
+"""Signature picture on the forms, and the quick buttons for the delivery date (a weekend or a court holiday moved
+to the next business day)."""
 import os
-from datetime import date
 
 import pymupdf
 import pytest
@@ -74,29 +74,40 @@ def test_name_is_typed_when_the_picture_is_gone(settings, tmp_path):
     assert page.get_text().count("Pat Reporter") == 2  # signature line and name
 
 
+@pytest.mark.workdays
 def test_quick_dates():
-    from minute_filler.gui.main_window import quick_date
-    wed = date(2026, 9, 30)
-    assert quick_date(0, today=wed) == "9/30/2026"
-    assert quick_date(1, today=wed) == "10/1/2026"
-    assert quick_date(7, today=wed) == "10/7/2026"
-    assert quick_date(0, 1, today=wed) == "10/30/2026"
-    assert quick_date(1, today=date(2026, 10, 2)) == "10/5/2026"       # Friday -> Monday, not Saturday
-    assert quick_date(0, 1, today=date(2027, 1, 31)) == "3/1/2027"      # 2/28 is a Sunday
-    assert quick_date(0, 1, today=date(2026, 12, 15)) == "1/15/2027"
+    """The quick buttons' days: calendar days or months from the form's date, a weekend or a court holiday moved to
+    the next business day."""
+    from datetime import datetime
+    from minute_filler.settings import Settings
+    from minute_filler.workdays import quick_day
+    s = Settings()
+
+    def at(*ymd):
+        return datetime(*ymd, 10)
+    wed = at(2026, 9, 30)
+    assert quick_day(s, 0, at=wed) == "9/30/2026"
+    assert quick_day(s, 1, at=wed) == "10/1/2026"
+    assert quick_day(s, 7, at=wed) == "10/7/2026"
+    assert quick_day(s, 0, 1, at=wed) == "10/30/2026"
+    assert quick_day(s, 1, at=at(2026, 10, 2)) == "10/5/2026"       # Friday -> Monday, not Saturday
+    assert quick_day(s, 0, 1, at=at(2027, 1, 29)) == "3/1/2027"     # 2/28 is a Sunday
+    assert quick_day(s, 0, 1, at=at(2026, 12, 15)) == "1/15/2027"
+    assert quick_day(s, 1, at=at(2026, 11, 25)) == "11/27/2026"     # Thursday is Thanksgiving
+    assert quick_day(s, 1, at=at(2026, 10, 9)) == "10/13/2026"      # the weekend, then Columbus Day
 
 
 def test_quick_date_button_fills_the_field(qt, make_window):
-    from minute_filler.dates import quick_date
+    from minute_filler.workdays import quick_day
     s = pat_settings()
     s.use_ai = False
     win = make_window(s)
     button = next(b for b in win.findChildren(qt.QToolButton) if b.text() == "1 week")
     button.click()
-    assert win.rows["delivery_date"].text() == quick_date(7)
+    assert win.rows["delivery_date"].text() == quick_day(s, 7)
     assert win.cur.case.fields["delivery_date"].source == "you"
     win.delivery.setCurrentIndex(1)  # another speed must not overwrite a date the user chose
-    assert win.rows["delivery_date"].text() == quick_date(7)
+    assert win.rows["delivery_date"].text() == quick_day(s, 7)
 
 
 def test_settings_dialog_stores_the_signature(tmp_path, monkeypatch, qt):

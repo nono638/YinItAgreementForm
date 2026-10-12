@@ -1,8 +1,8 @@
 """Generating the chosen outputs: agreements, MOFR and invoices (transcripts only; their math saved beside them),
 and their records; a folder of its own for each output (Settings -> Options -> Folders, also for an output added
-later; the others in the case's own folder; the command line's folder takes them all); also settings files from
-versions 3, 4 and 7 brought up to date (the invoice speeds, the old "offer every speed" box, invoice_choice, now
-decided by the speeds ticked alone, and the old run sheets folder)."""
+later; the others in the case's own folder; the command line's folder takes them all, and saves the math only with
+--math); also settings files from versions 3, 4 and 7 brought up to date (the invoice speeds, the old "offer every
+speed" box, invoice_choice, now decided by the speeds ticked alone, and the old run sheets folder)."""
 from pathlib import Path
 
 import pytest
@@ -160,3 +160,24 @@ def test_the_command_line_folder_takes_every_output(folder, tmp_path, monkeypatc
     s.save()
     assert batch(str(tmp_path / "cli"), [str(folder)], ["agreement"]) in (0, 1)
     assert not (tmp_path / "elsewhere").exists() and list((tmp_path / "cli").glob("Minute Agreement*.pdf"))
+
+
+def test_the_command_line_saves_the_math_only_when_asked(folder, tmp_path, monkeypatch):
+    """The command line is for looking over what is made: the math of its invoices is saved only with --math
+    (then as Settings say), whatever Save the math says (the user, 2026-10-10)."""
+    import sys
+    from minute_filler import main
+    pat_settings().save()  # (Save the math: "both", the default)
+
+    def made(out):
+        names = [p.name for p in (tmp_path / out).glob("*.pdf")]
+        return [n for n in names if n.startswith("Invoice ") and not n.endswith(" - the math.pdf")], \
+            [n for n in names if n.endswith(" - the math.pdf")]
+    assert main.batch(str(tmp_path / "plain"), [str(folder)], ["invoice"]) in (0, 1)
+    invoices, maths = made("plain")
+    assert len(invoices) == 1 and maths == []
+    monkeypatch.setattr(sys, "argv", ["YinItAgreementForm", "--batch", str(tmp_path / "math"), "--math",
+                                      "--outputs", "invoice", str(folder)])  # (either order)
+    assert main.main() in (0, 1)
+    invoices, maths = made("math")
+    assert maths == [invoices[0][:-len(".pdf")] + " - the math.pdf"]

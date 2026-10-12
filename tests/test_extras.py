@@ -1,9 +1,10 @@
 """What was added around the forms themselves: File -> Open recent; the settings exported and imported; the
-daily backup of the records and putting one back; the look for a newer version (GitHub is never asked: its
-answer is faked); the preview before saving (its "The math" tab first) and "Don't show previews anymore"; the
-AI model box in Settings; printing (to a PDF, not a printer); Undo, Summary..., Mark paid..., a locked database
-and the monthly and yearly recap in the Records window; a past job opened again from its record; and the
-first-run welcome. All names and numbers are made up."""
+daily backup of the records and putting one back; the look for a newer version and its Update button at the top,
+shown at each start until that version is installed (GitHub is never asked: its answer is faked); the preview
+before saving (its "The math" tab first) and "Don't show previews anymore"; the AI model box in Settings; printing
+(to a PDF, not a printer); Undo, Summary..., Mark paid..., a locked database and the monthly and yearly recap in
+the Records window; a past job opened again from its record; and the first-run welcome. All names and numbers are
+made up."""
 import io
 import json
 import os
@@ -411,21 +412,58 @@ def test_a_newer_version_on_github_is_found(monkeypatch):
         update.latest()
 
 
-def test_the_window_looks_once_a_day_and_shows_the_link(window, monkeypatch):
+def test_the_window_looks_once_a_day_and_shows_an_update_button_at_the_top(window, monkeypatch):
+    """A newer version is a button beside Records at the top (a line at the bottom of the window went unseen on a
+    laptop), opening its download page."""
     from minute_filler import update
-    looked = []
-    monkeypatch.setattr(update, "newer", lambda *a, **k: looked.append(1) or ("9.9.0", update.RELEASES_PAGE))
+    from minute_filler.gui import main_window
+    looked, opened = [], []
+    page = update.RELEASES_PAGE + "/tag/v9.9.0"
+    monkeypatch.setattr(update, "newer", lambda *a, **k: looked.append(1) or ("9.9.0", page))
+    monkeypatch.setattr(main_window, "open_url", opened.append)
     # (the window runs _startup by itself a moment after it is made)
-    wait(window, lambda: getattr(window, "update_label", None) is not None)
-    assert looked == [1] and "9.9.0" in window.update_label.text() and update.RELEASES_PAGE in window.update_label.text()
-    assert window.s.update_checked == date.today().isoformat()
+    wait(window, lambda: not window.update_btn.isHidden())
+    assert looked == [1] and "Update to 9.9.0" in window.update_btn.text()
+    assert window.update_btn.parent() is window.head_box  # (the menu bar's corner, with Records)
+    assert window.s.update_checked == date.today().isoformat() and window.s.update_version == "9.9.0"
+    window.update_btn.click()
+    assert opened == [page]
     window._startup()  # the same day: not asked again
     wait(window, lambda: True)
-    assert looked == [1]
-    window.s.update_checked, window.s.check_updates = "", False  # turned off in Settings: never asked
+    assert looked == [1] and not window.update_btn.isHidden()
+    window.s.update_checked, window.s.check_updates = "", False  # turned off in Settings: never asked, and hidden
     window._startup()
     wait(window, lambda: True)
-    assert looked == [1]
+    assert looked == [1] and window.update_btn.isHidden()
+
+
+def test_a_newer_version_found_earlier_shows_each_time_until_it_is_installed(tmp_path, make_window, monkeypatch, qt):
+    """The app opened again the same day (GitHub not asked again) still shows the Update button: before, only the
+    first time the app was opened that day did. Once this copy is that version, it is forgotten; and a look that
+    finds none newer (a release taken back) hides it too."""
+    from minute_filler import update
+    monkeypatch.setattr(qt.QMessageBox, "exec", lambda self: 0)
+    looked = []
+    monkeypatch.setattr(update, "newer", lambda *a, **k: looked.append(1) or None)
+    s = pat_settings(initials="pr")
+    s.use_ai = s.open_after = False
+    s.welcomed = True
+    s.output_dir, s.records_dir = str(tmp_path / "out"), str(tmp_path / "records")
+    s.update_checked = date.today().isoformat()
+    s.update_version, s.update_page = "9.9.0", update.RELEASES_PAGE + "/tag/v9.9.0"
+    win = make_window(s)
+    wait(win, lambda: not win.update_btn.isHidden())
+    assert not looked and "9.9.0" in win.update_btn.text()
+    monkeypatch.setattr(update, "__version__", "9.9.0")  # installed
+    win._show_known_update()
+    assert win.update_btn.isHidden() and win.s.update_version == "" and win.s.update_page == ""
+    monkeypatch.setattr(update, "__version__", "1.0.0")
+    win.s.update_version, win.s.update_page = "9.9.0", update.RELEASES_PAGE + "/tag/v9.9.0"
+    win._show_known_update()
+    assert not win.update_btn.isHidden()
+    win._check_update()  # GitHub has none newer now
+    wait(win, lambda: looked)
+    assert win.update_btn.isHidden() and win.s.update_version == ""
 
 
 def test_github_out_of_reach_says_nothing_unless_asked(window, monkeypatch, qt):

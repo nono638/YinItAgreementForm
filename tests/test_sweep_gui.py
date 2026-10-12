@@ -218,8 +218,8 @@ def test_the_status_says_reading_while_a_folder_is_still_coming_in(window, tmp_p
     assert window.status.text().startswith("Reading") and window.status.property("state") == "busy"
     assert not window.busy.isHidden()
     window.work -= 1
-    window._update_status()
-    assert "Ready to fill" in window.status.text()
+    window._update_status()  # (the job's own: a transcript's attorneys are unticked, "⚠  1 to check")
+    assert not window.status.text().startswith("Reading") and window.status.property("state") != "busy"
 
 
 # ------------------------------------------------------------------ G14: crashes are hooked without a log file

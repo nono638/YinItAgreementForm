@@ -7,6 +7,7 @@ ordered at (Mofrs, the output deliver.generate and make_forms make it through: c
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -62,11 +63,13 @@ def build_values(case: CaseInfo, s: Settings, pages: str = "") -> dict[str, str 
     return v
 
 
-def fill_mofr(case: CaseInfo, s: Settings, out_dir: Path, dated: bool = False, pages: str = "") -> Path:
+def fill_mofr(case: CaseInfo, s: Settings, out_dir: Path, dated: bool = False, pages: str = "",
+              day: date | None = None) -> Path:
     """Writes one filled MOFR into out_dir and returns its path. pages: the pages anyone ordered, whoever
     wrote them (deliver.generate; for several days, batch.case_forms), when known; "" = the case's Est. number
     of pages. dated: add the date of the minutes to the file name (first and last day for several days, see
-    pdfout.output_name)."""
+    pdfout.output_name). day: the day the files are dated, for {today} in its file name (the reporter's parts
+    of the form have no such date); default: today, or the next business day, workdays.document_day."""
     v = build_values(case, s, pages)
     doc = pymupdf.open(mofr_path())
     page = doc[0]
@@ -81,7 +84,7 @@ def fill_mofr(case: CaseInfo, s: Settings, out_dir: Path, dated: bool = False, p
             set_text(w, form_text(str(v.get(mofr_map.TEXT[name], ""))))
         elif name in mofr_map.CHECKS:
             set_check(w, bool(v.get(mofr_map.CHECKS[name])))
-    name = output_name(case, None, s, dated, pattern=s.mofr_filename_pattern, fallback="MOFR")
+    name = output_name(case, None, s, dated, pattern=s.mofr_filename_pattern, fallback="MOFR", today=day)
     return save_output(doc, "MOFR", out_dir / name, s.flatten)
 
 
@@ -94,11 +97,12 @@ class Mofrs:
         """The job's MOFR, recorded: its pages those anyone ordered, else the pages billed; its speeds every one
         the firms ordered at (case_speeds)."""
         mofr = (m.ordered or {}).get("") or m.billed
-        on =speeds_case(m.case, case_speeds(m.case, m.ordered, m.speeds), m.s)
-        m.record("mofr", fill_mofr(on, m.s, m.folder("mofr"), m.dated, pages=str(mofr) if mofr else ""),
+        on = speeds_case(m.case, case_speeds(m.case, m.ordered, m.speeds), m.s, m.day)
+        m.record("mofr", fill_mofr(on, m.s, m.folder("mofr"), m.dated, pages=str(mofr) if mofr else "", day=m.day),
                  count=mofr or m.pages)
 
     @staticmethod
     def make_form(form: CaseForm, s: Settings, folder: Path) -> Path:
-        """The MOFR of several days (batch.case_forms), with the pages its days' orders add up to."""
-        return fill_mofr(form.case, s, folder, True, pages=str(form.pages) if form.pages else "")
+        """The MOFR of several days (batch.case_forms), with the pages its days' orders add up to ({today} in its
+        file name: form.day)."""
+        return fill_mofr(form.case, s, folder, True, pages=str(form.pages) if form.pages else "", day=form.day)

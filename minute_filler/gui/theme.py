@@ -15,6 +15,7 @@ LIGHT = {
     "sel": "#d3e1fd", "header_bg": "#d5dbe5", "card_title": "#1e3a8a",
     "records": "#0f5f56", "records_bg": "#e3f3ef", "records_border": "#5fae9f", "records_hover": "#cdeae3",
     "go": "#1d4ed8", "go_hover": "#1e40af", "go_border": "#1e3a8a",
+    "update": "#6d28d9", "update_hover": "#5b21b6",
 }
 DARK = {
     "bg": "#0c0e12", "card": "#1f232c", "border": "#4a5262", "text": "#eceef3", "muted": "#b2b9c6",
@@ -25,6 +26,7 @@ DARK = {
     "sel": "#29406a", "header_bg": "#171a21", "card_title": "#9cc0ff",
     "records": "#a7f0e1", "records_bg": "#12312d", "records_border": "#2f7d70", "records_hover": "#184139",
     "go": "#2563eb", "go_hover": "#1d4ed8", "go_border": "#93c5fd",
+    "update": "#7c3aed", "update_hover": "#6d28d9",
 }
 
 QSS = """
@@ -46,6 +48,7 @@ QLabel#kpiValue[tone="warn"] { color: {review}; }
 QLabel#problem { color: {review}; font-weight: 600; }
 QLabel#speedAsk { background: {warn_bg}; color: {warn}; border-radius: 6px; padding: 4px 8px; font-weight: 600; }
 QLabel#pagesWarn { background: {warn_bg}; color: {warn}; border-radius: 6px; padding: 3px 8px; font-weight: 600; }
+QLabel#dateWarn { background: {warn_bg}; color: {warn}; border-radius: 6px; padding: 3px 8px; font-weight: 600; }
 QLabel#payTable { background: {drop_bg}; border: 1px solid {border}; border-radius: 8px; padding: 6px 10px; }
 
 QLineEdit, QPlainTextEdit, QComboBox, QSpinBox {
@@ -84,11 +87,26 @@ QPushButton#segment:checked { background: {sel}; color: {accent}; border: 1px so
 QLabel#outputCount { color: {accent}; font-weight: 600; }
 QPushButton#records { background: {records_bg}; color: {records}; border: 1px solid {records_border}; font-weight: 600; }
 QPushButton#records:hover { background: {records_hover}; }
+/* a newer version is out: filled, in a colour nothing else in the window uses, so it is seen */
+QPushButton#update { background: {update}; color: #ffffff; border: 1px solid {update}; font-weight: 600; }
+QPushButton#update:hover { background: {update_hover}; }
 QToolButton { border: 1px solid transparent; border-radius: 6px; padding: 3px 6px; background: transparent; }
 QToolButton:hover { background: {hover}; border: 1px solid {border}; }
 QToolButton::menu-indicator { image: none; }
 QToolButton#quick { border: 1px solid {input_border}; background: {card}; padding: 2px 8px; font-size: 9pt; }
 QToolButton#quick:hover { background: {sel}; border: 1px solid {accent}; }
+/* a field's other readings ("2 more"), and the fold of a card or of the Outputs box */
+QToolButton#alts { color: {accent}; border: 1px solid {input_border}; background: {card}; padding: 2px 6px; font-size: 9pt; }
+QToolButton#alts:hover { background: {sel}; border: 1px solid {accent}; }
+QToolButton#fold { color: {card_title}; padding: 0px 4px; font-size: 11pt; font-weight: 700; }
+QLabel#summary { color: {muted}; padding-left: 6px; }
+QLabel#startLink { color: {accent}; padding: 3px 0px; }
+QLabel#startLink:hover { text-decoration: underline; }
+/* where the status pill's click went (MainWindow._flash) */
+*[flash="true"] { border: 2px solid {accent}; border-radius: 6px; }
+/* the dividers above the Outputs box and the paste box: room to grab them, a colour while the mouse is on them */
+QSplitter::handle:vertical { height: 8px; }
+QSplitter::handle:vertical:hover { background: {border}; }
 
 QCheckBox { spacing: 7px; }
 QCheckBox::indicator { width: 16px; height: 16px; border: 1px solid {input_border}; border-radius: 4px; background: {input}; }

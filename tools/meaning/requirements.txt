@@ -1,0 +1,11 @@
+# The help search's word table (tools/meaning/build_table.py, score.py), a developer tool: not part of the app, and
+# never in .venv or the build. build_table.py installs this into an environment of its own, in
+# %LOCALAPPDATA%\YinItMeaning\venv, the first time it runs and again whenever this file changes.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1+cpu
+torchvision==0.29.1+cpu
+pillow==12.3.0
+transformers==5.19.0
+sentence-transformers==6.1.0
+huggingface_hub==1.33.0
+rapidfuzz==3.14.6

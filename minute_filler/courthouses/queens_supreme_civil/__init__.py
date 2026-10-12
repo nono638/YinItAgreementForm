@@ -2,7 +2,8 @@
 
 Its outputs are the four the program has always made, listed as Settings and the Records list them; in the
 window the Invoice panel comes second (panel_pos). The bundled rate sheets and the prices used without one are
-here too, not in rates.py: they are this courthouse's (and New York's), not every court's.
+here too, not in rates.py: they are this courthouse's (and New York's), not every court's. So are New York's
+court holidays (holidays), the list Settings -> Dates starts with.
 
 So is how it bills firms that order the same pages at different speeds (billing.py): the original is billed
 once, at the fastest speed ordered, each slower firm pays its share as if every firm had ordered its speed, and
@@ -27,6 +28,16 @@ COURTHOUSE = Courthouse(
     # research/OPEN_QUESTIONS.md). billing.split works for any number: raise this once the practice is settled.
     speeds_together=2,
     speed_upfront=True,
+    # The New York State courts' legal holidays (nycourts.gov, Court Terms & Holidays): one that falls on a Saturday
+    # is closed the Friday before (Independence Day 2026: Friday 7/3), one on a Sunday the Monday after (2027: Monday
+    # 7/5). Lincoln's Birthday and Election Day are court holidays here, unlike in the federal courts.
+    holidays=(("New Year's Day", "January 1"), ("Martin Luther King Jr. Day", "3rd Monday of January"),
+              ("Lincoln's Birthday", "February 12"), ("Washington's Birthday", "3rd Monday of February"),
+              ("Memorial Day", "last Monday of May"), ("Juneteenth", "June 19"), ("Independence Day", "July 4"),
+              ("Labor Day", "1st Monday of September"), ("Columbus Day", "2nd Monday of October"),
+              ("Election Day", "Tuesday after the 1st Monday of November"), ("Veterans Day", "November 11"),
+              ("Thanksgiving Day", "4th Thursday of November"), ("Christmas Day", "December 25")),
+    holiday_weekend="nearest",
     outputs=(
         OutputSpec(
             "agreement", "Minute agreement", "form", mark="agreement", color="#2563eb",

@@ -347,7 +347,9 @@ class ExcerptsWindow(QDialog):
         if nobody:
             lines.append(f"Nobody: {nobody} pp. (not billed)")
         if p.firms:
-            lines.append("<br><b>Each firm's invoice</b> (rounded up to the cent)")
+            how = ("its price a page rounded to the cent" if self.s.invoice_rounding == "page"
+                   else "rounded up to the cent")
+            lines.append(f"<br><b>Each firm's invoice</b> ({how})")
             for key, amounts in p.firms:
                 # (the speeds offered, as ticked above; an invoice of the speed the firm ordered: that one, ticked
                 # or not)

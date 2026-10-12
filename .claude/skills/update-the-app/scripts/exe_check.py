@@ -8,15 +8,16 @@ touched (the folder is removed again when all is good); its settings say the use
 P.R.). The inputs are two days of one trial (a transcript each, June 3 and June 4, written by Pat and Dana
 Smith: PR and DS at the foot of the pages) and an e-mail about another case. Expected: the built version, no
 errors in the log; for each day a minute agreement, a MOFR, the run sheet and the joint invoice (with its math
-saved next to it, marked "YinIt math"; the command line puts the files in OUTDIR, the run sheet in its own
-folder, and makes no case folders), the agreement and the MOFR being one each for both days
+saved next to it, marked "YinIt math", as --math asks; the command line puts the files in OUTDIR, the run sheet
+in its own folder, and makes no case folders), the agreement and the MOFR being one each for both days
 (Settings.forms_per_case: listed under each day, as the one joint invoice for both days is) and the invoice
 billing Pat's own 10 of the 20 transcript pages, for one party, and has its amounts as fields (and no "Lock
 fields" button, removed in 1.3.1); one run sheet with the 4 takes of each day; and --selftest says the
 libraries only the window uses are in the build (the Records' Fuzzy and Regex searches, HEIC photos, the look
-for a newer version, printing, The math as a PDF, the moving yin-yang), and so is the code the courthouse names
-by "module:name" (each output's maker, rules and window panel, and the split rule billing firms at different
-speeds: the spec's hiddenimports). Exit code 1 if something is off.
+for a newer version, printing, The math as a PDF, the moving yin-yang, the Help search's word table and typo
+fixing, the tick in ticked boxes), and so is the code the courthouse names by "module:name" (each output's maker,
+rules and window panel, and the split rule billing firms at different speeds: the spec's hiddenimports). Exit code
+1 if something is off.
 """
 import csv
 import json
@@ -64,8 +65,8 @@ settings.write_text(json.dumps({"profile": {"name": "Pat Reporter", "initials": 
 env = dict(os.environ, APPDATA=str(run / "appdata"), USERPROFILE=str(run / "home"), HOME=str(run / "home"))
 problems = []
 try:
-    subprocess.run([str(exe), "--batch", str(run / "out"), "--outputs", "agreement,mofr,invoice,runsheet", str(src)],
-                   env=env, timeout=300)  # exit code 1 is expected: the e-mail job has no transcript
+    subprocess.run([str(exe), "--batch", str(run / "out"), "--outputs", "agreement,mofr,invoice,runsheet", "--math",
+                    str(src)], env=env, timeout=300)  # exit code 1 is expected: the e-mail job has no transcript
 except subprocess.TimeoutExpired:
     sys.exit(f"PROBLEM: the program did not finish within 5 minutes (files in {run})")
 
@@ -123,8 +124,9 @@ if sheets:
         problems.append("one run sheet should have the takes of both days")
 else:
     problems.append("no run sheet was made")
-# --selftest: the libraries the window needs that the batch doesn't use (rapidfuzz, regex, pillow-heif, ssl, Qt
-# print...), and the code the courthouse names by "module:name" (a build bundles it only when the spec lists it)
+# --selftest: what the window needs that the batch doesn't use (rapidfuzz, regex, pillow-heif, ssl, Qt print, the
+# Help's word table, Qt's svg plugin...), and the code the courthouse names by "module:name" (a build bundles it
+# only when the spec lists it)
 try:
     subprocess.run([str(exe), "--selftest", str(run / "st")], env=env, timeout=120)
 except subprocess.TimeoutExpired:
@@ -139,6 +141,9 @@ for key, what, lib in (("fuzzy_search", "the Records' Fuzzy search", "rapidfuzz"
                        ("math_pdf", "Save as PDF in The math", "pymupdf (Story)"),
                        ("single_instance", "one window at a time", "PySide6.QtNetwork"),
                        ("moving_picture", "the swirling yin-yang", "Qt's imageformats plugin (qwebp)"),
+                       ("help_search", "the Help search's word table and typo fixing",
+                        "minute_filler/data/help_words.* (the spec's datas) and rapidfuzz.process"),
+                       ("tick_marks", "the tick in ticked boxes", "Qt's svg plugin (qsvg)"),
                        ("outputs", "the outputs' code (makers, rules, window panels)",
                         "each module courthouses names (see the spec's hiddenimports)"),
                        ("mixed_speeds", "billing firms that order at different speeds",
