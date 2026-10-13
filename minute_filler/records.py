@@ -15,7 +15,8 @@ none). Void ones count 0. The amounts are the ones the invoice was made with, un
 (Ledger.set_amounts: an amount corrected in the PDF).
 
 Invoices made in another reporter's name (Invoice.reporter: "ds") are numbered on a count of their own
-("DS-2026-0001") and left out of the user's sums (summarize, period_stats): that money is theirs.
+("DS-2026-0001") and left out of the user's sums (summarize, period_stats): that money is theirs. (The Records
+window lists them only when asked; Ledger.invoices returns them.)
 
 A record deleted goes to the trash (its `deleted` time is set): it is left out of every list, total and copy,
 and can be restored for 30 days (TRASH_DAYS); after that it is deleted for good. The files themselves are
@@ -29,7 +30,8 @@ Each row of everything made also keeps where it came from (Activity.origin: the 
 it was filled in), so the job can be opened again later (Records -> Open this job again).
 
 An invoice also keeps the tick boxes ticked in the Records window besides Paid (Invoice.checks: each box's key
-and the day it was ticked, {"transcribed": "2026-10-10"}; see tracking.py). The CSV copies and the workbook have
+and the day it was ticked, {"transcribed": "2026-10-10"}; see tracking.py), or with it from its transcript when it
+was made (Transcribed: add_invoice's carry, tracking.carried). The CSV copies and the workbook have
 a column for each box in use (Ledger.boxes), with that day.
 
 The database is copied once a day into a Backups folder (Ledger.backup; the last BACKUPS_KEPT days' copies
@@ -52,6 +54,7 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Callable
 from urllib.parse import quote
 
 from .courthouses import OUTPUTS
@@ -509,17 +512,46 @@ class Ledger:
         values["origin"] = values["origin"] or None
         self._insert("activity", values)
 
-    def add_invoice(self, inv: Invoice, year: int = 0, seq: int = 0) -> None:
+    def add_invoice(self, inv: Invoice, year: int = 0, seq: int = 0,
+                    carry: Callable[[list[Invoice]], dict[str, str]] | None = None) -> None:
         """Enters a new invoice. year/seq: from reserve_invoice_no (or next_invoice_no); without them the invoice
-        counts as the next one of its year."""
+        counts as the next one of its year. carry: works out the boxes it starts with ticked (tracking.carried)
+        from the invoices of its reporter not in the trash, read in the same step as it is entered, so a box
+        ticked or unticked meanwhile (in the Records window, or another copy of the app) isn't missed. Only what
+        the transcripts are told apart by is read (a full read of thousands of invoices takes a while), and a carry
+        that fails is logged: the invoice is entered without the ticks, which are bookkeeping."""
         year = year or int(inv.created[:4])
-        values = asdict(inv)
-        values.update(amounts=json.dumps(inv.amounts), year=year, seq=seq or self._next_seq(year, inv.reporter),
-                      checks=json.dumps(inv.checks) if inv.checks else None)
-        values["deleted"] = values["deleted"] or None
-        self._run_all([self._insert_sql("invoices", values),
-                       ("INSERT OR IGNORE INTO used_numbers (invoice_no, year, seq, reporter) VALUES (?, ?, ?, ?)",
-                        (inv.invoice_no, year, values["seq"], inv.reporter))])
+        seq = seq or self._next_seq(year, inv.reporter)
+        db = self._db()
+        db.isolation_level = None  # (by hand: read and write as one)
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                if carry is not None:
+                    rows = db.execute("SELECT invoice_no, created, case_name, index_no, dates, status, reporter, "
+                                      "checks FROM invoices WHERE deleted IS NULL AND COALESCE(reporter, '') = ?",
+                                      (inv.reporter or "",)).fetchall()
+                    try:
+                        found = [Invoice(r["invoice_no"], r["created"] or "", case_name=r["case_name"] or "",
+                                         index_no=r["index_no"] or "", dates=r["dates"] or "", status=r["status"],
+                                         reporter=r["reporter"] or "", checks=_checks(r["checks"])) for r in rows]
+                        inv.checks = {**carry(found), **inv.checks}
+                    except Exception as e:
+                        log_error("could not tick the boxes of its transcript on a new invoice", e)
+                values = asdict(inv)
+                values.update(amounts=json.dumps(inv.amounts), year=year, seq=seq,
+                              checks=json.dumps(inv.checks) if inv.checks else None)
+                values["deleted"] = values["deleted"] or None
+                db.execute(*self._insert_sql("invoices", values))
+                db.execute("INSERT OR IGNORE INTO used_numbers (invoice_no, year, seq, reporter) VALUES (?, ?, ?, ?)",
+                           (inv.invoice_no, year, seq, inv.reporter))
+                db.execute("COMMIT")
+            except BaseException:
+                db.execute("ROLLBACK")
+                raise
+        finally:
+            db.close()
+        self.mirror()
 
     def mark_paid(self, invoice_no: str, speed: str, amount, paid_date: str | None = None) -> None:
         """Paid at this speed. amount: '$63.00' or 63; paid_date: ISO ('2026-09-30'), today when not given.
@@ -660,7 +692,7 @@ class Ledger:
         firm, attorney, e-mail, court, part, judge, dates, excerpt, reporters, notes, the speed paid, file),
         as `how` says (see matcher: "words", "regex" or "fuzzy"; ValueError for a pattern that isn't one;
         fuzzy_numbers: see matcher). trash: the invoices in the trash instead of the others. Invoices made in
-        another reporter's name are listed too."""
+        another reporter's name are returned too (the Records window lists them only when asked)."""
         found = matcher(text, how, fuzzy_numbers)
         out = []
         where = "deleted IS NOT NULL" if trash else "deleted IS NULL"
@@ -794,15 +826,25 @@ class Ledger:
                 dst.executemany("INSERT OR IGNORE INTO used_numbers (invoice_no, year, seq, reporter) "
                                 "VALUES (?, ?, ?, ?)", used)
 
-    def years(self) -> list[int]:
-        """The years with any invoice or activity, newest first."""
-        rows = self._rows("SELECT DISTINCT substr(created,1,4) FROM invoices WHERE deleted IS NULL UNION "
-                          "SELECT DISTINCT substr(ts,1,4) FROM activity WHERE deleted IS NULL")
+    def years(self, theirs: bool = True) -> list[int]:
+        """The years with any invoice or activity, newest first. theirs=False: not counting the invoices made in
+        another reporter's name."""
+        rows = self._rows("SELECT DISTINCT substr(created,1,4) FROM invoices WHERE deleted IS NULL AND "
+                          "(? OR COALESCE(reporter, '') = '') UNION "
+                          "SELECT DISTINCT substr(ts,1,4) FROM activity WHERE deleted IS NULL", (int(theirs),))
         return sorted({int(r[0]) for r in rows if r[0] and r[0].isdigit()}, reverse=True)
 
-    def clients(self) -> list[str]:
-        """Every firm or attorney billed (see Invoice.client), A to Z."""
-        return sorted({i.client for i in self.invoices()}, key=str.lower)
+    def clients(self, theirs: bool = True) -> list[str]:
+        """Every firm or attorney billed (see Invoice.client), A to Z. theirs=False: only on the user's own
+        invoices (not those made in another reporter's name)."""
+        return sorted({i.client for i in self.invoices() if theirs or not i.reporter}, key=str.lower)
+
+    def their_invoice_nos(self) -> set[str]:
+        """The numbers of the invoices made in another reporter's name (Invoice.reporter), in the trash, deleted
+        for good (their numbers stay in used_numbers: the file's row in Everything made can outlive its invoice)
+        or not: what Records' Everything made leaves out of its list unless asked."""
+        return {r[0] for r in self._rows("SELECT invoice_no FROM invoices WHERE COALESCE(reporter, '') != '' UNION "
+                                         "SELECT invoice_no FROM used_numbers WHERE COALESCE(reporter, '') != ''")}
 
     # ------------------------------------------------------------------ exports
     def mirror(self) -> None:

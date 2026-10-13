@@ -110,7 +110,7 @@ class TrackingEditor(QWidget):
         lay.addLayout(row)
         lay.addWidget(_note("A word left blank says nothing. Whole transcript: ticking it on one firm's invoice "
                             "ticks it on the other firms' invoices of the same transcript (the same index number, "
-                            "days and reporter)."))
+                            "days and reporter), and an invoice made for it later starts ticked."))
 
         self.colours = QCheckBox("Colour the rows")
         self.colours.setChecked(colours_on)

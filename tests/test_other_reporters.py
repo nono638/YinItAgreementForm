@@ -2,7 +2,8 @@
 user's, any of the other reporters', or the whole transcript - and each reporter ticked gets invoices of their
 own pages in their name: their details at the top and their payment text (Settings.reporters), numbers counted
 apart from the user's ("DS-2026-0001"), file names that say whose they are, the math of all of them saved apart
-for each reporter, and records that keep them out of the user's sums. All names are made up."""
+for each reporter, and records that keep them out of the user's sums; the Records window lists them only after
+"Show them" (2.8.2), hidden again each time it is opened. All names are made up."""
 import json
 from datetime import date
 from decimal import Decimal
@@ -284,3 +285,124 @@ def test_the_settings_keep_each_reporters_invoice_details(qt, monkeypatch, s):
     assert real.full_name.text() == "Kim Lee"
     real.prefix.setText(" K L ")
     assert real.value().prefix == "KL" and real.value().phone == "(555) 010-0111"
+
+
+MINE = [f"{YEAR}-0001", f"{YEAR}-0002"]
+THEIRS = f"DS-{YEAR}-0001"
+
+
+def records_with_theirs(s):
+    """Two invoices of the user's and one of Dana Smith's (a firm billed on hers alone), each with its file in
+    Everything made, and a minute agreement."""
+    lg = ledger_for(s)
+    day = f"{YEAR}-06-04"
+    for no, firm, who in ((MINE[0], "Smith Law", ""), (MINE[1], "Counsel & Counsel", ""), (THEIRS, "Advocate LLP", DS)):
+        lg.add_invoice(Invoice(no, day, firm=firm, amounts={"Regular": "100.00"}, pages=10, reporter=who))
+        lg.log_activity("invoice", ts=f"{day}T10:00:00", invoice_no=no, firm=firm, file_path=f"C:/out/{no}.pdf")
+    lg.log_activity("agreement", ts=f"{day}T10:00:00", firm="Advocate LLP", file_path="C:/out/Roe.pdf")
+    return lg
+
+
+def test_records_lists_their_invoices_only_when_asked(qt, s):
+    """Records lists the user's own invoices: Dana Smith's are counted on a line under the filters, and listed
+    (their files in Everything made too, their firm in the Firm filter) only after its Show them; Hide them hides
+    them again. They are never in the totals, nor in a report of the trash's filters while hidden."""
+    from minute_filler.gui.records_window import RecordsWindow
+    from minute_filler.invoice_calc import fmt
+    records_with_theirs(s)
+    win = RecordsWindow(s)
+    win.reload()
+    listed = lambda: sorted(i.invoice_no for i in win.shown)  # noqa: E731
+    files = lambda: sorted(a.file_path for a in win.act_shown.values())  # noqa: E731
+    firms = lambda: [win.i_client.itemText(i) for i in range(win.i_client.count())]  # noqa: E731
+    assert listed() == MINE and win.kpi["billed"].text() == fmt(Decimal("200.00"))
+    assert not win.i_theirs.isHidden() and win.i_theirs.text().startswith("Not listed: 1 invoice made in a colleague")
+    assert f"C:/out/{THEIRS}.pdf" not in files() and "C:/out/Roe.pdf" in files() and "Show it" in win.a_theirs.text()
+    assert "Advocate LLP" not in firms()
+    win.i_trash.setChecked(True)
+    assert [i.invoice_no for i in win._to_export()] == sorted(MINE, reverse=True)  # (the trash is empty)
+    win.i_trash.setChecked(False)
+    win.i_text.setText("Smith Law")  # none of hers match: no line
+    assert listed() == [MINE[0]] and win.i_theirs.isHidden()
+    win.i_text.clear()
+
+    win.i_theirs.linkActivated.emit("show")
+    assert win.theirs and listed() == MINE + [THEIRS] and win.kpi["billed"].text() == fmt(Decimal("200.00"))
+    assert win.i_theirs.text().startswith("Also listed: 1 invoice") and "Hide it" in win.i_theirs.text()
+    assert f"C:/out/{THEIRS}.pdf" in files() and "Advocate LLP" in firms()
+    win.i_client.setCurrentIndex(win.i_client.findData("Advocate LLP"))
+    assert listed() == [THEIRS]
+    win.a_theirs.linkActivated.emit("hide")  # (either tab's line)
+    assert not win.theirs and listed() == MINE and win.i_client.currentData() == ""  # her firm is gone: All firms
+    assert f"C:/out/{THEIRS}.pdf" not in files()
+    win.close()
+
+
+def test_records_opened_again_hides_their_invoices(make_window, s):
+    """Their invoices shown stay listed while Records is open (opened again from the main window, or the records
+    read again); closed and opened again, it lists the user's own alone."""
+    s.recaps = False
+    records_with_theirs(s)
+    window = make_window(s)
+    window.open_records()
+    win = window._records_win
+    assert sorted(i.invoice_no for i in win.shown) == MINE
+    win.show_theirs(True)
+    window.open_records()  # (still open: Ctrl+R again)
+    assert win.theirs and len(win.shown) == 3
+    win.close()
+    window.open_records()
+    assert not win.theirs and sorted(i.invoice_no for i in win.shown) == MINE
+    win.showMinimized()  # Ctrl+R brings a minimized Records back (show() alone left it minimized)
+    window.open_records()
+    assert not win.isMinimized()
+    win.close()
+
+
+def test_the_line_about_their_invoices_works_from_the_keyboard(qt, s):
+    """Tab goes to the line's link (before: to the line itself, where Enter did nothing), Enter follows it, and
+    Enter again follows the new link (Hide it) without another Tab."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from minute_filler.gui.records_window import RecordsWindow
+    records_with_theirs(s)
+    win = RecordsWindow(s)
+    win.reload()
+    win.show()
+    win.activateWindow()
+    QTest.qWaitForWindowActive(win, 2000)  # (keys go to the window with the focus)
+    win.i_trash.setFocus(Qt.TabFocusReason)
+    QTest.keyClick(win.i_trash, Qt.Key_Tab)  # (the Trash button is the last of the filters)
+    assert qt.QApplication.focusWidget() is win.i_theirs
+    QTest.keyClick(win.i_theirs, Qt.Key_Return)
+    assert win.theirs
+    qt.QApplication.processEvents()  # (the link gets the focus back once the key press is over)
+    QTest.keyClick(win.i_theirs, Qt.Key_Return)
+    assert not win.theirs
+    qt.QApplication.processEvents()
+    win.reload()  # a refresh (files made meanwhile) leaves the focus where it is (it moved on to the tabs)
+    qt.QApplication.processEvents()
+    assert qt.QApplication.focusWidget() is win.i_theirs
+    win.close()
+
+
+def test_records_with_their_invoices_hidden(qt, s):
+    """With their invoices hidden: Records opens on the newest year of the user's own (a colleague's invoice dated
+    next year opened it on an empty list); a note typed on one of theirs just before Hide them is kept (it was
+    dropped); their invoice deleted for good keeps its file out of Everything made (its number stays taken)."""
+    from minute_filler.gui.records_window import RecordsWindow
+    lg = records_with_theirs(s)
+    lg.add_invoice(Invoice(f"DS-{YEAR + 1}-0001", f"{YEAR + 1}-01-04", firm="Advocate LLP",
+                           amounts={"Regular": "100.00"}, pages=10, reporter=DS))
+    win = RecordsWindow(s)
+    win.reload()
+    assert win.i_year.currentData() == YEAR and sorted(i.invoice_no for i in win.shown) == MINE
+    win._set_note(THEIRS, "Dana will send it")  # (queued while it was listed, saved once hidden)
+    assert lg.invoice(THEIRS).notes == "Dana will send it"
+    lg.delete(invoices=[THEIRS])  # (to the trash with its file's row; the row alone restored, the invoice gone)
+    lg.restore(activity=[a.id for a in lg.activity(trash=True) if a.invoice_no == THEIRS])
+    lg.delete_forever(invoices=[THEIRS])
+    win.reload()
+    assert f"C:/out/{THEIRS}.pdf" not in [a.file_path for a in win.act_shown.values()]
+    assert "1 invoice" in win.a_theirs.text()
+    win.close()

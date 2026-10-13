@@ -616,7 +616,8 @@ ordered.</p>
 <p><b>Whose pages…</b> (Invoice panel) has a box for <i>My pages</i>, each other reporter's pages ("DS's pages") and
 <i>The whole transcript</i>. Each other reporter you tick gets invoices of their own for their pages: in their name,
 with their address and how to pay them (Settings → Run sheet → <i>Invoices for</i>, or <b>Details…</b>), numbered
-apart from yours (DS-2026-0001). Records lists them under <i>For reporter</i> and leaves them out of your totals.</p>
+apart from yours (DS-2026-0001). They are theirs, so Records leaves them out of your totals and lists them only
+when you click <i>Show them</i> there (<a href="topic:rec-overview">more</a>).</p>
 <p>The app asks when it can't tell: when none of the pages carry your initials, or the transcript begins with pages
 nobody's initials are on. A transcript with no initials at all is billed in full. Put your initials in Settings →
 My info if they aren't the first letters of your name.</p>
@@ -731,16 +732,20 @@ shown.</p>
     # ------------------------------------------------------------------------------------------------------- Records
     T("rec-overview", RECORDS, "Records: what you billed and what was paid",
       "records history dashboard invoices list totals billed paid outstanding owed filter year month firm status "
-      "everything made log ctrl+r",
+      "everything made log ctrl+r colleague another reporter invoices hidden not listed show them",
       """
 <p><b>Records</b> (Ctrl+R, the Records button, or File → Records (invoices and history)…) has two tabs:</p>
 <ul>
 <li><b>Invoices</b>: totals billed, paid and outstanding, filters by year, month, firm and status, and the
-<i>By firm</i> and <i>By month</i> breakdowns. Invoices made for another reporter's pages are listed under <i>For
-reporter</i> and left out of your totals.</li>
+<i>By firm</i> and <i>By month</i> breakdowns.</li>
 <li><b>Everything made</b>: every minute agreement, MOFR and invoice, and every run sheet takes were added to.
 Double-click to open the file.</li>
 </ul>
+<p>Records lists your own invoices. Those you made for a colleague's pages (<a href="topic:inv-reporters">Whose
+pages…</a>) are theirs: they are never in your totals, and aren't listed until you ask. A line under the filters
+says how many the filters match ("Not listed: 2 invoices made in a colleague's name"); click <b>Show them</b> to list
+them, with their initials under <i>For reporter</i> (their files in <i>Everything made</i> too), and <b>Hide
+them</b> to hide them. The next time you open Records they are hidden again.</p>
 <p>Right-click an invoice to open the PDF, show it in its folder, print it, <a href="topic:rec-reopen">open its job
 again</a>, mark it paid, <a href="topic:rec-change">void it or change its amounts</a>, add a note or delete it.</p>
 <p>More: <a href="topic:rec-paid">marking paid</a> · <a href="topic:rec-boxes">tick boxes, status and colours</a> ·
@@ -772,7 +777,10 @@ Transcribed</i>), and Undo takes a tick back;</li>
 <li>each box has a word for ticked and one for not ticked, which the <b>Status</b> column puts together ("Paid,
 Transcribed, Not sent");</li>
 <li><b>Transcribed</b> is about the transcript, not the firm: ticked on one firm's invoice, it is ticked on the
-other firms' invoices of the same transcript (same index number, days and reporter).</li>
+other firms' invoices of the same transcript (same index number, days and reporter). An invoice made later for
+that transcript (another firm orders a copy) starts ticked, with the same date. Paid and the other boxes are each
+firm's own, and start unticked (unless you set one of them to <i>Whole transcript</i> in Settings →
+Records).</li>
 </ul>
 <p><b>Colours</b>: each row takes the first colour in the list that matches it, and you can change them. The list,
 first to last: sent but not paid purple; sent green; <b>ready to send</b> orange (transcribed, and every firm that
@@ -1219,7 +1227,7 @@ turnaround</b>: how the invoice words each speed's turnaround ("3 weeks").</li>
 <ul>
 <li><b>The tick boxes</b>: Paid, and those you tick <i>Use</i>. <i>Add a box</i> for your own, <i>Up</i> and
 <i>Down</i> to order them, <i>Restore defaults</i>. Each has a word for ticked and one for not ticked; <i>Whole
-transcript</i> ticks it on the other firms' invoices of the same transcript.</li>
+transcript</i> ticks it on the other firms' invoices of the same transcript, and on one made for it later.</li>
 <li><i>Colour the rows</i>, and the colours: <i>Add a colour</i>, then click a box's cell for when it applies (✓
 ticked, ✗ not ticked, – either way).</li>
 <li><i>Count on the Records button</i>.</li>

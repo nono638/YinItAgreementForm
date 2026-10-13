@@ -69,6 +69,7 @@ from .models import Attorney, CaseInfo
 from .rates import Speed, speed_key
 from .records import NUMBER_LOCK, Invoice, Ledger
 from .settings import TEXT_PLACES, Settings
+from .tracking import carried
 
 if TYPE_CHECKING:
     from .deliver import Making
@@ -467,11 +468,12 @@ def job_quotes(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[Quote]:
 def make_invoice(case: CaseInfo, atty: Attorney | None, s: Settings, out_dir: Path, opts: InvoiceOpts,
                  ledger: Ledger, dated: bool = False, quotes: list[Quote] | None = None,
                  today: date | None = None) -> tuple[Path, str]:
-    """Numbers, draws and records one invoice; returns (file, invoice number). quotes: the job's prices,
-    when already worked out for its other invoices. today: the invoice's date (default: today, or the next business
-    day as Settings -> Dates says, workdays.document_day), for a caller that dates every file of a run the same
-    (Invoices.make: deliver.generate's day, its detailed copy too); the number's year, the date on the page, the
-    records' date and {today} in the file name are all that day. When the invoice can't be drawn, or the
+    """Numbers, draws and records one invoice (Transcribed ticked when its transcript already is: tracking.carried);
+    returns (file, invoice number). quotes: the job's prices, when already worked out for its other invoices.
+    today: the invoice's date (default: today, or the next business day as Settings -> Dates says,
+    workdays.document_day), for a caller that dates every file of a run the same (Invoices.make:
+    deliver.generate's day, its detailed copy too); the number's year, the date on the page, the records' date and
+    {today} in the file name are all that day. When the invoice can't be drawn, or the
     records refuse it (the database locked), the error is raised, its PDF deleted and its number given back, to be
     given again next time. The number is given back only once the file is gone (never written, or deleted): a PDF
     that can't be deleted keeps its number, as "Invoice 2026-0007.pdf" left behind with 2026-0007 given to the
@@ -496,13 +498,16 @@ def make_invoice(case: CaseInfo, atty: Attorney | None, s: Settings, out_dir: Pa
             name = output_name(case, atty, s, dated, pattern=pattern, fallback=f"Invoice {number}", today=today,
                                number=number, reporter=opts.reporter.upper())
             out = render(case, atty, s, quotes, number, Path(out_dir) / name, opts, when=today)
-            ledger.add_invoice(Invoice(
+            record = Invoice(
                 invoice_no=number, created=today.isoformat(), case_name=case.get("case_name"),
                 index_no=case.get("index_no"), dates=case.get("dates"), judge=case.get("judge"),
                 bill_to=atty.name if atty else "", firm=atty.firm if atty else "",
                 email=atty.email if atty else "", pages=opts.pages, parties=opts.parties,
                 amounts={q.speed: str(q.per_party) for q in quotes}, billed_speed=billed_speed(case, quotes),
-                file_path=str(out), reporter=opts.reporter, **record_details(case, opts, quotes)), year, seq)
+                file_path=str(out), reporter=opts.reporter, **record_details(case, opts, quotes))
+            # a transcript already ticked Transcribed is transcribed for this firm's invoice too
+            boxes = s.boxes()
+            ledger.add_invoice(record, year, seq, carry=lambda found: carried(record, found, boxes))
         except Exception as failed:
             # Not drawn, or not in the records (the database locked): the drawn invoice goes (else two PDFs would
             # share its number), and then the number is given back, to be given again next time. A save that

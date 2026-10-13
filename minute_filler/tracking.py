@@ -17,7 +17,8 @@ every party has paid). A rule that names a box not in use is skipped, so the rul
 the rows whichever boxes are in use. For example, with Paid, Transcribed and Transcript sent in use: four firms
 ordered the 6/3/2026 transcript; until it is transcribed, an unpaid invoice is teal and a paid one yellow; once
 it is (one tick of Transcribed ticks the four: TrackBox.whole), an unpaid one is blue, and every one is orange,
-ready to send, once all four have paid; a sent one is green, or purple while it isn't paid.
+ready to send, once all four have paid; a sent one is green, or purple while it isn't paid. A fifth firm's invoice
+made later starts Transcribed (carried).
 
 The invoices of one transcript (Transcripts): the same index number (712345/2021 and 712345-21 are one; without
 one, the same case name), the same reporter and the same days. Every firm paid looks wider: every invoice of the
@@ -45,7 +46,8 @@ class TrackBox:
     ("transcribed"; the user's own: "c" and some letters); name: its column's heading; yes / no: what the
     Status column says when it is ticked and when it isn't ("" says nothing); on: in use (a column, and in the
     status and the colours); kind: PAID or TICK; whole: ticking or unticking it does the same to the other
-    invoices of the same transcript (Transcribed)."""
+    invoices of the same transcript (Transcribed), and an invoice made for the transcript later starts with it
+    (carried)."""
     key: str
     name: str
     yes: str = ""
@@ -262,6 +264,34 @@ class Transcripts:
             return inv.status == "paid"
         return inv.status == "paid" and all(o.status == "paid" for o in self._by_case[key[0]]
                                             if self._days[o.invoice_no] & key[1])
+
+
+def carried(inv, invoices: list, boxes: list[TrackBox]) -> dict[str, str]:
+    """The ticks a new invoice starts with (its Invoice.checks): each box ticked for the whole transcript
+    (TrackBox.whole: Transcribed) that the other invoices of its transcript have ticked (Transcripts.mates), with
+    the day it was ticked there (the earliest, if they differ). A copy of the 6/3/2026 transcript ordered after it
+    was transcribed is Transcribed at once; Paid and the other boxes are each firm's own, and start unticked.
+    The other invoices are the live ones; only when every one of them is void (an invoice made again after the
+    first was voided: voiding a bill doesn't undo the transcript) are the void ones'. Records never ticks or
+    unticks a void invoice, so its tick may be out of date while live ones are left."""
+    keys = [b.key for b in boxes if b.whole and b.kind == TICK]
+    case = _case(inv)
+    if not keys or not case:
+        return {}
+    # (only these: reading the days of every invoice ever made takes a while)
+    same = [i for i in invoices
+            if i.invoice_no != inv.invoice_no and (i.reporter or "") == (inv.reporter or "") and _case(i) == case]
+    mates = set(Transcripts(same + [inv]).mates(inv.invoice_no)) - {inv.invoice_no}
+    if not mates:
+        void = [replace(i, status="open") for i in same if i.status == "void"]
+        mates = set(Transcripts(void + [inv]).mates(inv.invoice_no)) - {inv.invoice_no} if void else set()
+    out: dict[str, str] = {}
+    for i in same:
+        if i.invoice_no in mates:
+            for k in keys:
+                if k in i.checks and (k not in out or i.checks[k] < out[k]):
+                    out[k] = i.checks[k]
+    return out
 
 
 def state_of(inv, boxes: list[TrackBox], transcripts: Transcripts | None = None) -> dict[str, bool]:

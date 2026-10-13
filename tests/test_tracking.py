@@ -2,8 +2,9 @@
 2026-10-10): Paid, Invoice sent, Transcribed and Transcript sent (Paid alone in use at first) and boxes of the
 user's own; the Status column's words ("Paid, Transcribed, Not sent"); the colour rules, the first that matches
 colouring the row, "Ready to send" only once every firm of the transcript has paid; Transcribed ticked on a
-whole transcript at once; Undo; the ticks kept in the records (Invoice.checks) and their CSV columns; notes typed
-into the table; and the Settings -> Records editor. All names and numbers are made up: four firms (Smith Law,
+whole transcript at once, and carried to an invoice made for it later (2.8.2); Undo; the ticks kept in the records
+(Invoice.checks) and their CSV columns; notes typed into the table; and the Settings -> Records editor. All names
+and numbers are made up: four firms (Smith Law,
 Counsel & Counsel, Roe & Co., Doe PC) ordered the 6/3/2026 transcript of Jane Roe v. X.Y. Holding Corporation,
 712345/2021."""
 import csv
@@ -492,3 +493,109 @@ def test_settings_records_tab_round_trip(qt, tmp_path):
     assert [b.on for b in got.boxes()] == [True, False, True, False] and not got.records_colours
     assert got.records_count == "Not paid"
     assert json.loads(got.path.read_text(encoding="utf-8"))["settings_version"] == Settings.settings_version
+
+
+# --- a later invoice of a transcript already transcribed
+def test_a_later_invoice_of_a_transcribed_transcript_starts_transcribed():
+    """Ticked Transcribed on Smith Law's invoice on 6/10, a copy ordered later by Counsel & Counsel starts ticked,
+    with that day; Paid and Transcript sent are each firm's own. Another day, another reporter's invoice of the
+    same case, and a deleted invoice carry nothing; nor does a box not ticked for the whole transcript. A void one
+    does (an invoice made again after the first was voided: the transcript is transcribed all the same)."""
+    from minute_filler.tracking import carried
+    boxes = boxes_on("paid", "transcribed", "sent")
+    first = inv("2026-0001", status="paid", checks={"transcribed": "2026-06-10", "sent": "2026-06-11"})
+    later = inv("2026-0002", "Counsel & Counsel", index="712345-21")  # (the same index number, written another way)
+    assert carried(later, [first], boxes) == {"transcribed": "2026-06-10"}
+    second = inv("2026-0003", "Roe & Co.", checks={"transcribed": "2026-06-09"})
+    assert carried(later, [first, second], boxes) == {"transcribed": "2026-06-09"}  # (the earliest)
+    assert carried(inv("2026-0004", dates="6/4/2026"), [first], boxes) == {}
+    assert carried(inv("DS-2026-0001", reporter="ds"), [first], boxes) == {}
+    voided = inv("2026-0001", status="void", checks={"transcribed": "2026-06-10"})
+    assert carried(inv("2026-0006"), [voided], boxes) == {"transcribed": "2026-06-10"} and voided.status == "void"
+    # ...but not while a live invoice is left: Records never unticks a void one, so its tick may be out of date
+    # (ticked on both, one voided, then unticked on the other)
+    assert carried(inv("2026-0006"), [voided, inv("2026-0002", "Counsel & Counsel")], boxes) == {}
+    assert carried(later, [inv("2026-0001", deleted="2026-06-12T09:00:00",
+                               checks={"transcribed": "2026-06-10"})], boxes) == {}
+    assert carried(inv("2026-0005", index="", case=""), [first], boxes) == {}
+    assert carried(later, [first], boxes_on("paid")) == {"transcribed": "2026-06-10"}  # (kept while not in use)
+    own = TrackBox("cproof", "Proofread", "Proofread", "", True, whole=True)
+    assert carried(later, [inv("2026-0001", checks={"cproof": "2026-06-08"})], boxes + [own]) == \
+        {"cproof": "2026-06-08"}
+    assert carried(later, [first], [b for b in boxes if b.key != "transcribed"]) == {}
+
+
+def test_an_invoice_made_for_a_transcribed_transcript_is_recorded_ticked(tmp_path):
+    """Made through the app (invoice.make_invoice): the records keep the tick carried."""
+    from minute_filler.invoice import InvoiceOpts, make_invoice
+    from minute_filler.models import Attorney
+    from helpers import ROE, make_case
+    s = pat_settings()
+    s.tracking_boxes = box_rows(boxes_on("paid", "transcribed"))
+    lg = Ledger(tmp_path / "r.db")
+    alex, sam = Attorney(name="Alex B. Counsel", firm="Counsel & Counsel"), Attorney(name="Sam Advocate",
+                                                                                   firm="Advocate LLP")
+    case = make_case({**ROE, "est_pages": "30"}, attorneys=[alex, sam])
+    _, first = make_invoice(case, alex, s, tmp_path / "out", InvoiceOpts(30), lg)
+    lg.set_checks([first], "transcribed", True, today="2026-06-10")
+    _, later = make_invoice(case, sam, s, tmp_path / "out", InvoiceOpts(30), lg)
+    assert lg.invoice(later).checks == {"transcribed": "2026-06-10"}
+
+
+def test_the_ticks_carried_are_read_as_the_invoice_is_entered(tmp_path):
+    """Ledger.add_invoice reads the invoices of the transcript (ticked or not) in the same step as it enters the
+    new one, so a tick made meanwhile isn't missed; a carry that fails leaves the invoice entered, unticked."""
+    from minute_filler.tracking import carried
+    boxes = boxes_on("paid", "transcribed")
+    lg = Ledger(tmp_path / "r.db")
+    lg.add_invoice(inv("2026-0001", checks={"transcribed": "2026-06-10"}))
+    lg.add_invoice(inv("2026-0002", "Counsel & Counsel"))
+    lg.add_invoice(inv("DS-2026-0001", "Roe & Co.", reporter="ds", checks={"transcribed": "2026-06-09"}))
+    seen = []
+    new = inv("2026-0003", "Roe & Co.")
+
+    def carry(found):
+        seen.extend(i.invoice_no for i in found)
+        return carried(new, found, boxes)
+    lg.add_invoice(new, carry=carry)
+    assert lg.invoice("2026-0003").checks == {"transcribed": "2026-06-10"}
+    assert sorted(seen) == ["2026-0001", "2026-0002"]  # (the user's own: a colleague's are counted apart)
+
+    def broken(found):
+        raise ValueError("a damaged record")
+    lg.add_invoice(inv("2026-0004", "Doe PC"), carry=broken)
+    assert lg.invoice("2026-0004").checks == {}
+
+
+def test_undo_of_transcribed_takes_an_invoice_made_since_along(records):
+    """Transcribed ticked on the transcript, then a later firm's invoice made (it starts ticked), then Undo: the
+    new one is unticked with the others. Unticked, an invoice made, Undo: it is ticked again with them, with
+    their day."""
+    from minute_filler.tracking import carried
+    win, s, lg = records
+
+    def make(no, firm):
+        new = inv(no, firm)
+        lg.add_invoice(new, carry=lambda found: carried(new, found, s.boxes()))
+    win._set_box(["2026-0001"], "transcribed", True)
+    make("2026-0005", "Advocate LLP")
+    assert all("transcribed" in i.checks for i in lg.invoices())
+    win.undo()
+    assert not any("transcribed" in i.checks for i in lg.invoices())
+
+    lg.set_checks([i.invoice_no for i in lg.invoices()], "transcribed", True, today="2026-06-10")
+    win._set_box(["2026-0001"], "transcribed", False)
+    make("2026-0006", "Sample LLP")
+    assert "transcribed" not in lg.invoice("2026-0006").checks
+    win.undo()
+    assert {i.checks.get("transcribed") for i in lg.invoices()} == {"2026-06-10"}
+
+    # Ticked on one invoice only (as before 2.8.2, when a later invoice started unticked), then on the rest, an
+    # invoice made, Undo: the new one stays as an invoice made now would start, ticked with the first one's day
+    lg.set_checks([i.invoice_no for i in lg.invoices()], "transcribed", False)
+    lg.set_checks(["2026-0001"], "transcribed", True, today="2026-06-08")
+    win._set_box(["2026-0002"], "transcribed", True)
+    make("2026-0007", "Other LLP")
+    win.undo()
+    assert lg.invoice("2026-0007").checks == {"transcribed": "2026-06-08"}
+    assert [i.invoice_no for i in lg.invoices() if "transcribed" in i.checks] == ["2026-0007", "2026-0001"]

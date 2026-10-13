@@ -6230,14 +6230,19 @@ class MainWindow(QMainWindow):
         self._refresh_outputs()
 
     def open_records(self):
-        """Shows the Records window (Ctrl+R), made once and reloaded each time it is opened."""
+        """Shows the Records window (Ctrl+R), made once and reloaded each time it is opened. Opened afresh, it
+        lists the user's own invoices: those made in a colleague's name only after its Show them (again)."""
         from .records_window import RecordsWindow
         win = getattr(self, "_records_win", None)
         if win is None:
             win = self._records_win = RecordsWindow(self.s, self)
             win.on_reopen = self.open_past_job
             win.on_settings = lambda tab: self.open_settings(tab=tab)
+        if not win.isVisible():
+            win.theirs = False
         win.reload()
+        if win.isMinimized():  # (show() alone leaves it minimized; a maximized one stays maximized)
+            win.setWindowState(win.windowState() & ~Qt.WindowMinimized)
         win.show()
         win.raise_()
         win.activateWindow()

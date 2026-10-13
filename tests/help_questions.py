@@ -114,4 +114,7 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     # 2.8.1
     ("my rate sheet still says 7 and 21 days", ("dates-turnaround", "rates-columns")),
     ("why is the outputs box folded", ("start-room", "make-outputs")),
+    # 2.8.2
+    ("where is the invoice i made for another reporter", ("rec-overview", "inv-reporters")),
+    ("i cant see my colleagues invoices in records", ("rec-overview", "inv-reporters")),
 ]

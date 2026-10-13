@@ -107,7 +107,7 @@ def test_a_number_stays_taken_while_its_orphan_invoice_is_on_disk(s, tmp_path, m
     case = make_case({**ROE, "est_pages": "30"}, attorneys=[ALEX])
     ledger = Ledger(tmp_path / "r.db")
 
-    def refused(self, inv, year=0, seq=0):
+    def refused(self, inv, year=0, seq=0, **_k):
         raise sqlite3.OperationalError("database is locked")
 
     def held(self, missing_ok=False):

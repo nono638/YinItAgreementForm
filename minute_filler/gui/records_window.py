@@ -3,7 +3,9 @@ changed) and the history of everything made. Each table has many columns (INVOIC
 user picks which are shown (Columns..., or a right-click on the headings), and the choice is kept in
 Settings.records_columns. Records can be deleted to the trash (restored for 30 days; the files are not
 touched); the Trash button shows what is in it. An invoice made in another reporter's name (Whose pages...,
-numbered apart: "DS-2026-0001") is listed, but left out of the totals and the summary: that money is theirs.
+numbered apart: "DS-2026-0001") is theirs: it is always left out of the totals and the summary, and listed (its
+file in Everything made too) only after "Show them" on the line that says how many the filters match. Each time
+Records is opened they are hidden again (MainWindow.open_records).
 
 An invoice's tick boxes (Settings -> Records; see tracking.py): Paid, and those switched on there (Invoice sent,
 Transcribed, Transcript sent, the user's own), each a column after Paid. The Status column says each box, ticked
@@ -42,7 +44,8 @@ from ..rates import parse_amount
 from ..records import (BACKUPS_KEPT, FORCED_KEPT, KINDS, PERIODS, TRASH_DAYS, Activity, Invoice, _month_name, backup_counts,
                        backup_day, backups, gone_for_good, period, period_stats, stats_rows, summarize, us_date)
 from ..settings import Settings
-from ..tracking import PAID, TICK, ColourRule, Transcripts, TrackBox, rule_for, rule_names, status_words
+from ..tracking import (PAID, TICK, ColourRule, Transcripts, TrackBox, carried, rule_for, rule_names,
+                        status_words)
 from .widgets import open_path, plural, refill_combo, show_save_error
 from .zoom import z
 
@@ -166,6 +169,16 @@ class _Item(QTableWidgetItem):
 _READ_ONLY = (Qt.ItemIsSelectable | Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsDragEnabled
               | Qt.ItemIsDropEnabled)
 _GREYED = _READ_ONLY & ~Qt.ItemIsEnabled  # (a tick box that can't be ticked: a void invoice's, the trash's)
+
+
+class _LinkLine(QLabel):
+    """A line of text with a link in it (Not listed: … Show them): Tab goes straight to the link, as to a button.
+    A QLabel whose links take the keyboard stops on itself first, where Enter does nothing."""
+
+    def focusInEvent(self, e):
+        super().focusInEvent(e)
+        if e.reason() in (Qt.TabFocusReason, Qt.BacktabFocusReason):
+            self.focusNextPrevChild(e.reason() == Qt.TabFocusReason)
 
 
 def _item(text, align_right: bool = False, data=None, sort=None) -> QTableWidgetItem:
@@ -483,6 +496,7 @@ class RecordsWindow(QDialog):
         self.rules: list[ColourRule] = s.rules()  # reload()
         self.inv_cols: list[Col] = self._invoice_cols()  # the Invoices table's columns, the tick boxes' too
         self._stale = False  # the table wasn't shown afresh while a note was being typed: it is when that ends
+        self.theirs = False  # the invoices made in a colleague's name are listed too (show_theirs)
         self.setWindowTitle("Records")
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
         self.resize(z(1180), z(760))
@@ -593,6 +607,48 @@ class RecordsWindow(QDialog):
         lay.addWidget(trash)
         return trash
 
+    def _theirs_line(self) -> QLabel:
+        """A line under a tab's filters for the invoices made in a colleague's name that they match, with the
+        link that shows or hides them (see _say_theirs); hidden while there are none."""
+        line = _LinkLine()
+        line.setObjectName("muted")
+        line.setWordWrap(True)
+        line.setTextFormat(Qt.RichText)
+        line.setTextInteractionFlags(Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard)
+        line.linkActivated.connect(lambda href: self.show_theirs(href == "show"))
+        line.setVisible(False)
+        return line
+
+    @staticmethod
+    def _say_theirs(line: QLabel, n: int, listed: bool) -> None:
+        """Says on a _theirs_line how many invoices made in a colleague's name the filters match (n), listed or
+        not, with the link that hides or shows them. No line when there are none."""
+        it, was = "it" if n == 1 else "them", line.text()
+        if listed:
+            line.setText(f"Also listed: {plural(n, 'invoice')} made in a colleague's name (theirs, never in your "
+                         f"totals). <a href='hide'>Hide {it}</a>")
+        else:
+            line.setText(f"Not listed: {plural(n, 'invoice')} made in a colleague's name (Whose pages…). "
+                         f"<a href='show'>Show {it}</a>")
+        line.setVisible(n > 0)
+        # New text loses the link's focus (Enter would do nothing until Tab again). It is given back once the key
+        # press is over: within it, Qt moves the focus on to the next widget instead. The same text keeps it (a
+        # refresh): asking then would move the focus on.
+        if line.hasFocus() and line.text() != was:
+            QTimer.singleShot(0, line, lambda: line.hasFocus() and line.focusNextPrevChild(True))
+
+    def show_theirs(self, on: bool) -> None:
+        """Lists the invoices made in a colleague's name too (and their files in Everything made), or no longer.
+        They are hidden each time Records is opened: they are not the user's."""
+        self.theirs = on
+        self._fill_firms()
+        self.show_invoices()
+        self.show_activity()
+
+    def _whose(self, invoices: list[Invoice]) -> list[Invoice]:
+        """The invoices to list: the user's own, and those made in a colleague's name once asked (show_theirs)."""
+        return invoices if self.theirs else [i for i in invoices if not i.reporter]
+
     def _build_invoices(self) -> QWidget:
         """The Invoices tab: filters, the four total tiles, and the Invoices / By firm / By month tables."""
         w = QWidget()
@@ -642,6 +698,8 @@ class RecordsWindow(QDialog):
         self.trash_note.setWordWrap(True)
         self.trash_note.setVisible(False)
         v.addWidget(self.trash_note)
+        self.i_theirs = self._theirs_line()
+        v.addWidget(self.i_theirs)
 
         inner = QTabWidget()
         self.inv_table = _table(self._heads())
@@ -693,6 +751,8 @@ class RecordsWindow(QDialog):
         self.a_count = QLabel("")
         self.a_count.setObjectName("muted")
         v.addWidget(self.a_count)
+        self.a_theirs = self._theirs_line()
+        v.addWidget(self.a_theirs)
         self.act_table = _table([c.head for c in ACTIVITY_COLS])
         self.act_table.itemDoubleClicked.connect(lambda it: self._open_activity(it.row()))
         self.act_table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -830,18 +890,24 @@ class RecordsWindow(QDialog):
         # Invoices are dated as a form is, so one can be a year ahead of the clock: made on Fri 12/31/2027 (New
         # Year's Day 2028, observed) it is dated Mon 1/3/2028 and numbered 2028-0001. The Invoices tab opens on the
         # newest year with an invoice (this year while none is newer), so a new invoice is in sight, and follows it
-        # while the year shown is the one it picked; a year chosen by hand is kept
-        newest = max([this_year] + years)
+        # while the year shown is the one it picked; a year chosen by hand is kept. (A colleague's invoice counts
+        # only while theirs are listed: else Records could open on a year listing nothing.)
+        newest = max([this_year] + (years if self.theirs else self.ledger.years(theirs=False)))
         year_items = [("All years", 0)] + [(str(y), y) for y in sorted(set(years) | {this_year}, reverse=True)]
         keep = self.i_year.currentData()
         refill_combo(self.i_year, year_items, newest if keep is None or keep == self._year_picked else keep)
         self._year_picked = newest
         keep = self.a_year.currentData()  # (Activity: what was done, by the clock)
         refill_combo(self.a_year, year_items, this_year if keep is None else keep)
-        refill_combo(self.i_client, [("All firms", "")] + [(c, c) for c in self.ledger.clients()],
-                     self.i_client.currentData() or "")
+        self._fill_firms()
         self.show_invoices()
         self.show_activity()
+
+    def _fill_firms(self) -> None:
+        """The Firm filter's choices: the firms and attorneys billed on the invoices listed (a colleague's too
+        once shown: show_theirs). The firm chosen is kept while it is among them."""
+        firms = self.ledger.clients(theirs=self.theirs)
+        refill_combo(self.i_client, [("All firms", "")] + [(c, c) for c in firms], self.i_client.currentData() or "")
 
     def _trash_toggled(self, on: bool = False, year: QComboBox | None = None) -> None:
         """The Trash button: lists what was deleted instead of the records, and back. The trash shows every
@@ -894,10 +960,11 @@ class RecordsWindow(QDialog):
                 if (r := rule_for(i, self.boxes, self.rules, transcripts)) is not None and r.name == name]
 
     def show_invoices(self, _=None) -> None:
-        """Lists the invoices that match the filters (those in the trash with the Trash button), each row in the
-        colour of the first rule that matches it (Settings → Records; none in the trash), and updates the totals
-        and the by-firm and by-month tabs. The rows selected, the current one and where the list was scrolled to
-        are kept. While a note is being typed, nothing is done until the typing ends (_editor_closed)."""
+        """Lists the invoices that match the filters (those in the trash with the Trash button; a colleague's only
+        once asked: show_theirs), each row in the colour of the first rule that matches it (Settings → Records; none
+        in the trash), and updates the totals and the by-firm and by-month tabs. The rows selected, the current one
+        and where the list was scrolled to are kept. While a note is being typed, nothing is done until the typing
+        ends (_editor_closed)."""
         t = self.inv_table
         if t.state() == QAbstractItemView.EditingState:  # (filling the table would close the note being typed)
             self._stale = True
@@ -911,10 +978,13 @@ class RecordsWindow(QDialog):
             shown = self.ledger.invoices(**self._invoice_filters(), trash=trash)
             if colours or rule_name:
                 transcripts = self._transcripts()
-            self.shown = self._by_rule(shown, rule_name, transcripts)
+            matched = self._by_rule(shown, rule_name, transcripts)
+            self.shown = self._whose(matched)
+            self._say_theirs(self.i_theirs, sum(1 for i in matched if i.reporter), self.theirs)
             self._search_problem(self.i_text, "")
         except ValueError as e:  # a regular expression still being typed ("(smith")
             self.shown = []
+            self._say_theirs(self.i_theirs, 0, self.theirs)
             self._search_problem(self.i_text, str(e))
         place = self._place()
         t.blockSignals(True)  # setting the ticks and the notes must not look like the user changing them
@@ -1033,7 +1103,7 @@ class RecordsWindow(QDialog):
 
     def show_activity(self, _=None) -> None:
         """Lists the files made that match the Everything made filters (those in the trash with the Trash
-        button), with a count of each kind."""
+        button; an invoice made in a colleague's name only once asked: show_theirs), with a count of each kind."""
         y, m = self.a_year.currentData() or 0, self.a_month.currentData() or 0
         since = until = ""
         if y:
@@ -1049,6 +1119,11 @@ class RecordsWindow(QDialog):
         # A month in every year ("March", All years) is not one date range, so it is filtered here.
         if m and not y:
             rows = [a for a in rows if a.ts[5:7] == f"{m:02}"]
+        # an invoice made in a colleague's name is theirs: its file is listed, as the invoice is, only once asked
+        theirs = self.ledger.their_invoice_nos() if rows else set()
+        self._say_theirs(self.a_theirs, sum(1 for a in rows if a.invoice_no in theirs), self.theirs)
+        if not self.theirs:
+            rows = [a for a in rows if a.invoice_no not in theirs]
         self.act_shown = {a.id: a for a in rows}
         t = self.act_table
         t.setSortingEnabled(False)
@@ -1150,14 +1225,33 @@ class RecordsWindow(QDialog):
                 before = self.ledger.set_checks(targets, key, on)
                 if before:
                     which = f"invoice {before[0].invoice_no}" if len(before) == 1 else plural(len(before), "invoice")
+                    had = set(targets)
                     self._undoable(f"{box.name} {'ticked' if on else 'unticked'} on {which}",
-                                   back=lambda: self.ledger.put_back_checks(before))
+                                   back=lambda: self._box_back(before, had, key) if box.whole
+                                   else self.ledger.put_back_checks(before))
                     self._show_ticked({i.invoice_no for i in before})
                     return
         except Exception as e:
             log_error("could not tick a box of an invoice", e)
             QMessageBox.warning(self, "Could not save", f"{type(e).__name__}: {e}")
         self.show_invoices()  # (nothing changed, or it failed: the boxes as they are)
+
+    def _box_back(self, before: list[Invoice], had: set[str], key: str) -> None:
+        """Undo of a box of the whole transcript (Transcribed) ticked or unticked: the invoices as they were before
+        (put_back_checks), and an invoice of those transcripts made since (had: the invoices of the transcripts
+        then), which started as its transcript was, follows them back: as an invoice made now would start
+        (tracking.carried), unticked, or ticked with the day the others have."""
+        self.ledger.put_back_checks(before)
+        every = self.ledger.invoices()
+        tr = Transcripts(every)
+        since = set(m for i in before for m in tr.mates(i.invoice_no) if m not in had)
+        others = [i for i in every if i.invoice_no not in since]
+        for inv in (i for i in every if i.invoice_no in since):
+            day = carried(inv, others, self.boxes).get(key)
+            if day != inv.checks.get(key):
+                self.ledger.set_checks([inv.invoice_no], key, False)
+                if day:
+                    self.ledger.set_checks([inv.invoice_no], key, True, today=day)
 
     def _show_ticked(self, invoice_nos: set[str]) -> None:
         """After boxes were ticked: those invoices' rows shown afresh where they are (their boxes, status and
@@ -1198,8 +1292,13 @@ class RecordsWindow(QDialog):
 
     def _set_note(self, invoice_no: str, text: str) -> None:
         """Keeps a note typed into the table. The table isn't filled afresh (nothing else changes); when the
-        records can't be changed (locked, the disk full), it says so and shows the note as it was."""
+        records can't be changed (locked, the disk full), it says so and shows the note as it was. An invoice no
+        longer listed (its colleague's invoices hidden with the note typed) still gets it."""
         inv = next((i for i in self.shown if i.invoice_no == invoice_no), None)
+        if inv is None:
+            inv = self.ledger.invoice(invoice_no)
+            if inv is not None and inv.deleted:
+                inv = None
         if inv is None or inv.notes == text:
             return
         try:
@@ -1546,12 +1645,12 @@ class RecordsWindow(QDialog):
     def _to_export(self) -> list[Invoice]:
         """The invoices a report or workbook lists: those shown, or with the Trash on, the invoices (not the
         deleted ones) the same filters match (a colour chosen too): a report never passes deleted invoices off as
-        billed."""
+        billed. Those made in a colleague's name only while they are listed."""
         if not self.i_trash.isChecked():
             return self.shown
         rule = self._chosen_rule()
-        return self._by_rule(self.ledger.invoices(**self._invoice_filters()), rule,
-                             self._transcripts() if rule else None)
+        return self._whose(self._by_rule(self.ledger.invoices(**self._invoice_filters()), rule,
+                                         self._transcripts() if rule else None))
 
     def _search_blocked(self) -> bool:
         """True (after saying so) when the Invoices tab's search can't be read (a regular expression half
