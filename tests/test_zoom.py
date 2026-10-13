@@ -34,6 +34,11 @@ def test_clamp():
 
 @pytest.fixture
 def window(make_window, tmp_path):
+    """A window styled as the app styles it at start (main.py applies the theme before making it): the widths
+    measured here are the styled ones. (They passed before only after another test had left the theme applied;
+    make_window puts the style sheet back after each test.)"""
+    from minute_filler.gui.theme import apply_theme
+    apply_theme(QtWidgets.QApplication.instance(), "light")
     s = pat_settings()
     s.use_ai = s.open_after = False
     s.output_dir = str(tmp_path / "out")

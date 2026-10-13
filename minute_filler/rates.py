@@ -249,6 +249,59 @@ def sheet_fingerprint(sheet: RateSheet) -> str:
     return f"{sheet.name}:{sheet.digest}"
 
 
+# The Days the template had before 2.8.0, calendar days then (Expedite a week, Regular three weeks), the business
+# days that come to about the same (Settings -> Dates), and about how many calendar days the old number comes to
+# as business days: speed key -> (old, new, about)
+OLD_DAYS = {"expedited": (7, 5, 9), "regular": (21, 15, 30)}
+
+
+def old_days(sheet: RateSheet) -> bool:
+    """Whether the sheet still has the Days of the template before 2.8.0: Expedite 7 and Regular 21 (or the one of
+    them it has a Days for), which as business days come out about 9 and 30 calendar days. False when either says
+    anything else (the user's own choice), when neither has a Days, and for a sheet without a file."""
+    if sheet.path is None:
+        return False
+    found = [sp for sp in sheet.speeds if sp.key in OLD_DAYS and sp.days is not None]
+    return bool(found) and all(sp.days == OLD_DAYS[sp.key][0] for sp in found)
+
+
+def set_new_days(path: Path) -> int:
+    """Changes the old template's Days in the sheet at `path` to business days (OLD_DAYS: Expedite 7 -> 5, Regular
+    21 -> 15; read as load_sheet reads them, so "07" is 7 too), leaving the rest of the file as it was: its other
+    cells, its BOM and its line endings (a cell quoted without needing it loses its quotes, which Excel doesn't
+    mind). Written next to it and then swapped in, so the sheet is never left half written. Returns how many cells
+    it changed. OSError when it can't be written (open in Excel); ValueError without a Days column."""
+    data = path.read_bytes()
+    text = data.decode("utf-8-sig")
+    newline = "\r\n" if "\r\n" in text else "\r" if "\r" in text and "\n" not in text else "\n"
+    rows = list(csv.reader(io.StringIO(text, newline="")))
+    header = next(([c.strip().lower() for c in r] for r in rows if any(c.strip() for c in r)), [])
+    i_days = next((i for i, h in enumerate(header) if h.startswith(("days", "turnaround"))), None)
+    if i_days is None:
+        raise ValueError("no Days column")
+    changed = 0
+    for r in rows:
+        old_new = OLD_DAYS.get(speed_key(r[0])) if r else None
+        cell = r[i_days].strip() if old_new and i_days < len(r) else ""
+        if cell.isdigit() and int(cell) == old_new[0]:
+            r[i_days] = str(old_new[1])
+            changed += 1
+    if not changed:
+        return 0  # (the file left as it is)
+    out = io.StringIO()
+    csv.writer(out, lineterminator=newline).writerows(rows)
+    body = out.getvalue()
+    if not text.endswith(("\n", "\r")):
+        body = body[:-len(newline)]  # (no line ending after the last row, as the file had none)
+    new = path.with_name(path.name + ".new")
+    try:
+        new.write_bytes((body.encode("utf-8-sig") if data.startswith(b"\xef\xbb\xbf") else body.encode("utf-8")))
+        os.replace(new, path)
+    finally:
+        new.unlink(missing_ok=True)  # (still there only when the swap failed: the sheet open in Excel)
+    return changed
+
+
 def default_dir() -> Path:
     """The Rate Sheets folder in the settings folder."""
     from .settings import settings_dir
@@ -265,10 +318,13 @@ def sheets_dir(custom: str = "") -> Path:
 
 # Bundled sheets as earlier versions shipped them (SHA-256 of the file, CRLF and LF): a copy in the user folder
 # that is still exactly one of these was never edited, so seed() replaces it with the sheet as it ships now.
-# Sample Rates before 2.5.0 had Daily copies, e-mailed copies and indexes at $1.30 a page; they are $1.25.
+# Sample Rates before 2.5.0 had Daily copies, e-mailed copies and indexes at $1.30 a page; they are $1.25. Before
+# 2.8.1 its heading said "Origianal" (read all the same: see load_sheet), "Original" since.
 OLD_BUNDLED = {
     "Sample Rates.csv": {"e5cf39e5e2f794569669abf41c2fdaad81d90b162c90b2641295807cbf0efbdb",
-                         "4bfb2589aca110fcd28f4f73bcca47fc4f0eab03982e288eda11db9f10446234"},
+                         "4bfb2589aca110fcd28f4f73bcca47fc4f0eab03982e288eda11db9f10446234",
+                         "2caca8ad57263f865e8095e185dd8b6a790f08457d34c3991257befd46dde13a",
+                         "b20bdaecce057cdb1ae03147bcbc64b88195f460cac5cccacf95101d7cb569aa"},
     # (CRLF, as every version shipped it. 1.0.0 to 2.7.0: Expedite 7 and Regular 21 calendar days; 5 and 15
     # business days since, see Settings -> Dates)
     "Rate Sheet TEMPLATE.csv": {"b9b27277bc7ea56311b75fccce39ecea244ee25e32632ea27074daec6584427e"},

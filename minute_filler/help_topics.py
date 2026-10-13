@@ -130,7 +130,8 @@ something required is missing. View → <i>Show the yin-yang</i> hides it.</p>
       """
 <ul>
 <li><b>Fold the Outputs box</b> to one line with its ▾ (the boxes to tick and Generate stay), or View →
-<i>Fold the Outputs box</i>.</li>
+<i>Fold the Outputs box</i>. On a screen short for the zoom it is folded for you, until you fold or unfold it
+yourself.</li>
 <li><b>Drag the dividers</b>: the one above the Outputs box, and the one between the job list and the paste box.</li>
 <li><b>Fold a card</b> of the form to one line that sums it up, with a ⚠ when something in it needs a look; click its
 heading. View → <i>Fold all cards</i> and <i>Unfold all cards</i>.</li>
@@ -663,7 +664,10 @@ $6,612.50 for 1,000 pages.</li>
 <li><b>The price a page, to the cent</b> works it out as by hand: the price a page is rounded to the nearest cent
 first, then multiplied, $6.61 × 1,000 = $6,610.00, so a firm checking it with a calculator gets the same.</li>
 </ul>
-<p>The math says which was used (<i>$6.6125 a page, rounded to $6.61, × 1,000 pages</i>).</p>
+<p>The math says which was used (<i>$6.6125 a page, rounded to $6.61, × 1,000 pages</i>). With granular detail,
+the charges of an invoice split evenly end with what each party pays (<i>= $26,450.00, split 4 ways: $6,610.00
+each</i>). The prices in <a href="topic:exc-table">Excerpts…</a> are rounded the same way. The
+<a href="topic:inv-spreadsheet">spreadsheet template</a> always rounds as Exact does.</p>
 """),
     T("inv-spreadsheet", INVOICE, "The invoice spreadsheet template", "spreadsheet excel google sheets template workbook "
       "manual invoice",
@@ -671,6 +675,9 @@ first, then multiplied, $6.61 × 1,000 = $6,610.00, so a firm checking it with a
 <p>Prefer a spreadsheet? <b>File → Save the invoice spreadsheet template…</b> gives you an Excel or Google Sheets
 workbook that prices invoices the same way when every party orders every page (it has no excerpts). Fill in
 <i>Setup</i> once, then <i>Job</i> for each invoice, and print the <i>Invoice</i> tab.</p>
+<p>The workbook always rounds as <b>Exact</b> does: each party's amount up to the cent, once, at the end. With
+<a href="topic:inv-rounding">Rounding</a> set to the price a page, its amounts can differ from the app's by up to
+half a cent a page ($6,612.50 there, $6,610.00 here, for 1,000 pages).</p>
 """),
     # ------------------------------------------------------------------------------------------- Excerpts and speeds
     T("exc-table", EXCERPTS, "Excerpts…: who ordered which pages",
@@ -742,7 +749,8 @@ columns</a> · <a href="topic:rec-button">the count on the Records button</a> ·
 <a href="topic:rec-delete">the trash</a> · <a href="topic:rec-export">exporting</a>.</p>
 <p>The records are kept in <code>%APPDATA%\\YinItAgreementForm\\records.db</code>, and copied to
 <code>invoices.csv</code> and <code>activity.csv</code> in <i>Documents\\YinIt Records</i> after every change, so you
-can always open them in Excel.</p>
+can always open them in Excel. Text Excel would take for a formula (<i>- left a message</i>, <i>=1+1</i>)
+starts with an apostrophe there, so it opens as text; Excel shows the apostrophe.</p>
 """),
     T("rec-paid", RECORDS, "Marking an invoice paid", "paid payment received mark paid not paid which speed amount date "
       "check cleared",
@@ -752,7 +760,7 @@ paid for, the amount and the date. Untick it, or right-click → <i>Mark not pai
 """),
     T("rec-boxes", RECORDS, "Tick boxes, status and colours",
       "track tracking transcribed transcript sent invoice sent proofread status column colour color rows orange green "
-      "blue yellow teal ready to send done custom boxes workflow",
+      "blue yellow teal purple sent not paid ready to send done custom boxes workflow",
       """
 <p>Use as much or as little of it as you like: most people tick Paid alone, which is all that's on at first, and
 nothing pops up or reminds you.</p>
@@ -767,11 +775,12 @@ Transcribed, Not sent");</li>
 other firms' invoices of the same transcript (same index number, days and reporter).</li>
 </ul>
 <p><b>Colours</b>: each row takes the first colour in the list that matches it, and you can change them. The list,
-first to last: sent green; <b>ready to send</b> orange (transcribed, and every firm that ordered those days has
-paid); transcribed but not paid by every firm blue; paid but not transcribed yellow; not paid and not transcribed
-teal. With Transcript sent but not Transcribed: sent green, ready to send orange once every firm has paid, paid and
-waiting on other firms blue, not paid teal. With Paid alone, as at first (or with Invoice sent, or boxes of your
-own): paid green, not paid teal. Untick <i>Colour the rows</i> for none.</p>
+first to last: sent but not paid purple; sent green; <b>ready to send</b> orange (transcribed, and every firm that
+ordered those days has paid); transcribed but not paid by every firm blue; paid but not transcribed yellow; not paid
+and not transcribed teal. With Transcript sent but not Transcribed: sent but not paid purple, sent green, ready to
+send orange once every firm has paid, paid and waiting on other firms blue, not paid teal. With Paid alone, as at
+first (or with Invoice sent, or boxes of your own): paid green, not paid teal. Untick <i>Colour the rows</i> for
+none.</p>
 <p>Example: four firms ordered the 6/3/2026 transcript of <i>Jane Roe v. X.Y. Holding Corporation</i>. Tick
 Transcribed once and all four are ticked; each turns orange once all four have paid, and green once you tick it
 sent. The Status filter lists the colours too (<i>Ready to send</i>).</p>
@@ -874,8 +883,10 @@ folder</b>). <code>invoices.csv</code> has a column for each tick box in use bes
       """
 <p>The <b>Records</b> button in the main window counts the invoices of one status as you work, such as
 <i>Records · Ready to send: 3</i>. Choose which (or <i>Nothing</i>, to turn the count off) under <i>Count on the
-Records button</i> in Settings → Records. It never pops up. With Paid alone no invoice is ever ready to send:
-choose <i>Not paid</i> to see a count.</p>
+Records button</i> in Settings → Records. It never pops up. With Paid alone no invoice is ever ready to send
+(that takes Transcribed or Transcript sent), so the button counts the invoices <i>Not paid</i> instead until you
+switch one of them on. It counts only the invoices for your own pages, as Records' totals do (those you
+make for a colleague's pages are theirs).</p>
 """),
     # ------------------------------------------------------------------------------------- Dates and business days
     T("dates-business-days", DATES, "Dated on a business day",
@@ -907,8 +918,10 @@ way is named: Regular's 15 days end on Wednesday 11/4/2026, <i>(Election Day on 
 (at first Expedited 5, Regular 15: one and three working weeks). The line under the date ends <i>(the rate sheet's
 Days column)</i> when the sheet gave them.</li>
 <li>A rate sheet filled in before version 2.8.0 may still say 7 and 21 days, which were calendar days then (a week and
-three weeks). Counted as business days they come out about 9 and 30 calendar days: change them to 5 and 15 in the
-sheet to keep the dates you had (<a href="topic:rates-columns">the sheet's columns</a>).</li>
+three weeks). Counted as business days they come out about 9 and 30 calendar days, so the app asks once whether to
+change them to 5 and 15, which keeps the dates you had. <i>Keep 7 and 21</i> is remembered for that sheet, and
+<i>Not now</i> asks again the next time you start the app; you can still change the numbers in the sheet yourself
+(<a href="topic:rates-columns">the sheet's columns</a>).</li>
 <li>Settings → Dates → <i>Count turnaround days as business days</i>: untick for calendar days (a last day on a
 weekend or a holiday still moves to the next business day).</li>
 <li>Settings → Dates → <i>Count the turnaround from</i>: <i>the date on the form</i>, or <i>the day you make
@@ -969,7 +982,7 @@ Settings → Defaults). Pick one from the <i>Rate sheet</i> dropdown under <i>Mi
 <li>click ⟳ next to the <i>Rate sheet</i> dropdown.</li>
 </ol>
 <p>Files with "template" in the name are ignored. The bundled <i>Sample Rates</i> sheet is brought up to date when a
-new version changes its prices, unless you edited it.</p>
+new version changes it (its prices, or a heading), unless you edited it.</p>
 """),
     T("rates-columns", RATES, "What a rate sheet holds", "rate sheet columns rows original copy email index days "
       "headings speed realtime other",
@@ -1048,7 +1061,7 @@ kept first ("… (before YinIt).xlsx").</p>
 """),
     # ----------------------------------------------------------------------------------------------------- Batches
     T("batch-folder", BATCH, "A folder or many documents at once",
-      "batch folder many documents bulk several orders jobs sort group same case date",
+      "batch folder whole folder many documents bulk several orders jobs sort group same case date",
       """
 <p>Drop any number of documents at once, or a folder (<b>File → Open a folder of documents (batch)…</b>). The app
 reads them all and sorts them into <b>jobs</b>, one per case and date:</p>

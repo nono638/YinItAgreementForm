@@ -36,7 +36,7 @@ from pathlib import Path
 from .courthouses import OUTPUT_FOLDERS, OUTPUTS  # (re-exported: the outputs are the courthouse's)
 from .courthouses import current as current_courthouse, holiday_rows
 from .tracking import (ColourRule, TrackBox, box_rows, clean_boxes, clean_rules, default_boxes, default_rules,
-                       rule_rows)
+                       rule_rows, rules_280)
 
 APP_NAME = "YinItAgreementForm"
 FILENAME_PATTERN = "Minute Agreement - {case} - {index} - {attorney} - {today}"
@@ -52,7 +52,7 @@ RATE_SHEETS_OK_KEPT = 20  # how many incomplete rate sheets used anyway are reme
 LOCAL = ("window_geometry", "recent_files", "update_checked", "update_version", "update_page", "recap_month",
          "recap_year", "welcomed",
          "signature_image", "opened_year", "new_year_day", "rate_sheets_ok", "window_splits", "outputs_folded",
-         "folded_cards")
+         "outputs_fold_chosen", "folded_cards", "sheet_days_kept")
 # What says who the user is: left out of a settings file exported "without my details" (for a colleague), and
 # kept as it is when such a file is imported. The invoice's payment text (who to pay, and how) is left out
 # with them. The folders are among them: their paths name the user's Windows account.
@@ -467,6 +467,9 @@ class Settings:
     # Incomplete rate sheets the user chose to use anyway, as they were then (rates.sheet_fingerprint, the last
     # RATE_SHEETS_OK_KEPT): not warned about again until the file changes (MainWindow._check_rate_sheet)
     rate_sheets_ok: list = field(default_factory=list)
+    # The rate sheets, by name, whose Days the user kept at the old template's 7 and 21 when asked whether to make
+    # them 5 and 15 business days (the last RATE_SHEETS_OK_KEPT): not asked again (MainWindow._check_old_days)
+    sheet_days_kept: list = field(default_factory=list)
     # Turnaround used when the rate sheet has no Days column: business days when turnaround_business_days (5 and 15:
     # one and three working weeks; 7 and 21 calendar days before settings v14)
     days_immediate: int = 0
@@ -501,7 +504,7 @@ class Settings:
     # Output
     form_choice: str = "ucs"          # "ucs", "clean" or "original" (see fill.FORMS)
     include_instructions: bool = True  # keep the UCS form's instructions page (page 2)
-    settings_version: int = 14        # bumped when from_dict must change something in older files
+    settings_version: int = 15        # bumped when from_dict must change something in older files
     output_dir: str = ""              # blank = next to the first input file, else Documents\Minute Agreements
     output_dirs: dict = field(default_factory=dict)  # a folder for one output (key of OUTPUTS); none = as above
     # each case's files in a folder of its own inside the one above ("...\Minute Agreements\712345-2021"), named
@@ -597,9 +600,12 @@ class Settings:
     show_yin: bool = True
     window_geometry: str = ""
     # the main window's dividers, by name ("outer": the form above the Outputs box, "left": the job list above
-    # the paste box), each as QSplitter.saveState() in base64; Outputs folded to one line; the cards folded
+    # the paste box), each as QSplitter.saveState() in base64; Outputs folded to one line, and whether the user
+    # folded or unfolded it (until then it is folded on a short screen only: MainWindow._auto_fold_outputs); the
+    # cards folded
     window_splits: dict = field(default_factory=dict)
     outputs_folded: bool = False
+    outputs_fold_chosen: bool = False
     folded_cards: list = field(default_factory=list)
     zoom: float = 1.0                 # Ctrl + / Ctrl - zoom (1.0 = 100 %), on top of the Windows display scaling
     recent_files: list = field(default_factory=list)  # documents and folders opened, newest first (Open recent)
@@ -964,6 +970,7 @@ class Settings:
         s.outputs = [o for o in s.outputs if isinstance(o, str) and o in OUTPUTS]
         s.invoice_speeds = [x for x in s.invoice_speeds if isinstance(x, str)]  # none: the job's own speed
         s.rate_sheets_ok = [x for x in s.rate_sheets_ok if isinstance(x, str)][-RATE_SHEETS_OK_KEPT:]
+        s.sheet_days_kept = [x for x in s.sheet_days_kept if isinstance(x, str)][-RATE_SHEETS_OK_KEPT:]
         if data.get("invoice_choice") is False:  # v5: "offer every speed" off billed the speed chosen for the
             s.invoice_speeds = []                 # form alone, which is what no speed ticked does now
         s.invoice_turnaround = {k: v for k, v in s.invoice_turnaround.items()
@@ -1061,6 +1068,13 @@ class Settings:
         boxes = clean_boxes(s.tracking_boxes)
         s.tracking_boxes = box_rows(boxes)
         s.tracking_rules = rule_rows(clean_rules(s.tracking_rules, boxes))
+        # v15: a transcript sent before it is paid has a colour of its own ("Sent, not paid"; it was green, Done):
+        # the colours of 2.8.0 as they came are the new ones; colours the user changed stay theirs
+        if version < 15 and s.tracking_rules == rule_rows(rules_280()):
+            s.tracking_rules = rule_rows(default_rules())
+        # (2.8.0 saved no outputs_fold_chosen: a box folded then was folded by hand, as it started unfolded)
+        if "outputs_fold_chosen" not in data and s.outputs_folded:
+            s.outputs_fold_chosen = True
         if isinstance(data.get("zoom"), int) and not isinstance(data.get("zoom"), bool):
             s.zoom = float(data["zoom"])  # "zoom": 1 typed by hand
         s.zoom = min(1.6, max(0.7, s.zoom)) if s.zoom == s.zoom else 1.0

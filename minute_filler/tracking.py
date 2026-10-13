@@ -17,7 +17,7 @@ every party has paid). A rule that names a box not in use is skipped, so the rul
 the rows whichever boxes are in use. For example, with Paid, Transcribed and Transcript sent in use: four firms
 ordered the 6/3/2026 transcript; until it is transcribed, an unpaid invoice is teal and a paid one yellow; once
 it is (one tick of Transcribed ticks the four: TrackBox.whole), an unpaid one is blue, and every one is orange,
-ready to send, once all four have paid; a sent one is green.
+ready to send, once all four have paid; a sent one is green, or purple while it isn't paid.
 
 The invoices of one transcript (Transcripts): the same index number (712345/2021 and 712345-21 are one; without
 one, the same case name), the same reporter and the same days. Every firm paid looks wider: every invoice of the
@@ -79,11 +79,12 @@ BUILT_IN = (
     TrackBox("transcribed", "Transcribed", "Transcribed", "Not transcribed", whole=True),
     TrackBox("sent", "Transcript sent", "Sent", "Not sent"),
 )
-GREEN, ORANGE, BLUE, YELLOW, TEAL = "#16a34a", "#ea580c", "#2563eb", "#ca8a04", "#0d9488"
+GREEN, ORANGE, BLUE, YELLOW, TEAL, PURPLE = "#16a34a", "#ea580c", "#2563eb", "#ca8a04", "#0d9488", "#9333ea"
 # The first that matches colours the row; one naming a box not in use is skipped. With Paid alone: the last two.
-# With Paid and Transcript sent: Done, the second Ready to send, Paid, waiting on other firms, and Not paid.
-# With Paid and Transcribed: the second to the fifth. With the three: the first five.
+# With Paid and Transcript sent: Sent, not paid, Done, the second Ready to send, Paid, waiting on other firms, and
+# Not paid. With Paid and Transcribed: the third to the sixth. With the three: the first six.
 DEFAULT_RULES = (
+    ColourRule("Sent, not paid", PURPLE, {"sent": True, "paid": False}),
     ColourRule("Done", GREEN, {"sent": True}),
     ColourRule("Ready to send", ORANGE, {EVERY_PAID: True, "transcribed": True}),
     ColourRule("Transcribed, waiting for payment", BLUE, {"transcribed": True}),
@@ -104,6 +105,26 @@ def default_boxes() -> list[TrackBox]:
 def default_rules() -> list[ColourRule]:
     """The colour rules a new user has (copies)."""
     return [replace(r, when=dict(r.when)) for r in DEFAULT_RULES]
+
+
+# The colour rules as 2.8.0 gave them (no Sent, not paid: a transcript sent before it was paid was Done, green),
+# kept as they were whatever DEFAULT_RULES becomes: settings saved then still at them get the new ones (v15)
+RULES_280 = (
+    ColourRule("Done", GREEN, {"sent": True}),
+    ColourRule("Ready to send", ORANGE, {EVERY_PAID: True, "transcribed": True}),
+    ColourRule("Transcribed, waiting for payment", BLUE, {"transcribed": True}),
+    ColourRule("Paid, not transcribed", YELLOW, {"paid": True, "transcribed": False}),
+    ColourRule("Not paid, not transcribed", TEAL, {"paid": False, "transcribed": False}),
+    ColourRule("Ready to send", ORANGE, {EVERY_PAID: True, "sent": False}),
+    ColourRule("Paid, waiting on other firms", BLUE, {"paid": True, EVERY_PAID: False, "sent": False}),
+    ColourRule("Paid", GREEN, {"paid": True}),
+    ColourRule("Not paid", TEAL, {"paid": False}),
+)
+
+
+def rules_280() -> list[ColourRule]:
+    """The colour rules as 2.8.0 gave them (RULES_280, copies), for settings saved then (Settings.from_dict)."""
+    return [replace(r, when=dict(r.when)) for r in RULES_280]
 
 
 def box_rows(boxes: list[TrackBox]) -> list[dict]:
@@ -306,18 +327,30 @@ def count_names(boxes: list[TrackBox], rules: list[ColourRule]) -> list[str]:
     return [NOT_PAID] + [n for n in rule_names(boxes, rules) if n.lower() not in ("paid", NOT_PAID.lower())]
 
 
+def counted(name: str, boxes: list[TrackBox], rules: list[ColourRule]) -> str:
+    """What the Records button counts when Settings.records_count says `name`: that, unless it is a colour no row
+    can take with the boxes in use, as Ready to send with Paid alone (it needs Transcribed or Transcript sent):
+    then Not paid, while Paid is in use ("" without it)."""
+    if not name or name == NOT_PAID or name in rule_names(boxes, rules):
+        return name
+    return NOT_PAID if any(b.on and b.kind == PAID for b in boxes) else ""
+
+
 def count_of(name: str, invoices: list, boxes: list[TrackBox], rules: list[ColourRule]) -> int:
     """How many of the invoices (every one not in the trash) the Records button counts: those not paid (and not
     void) for "Not paid", else those coloured by the colour of that name (both "Ready to send" colours count), 0
-    for a name no colour can take with these boxes, or none (""). Every firm paid looks at all of them."""
+    for a name no colour can take with these boxes (see counted), or none (""). Only the user's own: those made
+    in another reporter's name (Invoice.reporter) are theirs, and left out as Records' totals leave them out.
+    Every firm paid looks at all of them."""
     if not name:
         return 0
+    mine = [i for i in invoices if not i.reporter]
     if name == NOT_PAID:
-        return sum(1 for i in invoices if i.status == "open")
+        return sum(1 for i in mine if i.status == "open")
     if name not in rule_names(boxes, rules):
         return 0
     transcripts = Transcripts(invoices)
-    return sum(1 for i in invoices if (r := rule_for(i, boxes, rules, transcripts)) is not None and r.name == name)
+    return sum(1 for i in mine if (r := rule_for(i, boxes, rules, transcripts)) is not None and r.name == name)
 
 
 def new_key(boxes: list[TrackBox]) -> str:

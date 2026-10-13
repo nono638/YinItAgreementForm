@@ -284,7 +284,8 @@ class Prices:
     price for each firm that ordered it and each set of firms ordering together (their pages, and what each of
     them pays for those pages). Runs whose firms are priced at the speeds they ordered (`ordered`: a speed set,
     or a split order that commits to one): what each firm pays for the run at its speed, and each set of firms
-    and speeds ordering together. And each firm's invoice (rounded up to the cent, as invoiced)."""
+    and speeds ordering together. And each firm's invoice (as invoiced: rounded as Settings -> Invoice -> Rounding
+    says)."""
     speeds: list[str]
     runs: dict[int, dict[str, Decimal]] = field(default_factory=dict)  # id(run) -> speed -> each pays
     # (firm keys, pages, speed -> what each of those firms pays), fewest firms first
@@ -300,8 +301,10 @@ class Prices:
 
 
 def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
-    """The prices of the runs as they are (see Prices). A firm's share of a run is worked out exactly; the
-    invoices round each firm's total up to the cent (invoice_calc.quote_shares, quote_ordered). Only one set of
+    """The prices of the runs as they are (see Prices). A firm's share of a run is worked out exactly, and the
+    invoices round each firm's total up to the cent (invoice_calc.quote_shares, quote_ordered); with each price a
+    page rounded to the cent (Settings.invoice_rounding "page"), a share is that price times its pages, as the
+    invoice has it ($6.6125 a page -> $6.61 x 30 = $198.30, not $198.375). Only one set of
     invoices is priced (batch.joint_invoice): on a transcript of several reporters, the pages of the first
     reporter Whose pages... bills (the user, when ticked), not each reporter's set (batch.joint_invoice_sets)."""
     group = [d.job for d in days]
@@ -322,6 +325,12 @@ def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
         dates.setdefault(id(d), []).append((o.pages, x))
     email = s.invoice_include_email if opts.email is None else opts.email
     split = s.invoice_index_shared != "each"
+    by_page = s.invoice_rounding == "page"
+
+    def amount(q) -> Decimal:
+        """A share as shown: exact, or its prices a page rounded to the cent (by_page), as invoiced."""
+        return q.per_party if by_page else q.total
+
     out = Prices([sp.name for sp in speeds], fallback=default_speed(case, s))
     upfront, rule = courthouses.speed_upfront(), courthouses.split_rule()
     names = {a.key(): a.label() for a in firms_of(group)}
@@ -352,12 +361,14 @@ def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
         if at_speeds(r):
             try:
                 out.ordered[id(r)] = {k: (r.speed(k) or out.fallback,
-                                          quote_ordered(shares_of(r, k), s.sheet(), rule, email, split).total)
+                                          amount(quote_ordered(shares_of(r, k), s.sheet(), rule, email, split,
+                                                               by_page=by_page)))
                                       for k in r.keys}
             except ValueError:  # (a speed the sheet lacks, or too many speeds: the window says why)
                 pass
         else:
-            out.runs[id(r)] = {sp.name: quote_shares(shares_of(r), sp, email, split).total for sp in speeds}
+            out.runs[id(r)] = {sp.name: amount(quote_shares(shares_of(r), sp, email, split, by_page=by_page))
+                               for sp in speeds}
     together: dict[tuple[str, ...], list[Run]] = {}
     at: dict[tuple[tuple[str, str], ...], list[Run]] = {}
     order = {a.key(): i for i, a in enumerate(firms_of(group))}
@@ -372,7 +383,8 @@ def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
     for keys, rs in together.items():
         shares = [x for r in rs for x in shares_of(r)]
         out.groups.append((keys, sum(x.pages for x in shares),
-                           {sp.name: quote_shares(shares, sp, email, split).total for sp in speeds}))
+                           {sp.name: amount(quote_shares(shares, sp, email, split, by_page=by_page))
+                            for sp in speeds}))
     out.groups.sort(key=lambda g: (len(g[0]), g[0]))
     for pairs, rs in at.items():
         pages = sum(billed_in(r.day, r) for r in rs)

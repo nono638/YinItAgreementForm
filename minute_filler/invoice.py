@@ -231,7 +231,9 @@ def _detail(q: Quote) -> str:
     another speed show the firm's part of a page of the one original: 'Original: 60 pp. × $4.35 (your part, billed
     at Immediate)'. The invoice doesn't say how its amount was rounded (Settings.invoice_rounding: the math does).
     With each price a page rounded to the cent (Quote.page_rounded), a firm's share has no total at the end, as its
-    charges no longer add up to what it pays (they come to $6,612.50; $6.61 × 1,000 pages is $6,610.00)."""
+    charges no longer add up to what it pays (they come to $6,612.50; $6.61 × 1,000 pages is $6,610.00), and a
+    total split evenly says what each pays, which is no longer the total over the parties ('= $26,450.00, split 4
+    ways: $6,610.00 each')."""
     bits = []
     for l in q.lines:
         n = f"{l.qty} × " if l.qty > 1 else ""
@@ -249,7 +251,7 @@ def _detail(q: Quote) -> str:
         return " + ".join(bits) + ("" if q.page_rounded else f" = {fmt(q.per_party)}")
     out = " + ".join(bits) + f" = {fmt(q.total)}"
     if q.parties > 1:
-        out += f", split {q.parties} ways"
+        out += f", split {q.parties} ways" + (f": {fmt(q.per_party)} each" if q.page_rounded else "")
     return out
 
 

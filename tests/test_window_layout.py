@@ -409,7 +409,7 @@ def test_settings_records_chooses_the_count(qt):
     from minute_filler.gui.tracking_editor import TrackingEditor
     ed = TrackingEditor(boxes_with(), default_rules(), True, "Ready to send")
     labels = [ed.count.itemText(i) for i in range(ed.count.count())]
-    assert labels == ["Nothing", NOT_PAID, "Ready to send (not with these boxes)"]
+    assert labels == ["Nothing", NOT_PAID, "Ready to send (with these boxes: Not paid)"]
     assert ed.count_name() == "Ready to send"
     ed.count.setCurrentIndex(ed.count.findData(""))
     assert ed.count_name() == ""

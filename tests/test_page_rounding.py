@@ -196,16 +196,19 @@ def test_firms_choosing_their_speed_by_the_page(s):
 
 def test_the_invoice_made_the_old_way_split_by_the_page(s):
     """An invoice for the whole job, split 4 ways (no orders): each party pays $6.61 a page, and the math says so.
-    The small print reads as it always has."""
+    The small print says what each pays too: the total over 4 is $6,612.50, not what the invoice asks."""
     s.invoice_rounding = "page"
     case, opts = four_firms(s, orders=False)
     f = firm_invoices(case, s, opts)[0]
     (q,) = f.quotes
     assert not q.share and q.per_party == Decimal("6610.00")
-    assert _detail(q).endswith(" = $26,450.00, split 4 ways")
+    assert _detail(q).endswith(" = $26,450.00, split 4 ways: $6,610.00 each")
     html, plain = explain([(f, "2026-0050")])
     assert "    Total: $26,450.00\n" in plain and f"    Each party pays: {SIX_61} = $6,610.00\n" in plain
     assert f"<b>Each party pays: {SIX_61}</b>" in html
+    s.invoice_rounding = "exact"  # (rounded once at the end: the small print as it always was)
+    (q,) = firm_invoices(case, s, opts)[0].quotes
+    assert _detail(q).endswith(" = $26,450.00, split 4 ways")
 
 
 def test_whole_cents_say_nothing_about_rounding(s):

@@ -120,10 +120,10 @@ QFrame#drop[hover="true"] { border: 2px dashed {accent}; background: {sel}; }
 QLabel#dropIcon { font-size: 30pt; color: {accent}; }
 QLabel#dropText { font-size: 11pt; font-weight: 600; }
 
-QLabel#status { border-radius: 12px; padding: 4px 12px; font-weight: 600; background: {hover}; color: {muted}; }
-QLabel#status[state="ok"] { background: {ok_bg}; color: {ok}; }
-QLabel#status[state="warn"] { background: {warn_bg}; color: {warn}; }
-QLabel#status[state="busy"] { background: {sel}; color: {accent}; }
+QLabel#status { border-radius: 12px; padding: 4px 12px; color: {muted}; }
+QLabel#status[state="ok"] { background: {ok_bg}; color: {ok}; font-weight: 600; }
+QLabel#status[state="warn"] { background: {warn_bg}; color: {warn}; font-weight: 600; }
+QLabel#status[state="busy"] { background: {sel}; color: {accent}; font-weight: 600; }
 
 QLabel#badge { border-radius: 8px; padding: 1px 7px; font-size: 8pt; font-weight: 600; border: 1px solid {border}; }
 QLabel#badge[src="regex"] { color: {regex}; }

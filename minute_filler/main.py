@@ -215,6 +215,36 @@ def app_icon() -> Path:
     return Path(minute_filler.__file__).resolve().parent / "assets" / "app.ico"
 
 
+def _exe_icon_for_windows(win) -> None:
+    """In the built program, the .exe's own icon (the yin-yang, icon group 1 as PyInstaller makes it) becomes the
+    icon of the window class too. Qt's window class looks for an icon resource named "IDI_ICON1", which PyInstaller
+    doesn't make, so it had Windows' generic one, which the shell shows where it doesn't ask the window itself
+    (the taskbar, when no shortcut carries the app's AppUserModelID). Run from source, or if anything fails,
+    nothing changes."""
+    if not getattr(sys, "frozen", False) or sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+        kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+        kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
+        user32.LoadImageW.restype = wintypes.HANDLE
+        user32.LoadImageW.argtypes = [wintypes.HINSTANCE, ctypes.c_void_p, wintypes.UINT, ctypes.c_int, ctypes.c_int,
+                                      wintypes.UINT]
+        user32.SetClassLongPtrW.restype = ctypes.c_void_p
+        user32.SetClassLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+        exe, hwnd = kernel32.GetModuleHandleW(None), int(win.winId())
+        # GCLP_HICON at SM_CXICON x SM_CYICON, GCLP_HICONSM at SM_CXSMICON x SM_CYSMICON; IMAGE_ICON, LR_SHARED
+        for index, (mw, mh) in ((-14, (11, 12)), (-34, (49, 50))):
+            icon = user32.LoadImageW(exe, 1, 1, user32.GetSystemMetrics(mw), user32.GetSystemMetrics(mh), 0x8000)
+            if icon:
+                user32.SetClassLongPtrW(hwnd, index, icon)
+    except Exception as e:  # (only the taskbar's picture is at stake)
+        from minute_filler import log
+        log.error("could not set the window class's icon", e)
+
+
 def _tell_user_about_crashes(app) -> None:
     """A crash that nothing else caught: it is already in the log; say so instead of failing silently."""
     from PySide6.QtCore import QObject, Signal
@@ -351,6 +381,7 @@ def main() -> int:
     set_zoom(settings.zoom)  # the zoom (Ctrl + / Ctrl -), kept from last time
     apply_theme(app, settings.theme)
     win = MainWindow(settings, app)
+    _exe_icon_for_windows(win)
     win.show()
     if single is None:
         if files:

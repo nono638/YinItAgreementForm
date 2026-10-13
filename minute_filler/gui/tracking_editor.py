@@ -23,14 +23,15 @@ from PySide6.QtWidgets import (
 )
 
 from ..tracking import (EVERY_PAID, EVERY_PAID_NAME, PAID, ColourRule, TrackBox, box_rows, clean_boxes,
-                        clean_rules, count_names, default_boxes, default_rules, new_key, reachable, rule_rows, usable)
+                        clean_rules, count_names, counted, default_boxes, default_rules, new_key, reachable, rule_rows,
+                        usable)
 from .widgets import refill_combo
 from .zoom import z
 
 USE, NAME, YES, NO, WHOLE = range(5)  # the boxes table's columns
 SWATCH, RULE_NAME = 0, 1              # the colours table's first columns; then a box each, then the note
 MARKS = {True: "✓", False: "✗", None: "–"}
-NEW_COLOUR = "#9333ea"
+NEW_COLOUR = "#db2777"  # (pink: not one of the colours given, so a new one stands apart)
 
 
 def _words(name: str) -> tuple[str, str]:
@@ -162,11 +163,14 @@ class TrackingEditor(QWidget):
     # ------------------------------------------------------------------ the Records button's count
     def _fill_count(self) -> None:
         """The count's choices as the boxes and colours are now: Nothing, Not paid and the colours that can colour
-        a row (tracking.count_names). A colour chosen that can't with these boxes stays chosen, and says so."""
-        names = count_names(self.boxes(), self.rules())
+        a row (tracking.count_names). A colour chosen that can't with these boxes stays chosen, and says what is
+        counted meanwhile (tracking.counted: Not paid, or nothing without Paid)."""
+        boxes = self.boxes()
+        names = count_names(boxes, self.rules())
         items = [("Nothing", "")] + [(n, n) for n in names]
         if self._count and self._count not in names:
-            items.append((f"{self._count} (not with these boxes)", self._count))
+            instead = counted(self._count, boxes, self.rules())
+            items.append((f"{self._count} (with these boxes: {instead or 'nothing'})", self._count))
         refill_combo(self.count, items, self._count)
 
     def _count_chosen(self, _=None) -> None:

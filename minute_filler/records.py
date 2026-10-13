@@ -322,6 +322,20 @@ def activity_row(a: Activity) -> list:
     return [get(a) for _, get in ACTIVITY_TABLE]
 
 
+_NUMBER = re.compile(r"[-+]?(\d[\d,]*(\.\d*)?|\.\d+)")
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")  # (what Excel may read a formula after: see csv_text)
+
+
+def csv_text(value):
+    """A cell of the CSV copies as written: text that Excel, opening the file, may take for a formula (it starts
+    with "=", "+", "-" or "@", or a tab or a carriage return before one: a note "- left a message" showed as
+    #NAME?, "=1+1" as 2) gets an apostrophe in front, so it stays text (Excel shows the apostrophe: in a CSV file
+    it isn't hidden as when typed in a cell); a number ("-12.50") and anything else is left as it is."""
+    if isinstance(value, str) and value.startswith(_FORMULA_START) and not _NUMBER.fullmatch(value):
+        return "'" + value
+    return value
+
+
 def _from_row(cls, row: sqlite3.Row, **override):
     """A dataclass from a database row: NULL becomes the field's default, unknown columns are dropped (the
     invoices' "idx" column is Invoice.index: INDEX is a word of SQL)."""
@@ -806,7 +820,8 @@ class Ledger:
         """Writes invoices.csv and activity.csv (every row not in the trash) into folder; returns their paths.
         invoices.csv has a column for each of `boxes` too (invoice_table). Each is written to a temporary file
         first and then put in place, so a copy is never left half written; one that can't be (open in Excel)
-        doesn't stop the other, and the first such error is raised after."""
+        doesn't stop the other, and the first such error is raised after. Text Excel would open as a formula is
+        kept as text (csv_text)."""
         folder = Path(folder)
         folder.mkdir(parents=True, exist_ok=True)
         out, problem = [], None
@@ -819,8 +834,8 @@ class Ledger:
             try:
                 with open(tmp, "w", newline="", encoding="utf-8-sig") as f:  # the BOM: Excel reads it as UTF-8
                     w = csv.writer(f)
-                    w.writerow(cols)
-                    w.writerows(rows)
+                    w.writerow([csv_text(c) for c in cols])
+                    w.writerows([csv_text(c) for c in r] for r in rows)
                 os.replace(tmp, p)
                 out.append(p)
             except OSError as e:

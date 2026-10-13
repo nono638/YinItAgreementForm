@@ -654,7 +654,13 @@ class FieldRow(QWidget):
         self.on_edit(self.key)
 
 
+# The status while nothing is loaded: plain text, not a pill (it looked like a button: the user, 2026-10-13)
+IDLE_STATUS = "Drop a document to begin…"
 COMPACT_BELOW = 960  # before the window is shown: window height (px at 100 % zoom) under which the drop zone is small
+# A screen less tall than this (px at 100 % zoom, after Windows scaling, without the taskbar) folds the Outputs box
+# until the user folds or unfolds it themselves: on a laptop of 1366 x 768 at 150 % (about 480 px) the form got a
+# few lines (_auto_fold_outputs)
+SHORT_SCREEN = 760
 DROP_TEXT = "Drop documents here"
 DROP_MORE_TEXT = "Drop more here, or"  # (the slim drop zone, Browse... beside it: the column is narrow)
 
@@ -778,7 +784,7 @@ class DropZone(QFrame):
             picture = "working" if mood == "idle" else mood
             self._pixmaps[(mood, width)] = rounded(ASSETS / f"yin_{picture}.jpg", width, self._radius())
         self.yin.setPixmap(self._pixmaps[(mood, width)])
-        self.yin.setToolTip({"idle": "Drop a document to begin", "working": "Working on it…",
+        self.yin.setToolTip({"idle": IDLE_STATUS, "working": "Working on it…",
                              "done": "Ready to fill!", "stumped": "Something needs your attention",
                              "newyear": "Happy New Year!"}.get(mood, ""))
 
@@ -1008,6 +1014,8 @@ class MainWindow(QMainWindow):
         # the incomplete rate sheets warned about this session, by rates.sheet_fingerprint (one edited and read
         # again is warned about again): see _check_rate_sheet
         self._sheets_warned: set[str] = set()
+        self._days_box = None  # the question about a rate sheet's old Days while it is open (_check_old_days)
+        self._days_later: set[str] = set()  # the sheets answered Not now this session (_check_old_days)
         # the incomplete rate sheet opened from that warning to be filled in: read again and checked each time it
         # is saved (_watch_sheet, _sheet_saved). Its path and the file's size and time as last read; the watcher
         # is made when first needed
@@ -1053,7 +1061,7 @@ class MainWindow(QMainWindow):
         # (eventFilter)
         app.installEventFilter(self)
         self._show_case()
-        self._set_status("Drop a document to begin", "")
+        self._set_status(IDLE_STATUS, "")
         QTimer.singleShot(50, self._startup)
 
     # The editor always works on the current job.
@@ -1634,12 +1642,12 @@ class MainWindow(QMainWindow):
         self.outputs_fold.setArrowType(Qt.DownArrow)
         self.outputs_fold.setToolTip("Fold the Outputs box to one line (more room for the form); click again to "
                                      "unfold it")
-        self.outputs_fold.clicked.connect(lambda: self._fold_outputs(not self.s.outputs_folded))
+        self.outputs_fold.clicked.connect(lambda: self._fold_outputs_by_hand(not self.s.outputs_folded))
         top.addWidget(self.outputs_fold)
         title = ClickLabel("Outputs")
         title.setObjectName("section")
         title.set_clickable(True)
-        title.clicked.connect(lambda: self._fold_outputs(not self.s.outputs_folded))
+        title.clicked.connect(lambda: self._fold_outputs_by_hand(not self.s.outputs_folded))
         top.addWidget(title)
         # folded: a small box per output, ticked as its panel's is (_sync_mini_outputs), the invoice's speeds after it
         self.outputs_line = QWidget()
@@ -1813,7 +1821,7 @@ class MainWindow(QMainWindow):
             act.setChecked(key == (self.s.theme if self.s.theme in ("light", "dark") else "system"))
             self.theme_actions.addAction(act)
         m.addSeparator()
-        self.fold_outputs_action = m.addAction("&Fold the Outputs box", lambda: self._fold_outputs(
+        self.fold_outputs_action = m.addAction("&Fold the Outputs box", lambda: self._fold_outputs_by_hand(
             self.fold_outputs_action.isChecked()))
         self.fold_outputs_action.setCheckable(True)
         self.fold_outputs_action.setChecked(self.s.outputs_folded)
@@ -1913,6 +1921,24 @@ class MainWindow(QMainWindow):
             self.s.outputs_folded = folded
             if save:
                 self._save_settings()
+
+    def _fold_outputs_by_hand(self, folded: bool) -> None:
+        """The user folded or unfolded the Outputs box (its arrow, its title, View → Fold the Outputs box): kept
+        as they left it from now on, whatever the screen (Settings.outputs_fold_chosen; _auto_fold_outputs)."""
+        self.s.outputs_fold_chosen = True
+        self._fold_outputs(folded, save=False)
+        self._save_settings()
+
+    def _auto_fold_outputs(self) -> None:
+        """Until the user folds or unfolds the Outputs box themselves (Settings.outputs_fold_chosen), it is folded
+        on a short screen and unfolded on a taller one (SHORT_SCREEN, at the window's zoom). Decided when the app
+        shows the window (not when it comes back from minimized) and when the zoom changes; not saved as a choice."""
+        avail = self._avail()
+        if self.s.outputs_fold_chosen or avail is None:
+            return
+        short = avail.height() < z(SHORT_SCREEN)
+        if short != self.s.outputs_folded:
+            self._fold_outputs(short, save=False)
 
     def _sync_mini_outputs(self) -> None:
         """The folded Outputs box's small boxes ticked (and greyed) as the panels' are, and the speeds the invoice
@@ -2222,16 +2248,17 @@ class MainWindow(QMainWindow):
     # --------------------------------------------------------- the Records button's count
     def _count_records(self) -> None:
         """Counts the invoices of the status Settings -> Records names (records_count: "Ready to send", "Not paid",
-        or "" for none) off the window's thread, for the Records button (_show_count). A count asked for meanwhile
-        replaces this one."""
+        or "" for none) off the window's thread, for the Records button (_show_count). A colour no row can take with
+        the boxes in use counts Not paid instead (tracking.counted: Ready to send, the default, with Paid alone). A
+        count asked for meanwhile replaces this one."""
         from ..records import live_invoices
-        from ..tracking import count_of
+        from ..tracking import count_of, counted
         self._counting += 1
-        n, name = self._counting, self.s.records_count
+        boxes, rules = self.s.boxes(), self.s.rules()
+        n, name = self._counting, counted(self.s.records_count, boxes, rules)
         if not name:
             self._show_count(name, 0)
             return
-        boxes, rules = self.s.boxes(), self.s.rules()
 
         def count() -> int | None:
             try:
@@ -2292,10 +2319,11 @@ class MainWindow(QMainWindow):
         """Runs once the window is on screen: the welcome questions on the first run (no name yet; asked once),
         then the AI check, the day's backup of the records, what the window shows from the records (the jobs made
         lately, the completions, the Records button's count), the Update button of a newer version found before and,
-        once a day, the look for a newer version, and a warning when the rate sheet in use is incomplete and the
-        user hasn't said to use it as it is (_check_rate_sheet). A settings file that couldn't be read is said so
-        instead of the welcome: the app runs on the defaults, and nothing is written over the file until the user
-        presses Save in Settings or imports settings (Settings.save(force=True))."""
+        once a day, the look for a newer version, a warning when the rate sheet in use is incomplete and the
+        user hasn't said to use it as it is (_check_rate_sheet), and the question whether a sheet still with
+        the Days of the template before 2.8.0 should say 5 and 15 (_check_old_days). A settings file that couldn't
+        be read is said so instead of the welcome: the app runs on the defaults, and nothing is written over the
+        file until the user presses Save in Settings or imports settings (Settings.save(force=True))."""
         if self.s.unreadable:
             QMessageBox.warning(self, "Your settings couldn't be read",
                                 "Your settings file couldn't be read (it may be damaged, or held by another "
@@ -2313,6 +2341,7 @@ class MainWindow(QMainWindow):
         if self.s.check_updates and self.s.update_checked != date.today().isoformat():
             self._check_update()
         self._check_rate_sheet()  # (edited since the app last ran, or incomplete and never answered)
+        self._check_old_days()  # (a sheet filled in before 2.8.0: 7 and 21 were calendar days)
 
     def welcome(self) -> None:
         """The first-run questions (name, address, rate sheet, where files go). Skipped: asked no more;
@@ -3591,6 +3620,7 @@ class MainWindow(QMainWindow):
             self._sheet_in_use()
             if picked is None:
                 self._check_rate_sheet(previous, again=True)
+            self._check_old_days()
 
     def _sheet_in_use(self) -> None:
         """The rate sheet in use changed: saved, and every job priced again from it."""
@@ -3663,6 +3693,99 @@ class MainWindow(QMainWindow):
             open_path(sheet.path)
         return True
 
+    def _check_old_days(self) -> None:
+        """Asks once whether the rate sheet in use, which still has the Days of the template before 2.8.0
+        (Expedite 7, Regular 21: calendar days then; rates.old_days), should say 5 and 15: turnaround days are
+        business days now, and 7 and 21 of them come out about 9 and 30 calendar days. Change writes the numbers
+        into the sheet (rates.set_new_days) and prices every job again; Keep is remembered for that sheet
+        (Settings.sheet_days_kept); Not now (and Esc, and the box's X) asks again at the next start. Called where
+        _check_rate_sheet is, after it, and once a sheet opened to be filled in has all its prices (_sheet_saved):
+        not while it is (one question at a time, and the sheet waits for its prices first). Not asked while
+        Generate all runs, nor with business days off (Settings -> Dates: 7 and 21 are calendar days again then).
+        Not modal to the app (open, not exec): nothing waits for the answer."""
+        from ..rates import OLD_DAYS, old_days
+        from ..settings import RATE_SHEETS_OK_KEPT
+        sheet = self.s.sheet()
+        watched = self._sheet_watched is not None and self._sheet_watched[0] == sheet.path
+        if (self._days_box is not None or self.filling or watched or not self.s.turnaround_business_days
+                or not old_days(sheet) or sheet.name in self.s.sheet_days_kept or sheet.name in self._days_later):
+            return
+        # each speed once, Expedite first (a sheet can have two rows of one speed: Expedite and Rush)
+        found = {k: sp.name for k in OLD_DAYS for sp in reversed(sheet.speeds) if sp.key == k and sp.days is not None}
+
+        def numbers(i: int) -> str:
+            return " and ".join(str(OLD_DAYS[k][i]) for k in found)
+        says = " and ".join(f"{name} {OLD_DAYS[k][0]} days" for k, name in found.items())
+        about = " and ".join(f"{OLD_DAYS[k][0]} business days come out about {OLD_DAYS[k][2]} calendar days"
+                             for k in found)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("Your rate sheet's turnaround days")
+        box.setText(f'The rate sheet "{sheet.name}" gives {says}. Before version 2.8.0 those were calendar days. '
+                    f"The app now counts business days (Settings → Dates), so {about}, and delivery dates come "
+                    f"later than before.\n\nChange the sheet to {numbers(1)} business days, about the same as "
+                    "before? Only its Days column changes.")
+        change = box.addButton(f"Change to {numbers(1)}", QMessageBox.AcceptRole)
+        keep = box.addButton(f"Keep {numbers(0)}", QMessageBox.ActionRole)
+        keep.setToolTip("Not asked about this sheet again")
+        later = box.addButton("Not now", QMessageBox.RejectRole)
+        later.setToolTip("Asked again the next time the app starts")
+        box.setDefaultButton(change)
+        box.setEscapeButton(later)
+
+        def answered(_result) -> None:
+            self._days_box = None
+            box.deleteLater()
+            if self.s.sheet().path != sheet.path or not self.s.turnaround_business_days:
+                return  # (another sheet in use since, or calendar days: asked again when it is so again)
+            if box.clickedButton() is change:
+                self._set_new_days(sheet)
+            elif box.clickedButton() is keep:
+                kept = [n for n in self.s.sheet_days_kept if n != sheet.name]
+                self.s.sheet_days_kept = kept[-(RATE_SHEETS_OK_KEPT - 1):] + [sheet.name]
+                self._save_settings()
+            else:
+                self._days_later.add(sheet.name)
+
+        box.finished.connect(answered)
+        self._days_box = box
+        box.open()
+
+    def _set_new_days(self, sheet) -> None:
+        """Change on the question about the old Days (_check_old_days): the sheet says 5 and 15, it is read again
+        and every job priced again. An incomplete sheet used anyway (Settings.rate_sheets_ok), or warned about
+        this session (_sheets_warned), stays so as changed: only its Days changed, not its prices. A sheet that
+        can't be written (open in Excel), or still has old Days after it (edited meanwhile), is said so, and asked
+        about again with ⟳ or the next start."""
+        from ..rates import OLD_DAYS, old_days, set_new_days, sheet_fingerprint
+        before = sheet_fingerprint(sheet)
+        try:
+            set_new_days(sheet.path)
+        except (OSError, ValueError) as e:
+            logfile.error("could not change a rate sheet's Days", e)
+            return self._days_not_changed(sheet, "it may be open in Excel. Close it there")
+        self._read_sheets_again()
+        now = next((sh for sh in self.s.sheets()[0] if sh.path == sheet.path), None)
+        if now is None or old_days(now):  # (no longer read as a sheet, or edited in between)
+            return self._days_not_changed(sheet, "its Days column may have been changed meanwhile. Look at it")
+        mark = sheet_fingerprint(now)
+        if before in self._sheets_warned:
+            self._sheets_warned.add(mark)
+        if before in self.s.rate_sheets_ok:
+            self.s.rate_sheets_ok = [mark if m == before else m for m in self.s.rate_sheets_ok]
+            self._save_settings()
+        says = ", ".join(f"{sp.name} {sp.days}" for k in OLD_DAYS for sp in now.speeds
+                         if sp.key == k and sp.days is not None)
+        self._toast(f'"{now.name}" says {says} business days now.')
+
+    def _days_not_changed(self, sheet, why: str) -> None:
+        """Says (without waiting for an answer) that the old Days of a rate sheet weren't changed, and why."""
+        box = QMessageBox(QMessageBox.Warning, "The rate sheet wasn't changed",
+                          f'"{sheet.path.name}" couldn\'t be changed: {why}, then press ⟳ next to the Rate sheet '
+                          "dropdown to be asked again.", QMessageBox.Ok, self)
+        box.setAttribute(Qt.WA_DeleteOnClose)
+        box.open()
+
     def _watch_sheet(self, path: Path) -> None:
         """The rate sheet at `path` was opened to be filled in: each time it is saved, it is read again and
         checked (_sheet_saved). Its folder is watched too: Excel saves a new file in place of the old one, which
@@ -3724,6 +3847,7 @@ class MainWindow(QMainWindow):
         else:
             self._unwatch_sheet()
             self._toast(f'Read "{sheet.name}" again: it has all its prices now.')
+            self._check_old_days()  # (its Days, waiting for the prices)
 
     def _remerge_others(self):
         """New rates or settings also apply to the batch's other jobs."""
@@ -3863,6 +3987,7 @@ class MainWindow(QMainWindow):
         self._read_sheets_again()
         self._toast(f"Loaded {len(self.s.sheets()[0])} rate sheet(s).")
         self._check_rate_sheet(again=True)  # (edited in Excel: still incomplete, or newly so)
+        self._check_old_days()
 
     def _read_sheets_again(self) -> None:
         """The rate sheet files are read again (⟳, or the one opened to be filled in was saved: _sheet_saved), and
@@ -3883,10 +4008,10 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------- status
     def _set_status(self, text: str, state: str, mood: str | None = None):
-        """Sets the status pill at the top. state: "" (plain), "busy", "ok" or "warn". When the yin-yang is on
-        (Settings → Options, Settings.show_yin), state also picks its picture unless mood names one: it swirls
-        while busy ("working") and while the app waits (plain: "idle"); ok shows "done" once the swirl's turn is
-        over, warn "stumped" at once (DropZone.set_mood)."""
+        """Sets the status at the top. state: "" (plain text, as IDLE_STATUS is), or "busy", "ok" or "warn" (a
+        pill of its colour). When the yin-yang is on (Settings → Options, Settings.show_yin), state also picks its
+        picture unless mood names one: it swirls while busy ("working") and while the app waits (plain: "idle"); ok
+        shows "done" once the swirl's turn is over, warn "stumped" at once (DropZone.set_mood)."""
         self.status.setText(text)
         self.status.setProperty("state", state)
         repolish(self.status)
@@ -4023,7 +4148,7 @@ class MainWindow(QMainWindow):
                 self._set_status("Reading…", "busy")
             return
         if not self.cur.docs:
-            self._set_status("Drop a document to begin", "")
+            self._set_status(IDLE_STATUS, "")
             self.status.setToolTip("")
             return
         self._sync_from_ui(commit=False)  # (a name being typed in the attorney table stays open)
@@ -5124,7 +5249,7 @@ class MainWindow(QMainWindow):
         self.paste.clear()
         self._show_case()
         self.busy.setVisible(False)
-        self._set_status("Drop a document to begin", "")
+        self._set_status(IDLE_STATUS, "")
 
     def open_past_job(self, origin: str) -> bool:
         """Opens a job again from its record (Records -> Open this job again), for a corrected invoice or
@@ -5257,6 +5382,7 @@ class MainWindow(QMainWindow):
         self.yin_action.setChecked(self.s.show_yin)
         self._records_changed()  # (an open Records window: its tick boxes and colours, Settings -> Records; the count)
         self._show_known_update()  # (Settings -> Options: the daily look turned off hides the Update button)
+        self._check_old_days()  # (another sheet named, or business days turned on again)
 
     # ------------------------------------------------------- outputs and records
     def _auto_runsheet(self) -> None:
@@ -5995,6 +6121,8 @@ class MainWindow(QMainWindow):
         # the dividers once the window is laid out (measured earlier, they would be placed in proportion to
         # sizes that aren't the window's): the left column's, and a folded Outputs box's height
         QTimer.singleShot(0, self, lambda: self._place_left_split(len(self.jobs) > 1))
+        if not e.spontaneous():  # (shown by the app, not brought back from minimized: a box unfolded since stays so)
+            self._auto_fold_outputs()  # (a short screen: until the user chooses)
         if self.s.outputs_folded:
             QTimer.singleShot(0, self, lambda: self._fold_outputs(True, save=False))
 
@@ -6217,6 +6345,7 @@ class MainWindow(QMainWindow):
         # the Who ordered what table is as tall as its rows, which are taller or shorter now
         self._show_orders()
         QTimer.singleShot(0, self, self._show_orders)  # again once the new sizes are laid out
+        self._auto_fold_outputs()  # (the screen is shorter or taller at this zoom)
         if self.s.outputs_folded:  # (its one line is taller or shorter now)
             QTimer.singleShot(0, self, lambda: self._fold_outputs(True, save=False))
         self._set_opt("zoom", f)

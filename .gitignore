@@ -29,4 +29,4 @@ desktop.ini
 *.log
 
 # Private invoice workbook (personal and payment info)
-Noah Private*.xlsx
+*Private*.xlsx

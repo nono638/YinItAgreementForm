@@ -30,15 +30,18 @@ def test_daily_copies_e_mails_and_indexes_are_1_25_a_page():
 
 
 def test_an_unedited_copy_of_the_old_sample_is_brought_up_to_date(tmp_path):
-    """A user folder seeded by an earlier version holds Sample Rates as it shipped then ($1.30 for Daily): still
-    exactly that (CRLF or LF), it is replaced by the sheet as it ships now; edited, or another sheet, it is
-    left alone."""
+    """A user folder seeded by an earlier version holds Sample Rates as it shipped then ($1.30 for Daily before
+    2.5.0; "Origianal" before 2.8.1): still exactly that (CRLF or LF), it is replaced by the sheet as it ships now;
+    edited, or another sheet, it is left alone."""
     from minute_filler.rates import OLD_BUNDLED, seed
     new = (BUNDLED_DIR / "Sample Rates.csv").read_bytes()
-    old = new.replace(b"Daily,$6.50,$1.25,$1.25,$1.25", b"Daily,$6.50,$1.30,$1.30,$1.30")
+    assert new.startswith(b"Rate,Original,")
+    misspelt = new.replace(b"Original", b"Origianal")  # (2.5.0 to 2.8.0)
+    old = misspelt.replace(b"Daily,$6.50,$1.25,$1.25,$1.25", b"Daily,$6.50,$1.30,$1.30,$1.30")
+    olds = [x for sheet in (old, misspelt) for x in (sheet, sheet.replace(b"\r\n", b"\n"))]
     import hashlib
-    assert {hashlib.sha256(x).hexdigest() for x in (old, old.replace(b"\r\n", b"\n"))} == OLD_BUNDLED["Sample Rates.csv"]
-    for i, text in enumerate((old, old.replace(b"\r\n", b"\n"))):
+    assert {hashlib.sha256(x).hexdigest() for x in olds} == OLD_BUNDLED["Sample Rates.csv"]
+    for i, text in enumerate(olds):
         d = tmp_path / f"unedited {i}"
         d.mkdir()
         (d / "Sample Rates.csv").write_bytes(text)

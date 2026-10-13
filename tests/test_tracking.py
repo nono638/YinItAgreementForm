@@ -18,7 +18,7 @@ import pytest
 from helpers import pat_settings
 from minute_filler.records import Invoice, Ledger
 from minute_filler.settings import Settings
-from minute_filler.tracking import (BLUE, EVERY_PAID, GREEN, ORANGE, TEAL, YELLOW, ColourRule, TrackBox,
+from minute_filler.tracking import (BLUE, EVERY_PAID, GREEN, ORANGE, PURPLE, TEAL, YELLOW, ColourRule, TrackBox,
                                     Transcripts, box_rows, default_boxes, default_rules, rule_for, rule_names,
                                     status_words)
 
@@ -61,7 +61,7 @@ def test_the_status_says_each_box_in_use_ticked_or_not():
 def expected(boxes: set, paid, every, transcribed, sent):
     """The default rule's name for these boxes in use and this invoice (every: every firm paid)."""
     if "sent" in boxes and sent:
-        return "Done"
+        return "Done" if paid else "Sent, not paid"
     if "transcribed" in boxes:
         if transcribed:
             return "Ready to send" if every else "Transcribed, waiting for payment"
@@ -87,8 +87,8 @@ def test_the_default_colours_whichever_boxes_are_in_use(keys):
                                      sent and "sent" in keys), (keys, paid, every, transcribed, sent)
     colours = {r.name: r.colour for r in default_rules()}
     assert (colours["Done"], colours["Ready to send"], colours["Paid, not transcribed"],
-            colours["Not paid, not transcribed"], colours["Transcribed, waiting for payment"]) == (
-        GREEN, ORANGE, YELLOW, TEAL, BLUE)
+            colours["Not paid, not transcribed"], colours["Transcribed, waiting for payment"],
+            colours["Sent, not paid"]) == (GREEN, ORANGE, YELLOW, TEAL, BLUE, PURPLE)
 
 
 def test_a_rule_naming_a_box_not_in_use_is_skipped_and_void_has_no_colour():
@@ -101,10 +101,10 @@ def test_a_rule_naming_a_box_not_in_use_is_skipped_and_void_has_no_colour():
     # the Status filter lists the rules that can colour a row, each name once
     assert rule_names(boxes_on("paid"), default_rules()) == ["Paid", "Not paid"]
     assert rule_names(boxes_on("paid", "transcribed", "sent"), default_rules()) == [  # (not "Paid, waiting on
-        "Done", "Ready to send", "Transcribed, waiting for payment", "Paid, not transcribed",  # other firms": the
-        "Not paid, not transcribed"]                                                          # ones above catch it)
+        "Sent, not paid", "Done", "Ready to send", "Transcribed, waiting for payment",  # other firms": the ones
+        "Paid, not transcribed", "Not paid, not transcribed"]                          # above catch it)
     assert rule_names(boxes_on("paid", "sent"), default_rules()) == [
-        "Done", "Ready to send", "Paid, waiting on other firms", "Not paid"]
+        "Sent, not paid", "Done", "Ready to send", "Paid, waiting on other firms", "Not paid"]
 
 
 # ------------------------------------------------------------------ the transcripts
@@ -140,7 +140,7 @@ def test_settings_start_with_paid_alone_and_are_checked_when_read(tmp_path):
     s = Settings()
     assert [(b.key, b.on) for b in s.boxes()] == [("paid", True), ("invoice_sent", False),
                                                   ("transcribed", False), ("sent", False)]
-    assert s.records_colours and len(s.rules()) == 9
+    assert s.records_colours and len(s.rules()) == 10
     data = {"tracking_boxes": [
         5, {"key": "bogus", "name": "Bogus"}, {"key": "c1a", "name": "Proofread", "yes": "Proofread", "no": "",
                                                "on": True},
@@ -302,7 +302,7 @@ def test_the_rows_colours_follow_the_boxes(records):
     assert not cell(win, "2026-0004", "box:sent").flags() & Qt.ItemIsEnabled  # (a void invoice can't be ticked)
     # the Status filter: the invoices of one colour, their totals, and the export's title
     i = win.i_status.findData("rule:Ready to send")
-    assert win.i_status.itemText(1) == "Done" and i > 0
+    assert win.i_status.itemText(1) == "Sent, not paid" and win.i_status.itemText(2) == "Done" and i > 0
     win.i_status.setCurrentIndex(i)
     assert sorted(x.invoice_no for x in win.shown) == ["2026-0002", "2026-0003"]
     assert win.kpi["count"].text() == "2" and win._filter_title().endswith("(ready to send)")
@@ -456,13 +456,13 @@ def test_the_editor_adds_moves_removes_and_restores(qt, monkeypatch):
     ed._remove_box()
     assert "Proofread" not in [b.name for b in ed.boxes()]
     # a colour's box cell: ticked -> not ticked -> either way -> ticked
-    assert ed.rules()[7].name == "Paid" and ed.rule_table.item(7, 2).text() == "✓"
-    ed._rule_clicked(7, 2)
-    assert ed.rules()[7].when == {"paid": False} and ed.rule_table.item(7, 2).text() == "✗"
-    ed._rule_clicked(7, 2)
-    assert ed.rules()[7].when == {} and "Colours every row" in ed.rule_table.item(7, 4).text()
-    ed._rule_clicked(7, 2)
-    assert ed.rules()[7].when == {"paid": True} and ed.rule_table.item(7, 4).text() == ""
+    assert ed.rules()[8].name == "Paid" and ed.rule_table.item(8, 2).text() == "✓"
+    ed._rule_clicked(8, 2)
+    assert ed.rules()[8].when == {"paid": False} and ed.rule_table.item(8, 2).text() == "✗"
+    ed._rule_clicked(8, 2)
+    assert ed.rules()[8].when == {} and "Colours every row" in ed.rule_table.item(8, 4).text()
+    ed._rule_clicked(8, 2)
+    assert ed.rules()[8].when == {"paid": True} and ed.rule_table.item(8, 4).text() == ""
     assert "Not used: Transcript sent is not in use" == ed.rule_table.item(0, 4).text()
     monkeypatch.setattr(te.QMessageBox, "question", lambda *a: te.QMessageBox.Yes)
     ed._default_rules()
@@ -470,8 +470,8 @@ def test_the_editor_adds_moves_removes_and_restores(qt, monkeypatch):
     # with Transcribed in use, the colours above "Paid, waiting on other firms" always come first
     ed = te.TrackingEditor(boxes_on("paid", "transcribed", "sent"), default_rules(), True)
     last = ed.rule_table.columnCount() - 1
-    assert ed.rule_table.item(6, last).text() == "Not used with these boxes: the colours above it come first"
-    assert ed.rule_table.item(1, last).text() == ""
+    assert ed.rule_table.item(7, last).text() == "Not used with these boxes: the colours above it come first"
+    assert ed.rule_table.item(2, last).text() == ""
 
 
 def test_settings_records_tab_round_trip(qt, tmp_path):

@@ -101,7 +101,8 @@ def qt(monkeypatch):
     startup ran during the clean-up once waited for a click for good (a test of it sets WelcomeDialog.exec).
     Generate's "Which speed did each firm order?" (firms sharing pages without a speed) is answered with what it
     was filled with, the agreement form's speed: a window test of a split order once waited for it for good (a
-    test of it sets SplitSpeedsDialog.exec)."""
+    test of it sets SplitSpeedsDialog.exec). The off-screen screen (800 x 600) counts as tall: the Outputs box isn't
+    folded for it (a test of that sets main_window.SHORT_SCREEN)."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     fonts = os.path.join(os.environ.get("WINDIR", ""), "Fonts")
     if os.path.isdir(fonts):  # the real fonts, so text is measured as on screen (see the layout tests)
@@ -114,6 +115,8 @@ def qt(monkeypatch):
     monkeypatch.setattr(PreviewDialog, "exec", lambda self: QtWidgets.QDialog.Accepted)
     monkeypatch.setattr(MathDialog, "exec", lambda self: QtWidgets.QDialog.Accepted)
     monkeypatch.setattr(WelcomeDialog, "exec", lambda self: QtWidgets.QDialog.Rejected)
+    from minute_filler.gui import main_window
+    monkeypatch.setattr(main_window, "SHORT_SCREEN", 0)
     return QtWidgets
 
 
@@ -147,10 +150,12 @@ def make_window(qt):
     # by a later test that changes the style sheet (a zoom), which takes minutes with a hundred of them
     from PySide6.QtCore import QCoreApplication, QEvent
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-    if app.styleSheet() != style:  # a test that saved settings (the theme is applied again) leaves the style
-        app.setStyleSheet(style)   # sheet as it found it: the layout tests measure text with it
     from minute_filler.gui import zoom
     if zoom.zoom() != 1.0:  # a test that zoomed must not leave the next one zoomed (the zoom is the app's)
         from minute_filler.gui.theme import apply_theme
         zoom.set_zoom(1.0)
         apply_theme(qt.QApplication.instance(), "light")
+    # after the zoom (whose theme was applied at 100 % in light: not the style sheet the test found, which made a
+    # later layout test's drop zone small once a zoom test ran before it)
+    if app.styleSheet() != style:  # a test that saved settings (the theme is applied again) leaves the style
+        app.setStyleSheet(style)   # sheet as it found it: the layout tests measure text with it

@@ -111,4 +111,7 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("why does it say windows protected your pc", ("trouble-install",)),
     # Keyboard shortcuts
     ("hotkeys", ("keys",)),
+    # 2.8.1
+    ("my rate sheet still says 7 and 21 days", ("dates-turnaround", "rates-columns")),
+    ("why is the outputs box folded", ("start-room", "make-outputs")),
 ]

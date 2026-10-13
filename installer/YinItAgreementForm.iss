@@ -72,8 +72,10 @@ Type: files; Name: "{autodesktop}\DjinnItAgreementForm.lnk"
 Source: "..\dist\YinItAgreementForm\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: desktopicon
+; AppUserModelID: the ID the app gives its windows (main.py, SetCurrentProcessExplicitAppUserModelID). Without it on
+; the shortcuts, Windows can't tie the running app to them, and the taskbar showed the generic app icon
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; AppUserModelID: "YinItAgreementForm"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExe}"; Tasks: desktopicon; AppUserModelID: "YinItAgreementForm"
 
 [Run]
 Filename: "{app}\{#MyAppExe}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent

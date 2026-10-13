@@ -630,6 +630,11 @@ def test_the_swirl_follows_the_layout_while_it_lingers(qt):
 OLD_DAILY = (b"Daily,$6.50,$1.25,$1.25,$1.25", b"Daily,$6.50,$1.30,$1.30,$1.30")  # (the sample as 2.4.0 shipped it)
 
 
+def as_240(sheet: bytes) -> bytes:
+    """Sample Rates as 2.4.0 shipped it: Daily at $1.30, and "Origianal" (until 2.8.1)."""
+    return sheet.replace(*OLD_DAILY).replace(b"Original", b"Origianal")
+
+
 def test_importing_settings_from_2_4_keeps_the_sample_sheet_as_it_ships_now(tmp_path):
     """A settings file exported by 2.4.0 holds Sample Rates as it shipped then (Daily copies, e-mailed copies and
     indexes at $1.30 a page): importing it brought that copy back as "Sample Rates (imported)" and switched the
@@ -637,8 +642,8 @@ def test_importing_settings_from_2_4_keeps_the_sample_sheet_as_it_ships_now(tmp_
     from minute_filler.rates import BUNDLED_DIR, sheets_dir
     out = Settings().export_to(tmp_path / "settings.json")
     data = json.loads(out.read_text(encoding="utf-8"))
-    new = (BUNDLED_DIR / "Sample Rates.csv").read_text(encoding="utf-8-sig")
-    data["rate_sheets"]["Sample Rates.csv"] = new.replace(*(x.decode() for x in OLD_DAILY))
+    new = (BUNDLED_DIR / "Sample Rates.csv").read_bytes()
+    data["rate_sheets"]["Sample Rates.csv"] = as_240(new).decode("utf-8-sig")
     out.write_text(json.dumps(data), encoding="utf-8")
     imported = Settings.import_from(out, Settings())
     imported.write_imported_sheets()
@@ -654,7 +659,7 @@ def test_bringing_the_sample_sheet_up_to_date_never_leaves_half_of_it(tmp_path, 
     days, so it is read too.)"""
     from minute_filler import rates
     new = (rates.BUNDLED_DIR / "Sample Rates.csv").read_bytes()
-    old = new.replace(*OLD_DAILY)
+    old = as_240(new)
     d = tmp_path / "sheets"
     d.mkdir()
     (d / "Sample Rates.csv").write_bytes(old)
