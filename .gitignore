@@ -1,9 +1,10 @@
 # Private test documents (real transcripts, invoices, photos) - never commit
 samples_internal/
 
-# Personal notes: questions to settle about billing, and the plan for other courthouses
+# Personal notes: questions to settle about billing, the plan for other courthouses, and ideas for later
 QUESTIONS TO ASK.md
 MIGRATION.md
+FUTURE WORK.md
 # A courthouse's research: the workbooks its billing rules came from and the questions still open about them
 minute_filler/courthouses/*/research/
 
