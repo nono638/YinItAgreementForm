@@ -80,8 +80,8 @@ from .. import log as logfile
 from ..log import log
 from ..batch import (BATCH_EXT, HELD, MISMATCH_LEAD, NOT_INVOICED, Doc, Job, case_folders, case_reporters, expand_paths,
                      files_to_make, fill_jobs, firm_questions, group, ident, index_number_text, input_folders,
-                     job_from_origin, job_origin, join_entries, out_dir_for, read_loaders, remerge, same_case,
-                     split_forgotten)
+                     billed_split_rule, job_from_origin, job_origin, join_entries, out_dir_for, read_loaders,
+                     remerge, same_case, split_forgotten)
 from ..extract_llm import OllamaExtractor
 from ..extract_regex import find_dates, use_firm_answers
 from ..dates import us_date
@@ -2603,11 +2603,12 @@ class MainWindow(QMainWindow):
         pil = Image.open(io.BytesIO(bytes(buf.data())))
         self._ingest([lambda: ingest_pil(pil, "Pasted image")], ["Pasted image"])
 
-    def add_files(self, paths: list[str], batch: bool = False, same_job: bool = False):
+    def add_files(self, paths: list[str], batch: bool = False, same_job: bool = False, split_rule: str = ""):
         """Reads files, and the documents in folders. Files already loaded or still being read are skipped.
         Several documents about different cases (or batch=True) start a batch; same_job: they all go to the job
-        on screen whatever they say (a past job opened again: that is how it was put together). What was opened
-        is kept for File -> Open recent."""
+        on screen whatever they say (a past job opened again: that is how it was put together). split_rule: the
+        jobs made of them were billed by that split rule (an invoice of several days opened again: Job.split_rule).
+        What was opened is kept for File -> Open recent."""
         gen = self.gen
         for p in reversed(paths):
             self.s.remember_file(p)
@@ -2627,7 +2628,7 @@ class MainWindow(QMainWindow):
             if fresh:
                 files = [p for p, _ in fresh]
                 self._ingest([(lambda p=p: ingest_file(p)) for p in files], [Path(p).name for p in files],
-                             files, batch, {key for _, key in fresh}, same_job)
+                             files, batch, {key for _, key in fresh}, same_job, split_rule)
             else:
                 self._update_status()
                 if not everything:
@@ -2654,14 +2655,15 @@ class MainWindow(QMainWindow):
         self._idle()
         return True
 
-    def _ingest(self, loaders, names, paths=None, batch=False, keys=frozenset(), same_job=False):
+    def _ingest(self, loaders, names, paths=None, batch=False, keys=frozenset(), same_job=False, split_rule=""):
         """Reads inputs in the background and adds them to the jobs.
 
         loaders: one function per input that returns the Ingested document; names: what to call each in
         messages; paths: the files (None for pasted text or pictures); keys: the files' _path_key, held in
         self._loading until the read ends. With a single job and documents all about one case, they are
         added to that job (with same_job, whatever they are about); otherwise (or with batch=True) they are
-        sorted into jobs by case and date. A cell of the attorney table being typed in when the read ends is
+        sorted into jobs by case and date, the new ones billed by split_rule when one is given (the days of an
+        invoice opened again: Job.split_rule). A cell of the attorney table being typed in when the read ends is
         taken as typed, and opened again afterwards while the same job is on screen (_resume_edit).
         """
         # the reading thread gets its own copy of the settings: Settings may change them meanwhile
@@ -2704,6 +2706,10 @@ class MainWindow(QMainWindow):
                     before = [j for j in self.jobs if not j.is_empty()]
                     count = len(before)
                     self.jobs = group(docs, self.s, before) or [Job()]
+                    for j in self.jobs:  # (the days of an invoice opened again: billed as it was, also when a
+                        # file dropped meanwhile was read first and took them in)
+                        if split_rule and not j.split_rule and any(d is e for d in docs for e in j.docs):
+                            j.split_rule = split_rule
                     if self.cur not in self.jobs:
                         self.cur = self.jobs[0]
                     self._auto_runsheet()
@@ -4555,11 +4561,22 @@ class MainWindow(QMainWindow):
         keys: list[str] = []  # the attorneys invoiced
         math: list = []  # (FirmInvoice, number) of each invoice made: "The math" shows how its amounts were reached
         detailed: list[Path] = []  # the invoices' detailed copies: kept for later, not opened or printed now
+        # billed this way now, and so again (Job.split_rule; the invoices' record keeps it, the other files' not,
+        # should the invoice fail): the rule the invoices (and the preview, by Settings') are priced by; put back when
+        # no invoice comes of it. The record is still the job as it was shown (origin above), whatever a read that
+        # ended during the preview added since.
+        rule_was = job.split_rule
+        billed_origin = None
+        if "invoice" in outputs:
+            job.settle_split_rule(self.s)
+            billed_origin = {**origin, "job": {**origin["job"], "split_rule": job.split_rule}}
         try:
             paths = generate(case, self.s, out_dir, outputs, opts, runsheet=sheet, folders=input_folders(job),
                              invoiced=keys, origin=origin, math=math, detailed=detailed, ordered=ordered,
-                             speeds=speeds, day=dating.day)
+                             speeds=speeds, day=dating.day, invoice_origin=billed_origin)
         except Exception as e:
+            if not keys:
+                job.split_rule = rule_was
             made = list(getattr(e, "made", []))
             job.saved, job.error = made, f"{type(e).__name__}: {e}"
             if keys:
@@ -4574,6 +4591,8 @@ class MainWindow(QMainWindow):
             return
         log.info("made %d file(s): %s, form type %s", len(paths), "+".join(outputs), self.s.form_choice)
         job.saved, job.error = paths, ""
+        if not keys:  # (no invoice made: no transcript, say)
+            job.split_rule = rule_was
         # Generate all won't bill this day again, unless a document was added while the preview was open: its
         # pages are not on the invoice just made
         job.invoiced |= "invoice" in outputs and job.docs == docs
@@ -5119,6 +5138,12 @@ class MainWindow(QMainWindow):
             for j in chosen:
                 copy = copies[id(j)]
                 j.saved, j.error = copy.saved, copy.error
+                j.split_rule = j.split_rule or copy.split_rule  # (the rule its invoices were just billed by)
+                # (a read that ended during the run put this day's documents with another day: that job's now)
+                k = j if any(j is x for x in self.jobs) else next(
+                    (x for x in self.jobs if any(d is e for d in j.docs for e in x.docs)), None)
+                if k is not None and not k.split_rule:
+                    k.split_rule = copy.split_rule
                 if _billing_changed(j, copy):
                     changed.add(id(j))
                     if copy.invoiced and not _pages_changed(j, copy):
@@ -5327,11 +5352,16 @@ class MainWindow(QMainWindow):
         sources = [p for p in data.get("sources") or [] if isinstance(p, str)]
         there = [p for p in sources if Path(p).is_file()]
         several_days = data.get("joint") is True and there
+        try:  # (billed one way: that way again)
+            rule = billed_split_rule(origin, ledger_for(self.s))
+        except Exception as e:
+            logfile.error("could not look up the records", e)
+            rule = ""
         if several_days:
             self._clear_jobs()
         else:
             try:
-                job = job_from_origin(data, self.s)
+                job = job_from_origin(data, self.s, rule)
             except Exception as e:  # (a record damaged in a way job_from_origin doesn't expect)
                 logfile.error("could not open a past job", e)
                 QMessageBox.information(self, "Open this job again", "This record can't be opened again.")
@@ -5355,7 +5385,8 @@ class MainWindow(QMainWindow):
             self._clear_jobs(job)
             self._show_job()
         if there:
-            self.add_files(there, batch=bool(several_days), same_job=not several_days)
+            self.add_files(there, batch=bool(several_days), same_job=not several_days,
+                           split_rule=rule if several_days else "")
         gone = len(sources) - len(there)
         if gone:
             self._toast(f"{plural(gone, 'document')} of this job {'is' if gone == 1 else 'are'} no longer where "

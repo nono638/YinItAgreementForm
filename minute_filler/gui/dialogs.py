@@ -397,8 +397,9 @@ class SettingsDialog(QDialog):
         self.i_split.setToolTip("How firms that ordered the same pages at different speeds share the one original\n"
                                 "(and the judge's index). Each always pays its own copies at its own speed, and its\n"
                                 "own index too unless Index on shared pages splits it. Point at a choice in the list\n"
-                                "to see how it works. The invoice's note on\n"
-                                "such pages (Invoice text) follows the choice, unless you have reworded it.")
+                                "to see how it works. The invoice's note on such pages (Invoice text) follows the\n"
+                                "choice, unless you have reworded it. A job invoiced already keeps the way it was\n"
+                                "billed, made again or opened again from Records.")
         if rules:
             f.addRow("Split invoices", self.i_split)
         self.i_rounding = QComboBox()

@@ -747,6 +747,14 @@ class Ledger:
                           "ORDER BY id DESC LIMIT 1", (invoice_no,))
         return rows[0][0] if rows else ""
 
+    def invoiced_from(self, origin: str) -> str:
+        """When the first invoice was made from this origin (Activity.origin, as kept; its Activity.ts), "" for
+        never: what Open this job again opens is a job that was billed, so billed the same way again
+        (batch.billed_split_rule)."""
+        rows = self._rows("SELECT MIN(ts) FROM activity WHERE kind='invoice' AND origin=?", (origin,)) if origin \
+            else []
+        return rows[0][0] or "" if rows else ""
+
     def is_empty(self) -> bool:
         """True when nothing was ever recorded (no invoice, nothing made, no number given)."""
         return not any(self._rows(f"SELECT 1 FROM {t} LIMIT 1") for t in ("invoices", "activity", "used_numbers"))

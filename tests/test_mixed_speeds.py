@@ -449,6 +449,76 @@ def test_generate_asks_the_speeds_of_a_split_order_first(window, qt, tmp_path, m
     # 30 pages: Daily 30 x (3.25 + 2.50), Immediate 30 x (4.35 + 2.90)
     assert got == {"Alex B. Counsel": ("Daily", {"Daily": "172.50"}),
                    "Dana Smith": ("Immediate", {"Immediate": "217.50"})}
+    # billed by Settings' split rule, which the job (and its record) keep: billed that way again later
+    assert job.split_rule == "make_whole"
+    kept = [json.loads(a.origin)["job"].get("split_rule") for a in ledger_for(window.s).activity()
+            if a.origin and "job" in json.loads(a.origin)]
+    assert kept and set(kept) == {"make_whole"}
+
+
+def test_generate_keeps_no_rule_when_no_invoice_was_made(window, qt, tmp_path, monkeypatch):
+    """The invoice can't be saved (open in another program): nothing was billed, so the job keeps no rule."""
+    from minute_filler.gui import main_window
+    job = one_day(window, qt, tmp_path)
+    job.speeds = {A: "Daily", B: "Immediate"}
+    window.output_boxes["invoice"].setChecked(True)
+
+    def locked(*a, **k):
+        raise PermissionError("the invoice is open in another program")
+
+    monkeypatch.setattr(main_window, "generate", locked)
+    monkeypatch.setattr(main_window, "show_save_error", lambda *a, **k: None)
+    window.fill()
+    assert "PermissionError" in job.error and job.split_rule == ""
+
+
+def test_a_job_opened_again_from_its_records_is_billed_as_it_was(window, qt, tmp_path):
+    """Billed by Make-Whole, Settings then set to Same-Speed: opened again from its invoice's record the job is
+    billed by Make-Whole still; opened from the record of a file of a run that billed nothing, as Settings say."""
+    from minute_filler.deliver import ledger_for
+    job = one_day(window, qt, tmp_path)
+    job.speeds = {A: "Daily", B: "Immediate"}
+    window.output_boxes["agreement"].setChecked(False)
+    window.output_boxes["invoice"].setChecked(True)
+    window.fill()
+    wait(window, qt, lambda: job.saved)
+    lg = ledger_for(window.s)
+    origin = next(a.origin for a in lg.activity() if a.kind == "invoice")
+    window.s.invoice_split_rule = "same_speed"
+    window._clear_jobs()
+    assert window.open_past_job(origin) is True
+    wait(window, qt, lambda: window.jobs and window.jobs[0].docs)
+    assert window.jobs[0].split_rule == "make_whole"
+    unbilled = json.loads(origin)
+    unbilled["job"].update(parties=5, split_rule="")  # (an agreement of a run whose invoice failed)
+    window._clear_jobs()
+    assert window.open_past_job(json.dumps(unbilled)) is True
+    wait(window, qt, lambda: window.jobs and window.jobs[0].docs)
+    assert window.jobs[0].split_rule == ""
+
+
+def test_the_record_is_the_job_as_the_preview_showed_it(window, qt, tmp_path, monkeypatch):
+    """A choice changed while the preview is open (a read or an answer that ended meanwhile) isn't on the
+    invoice, nor in its record; the rule it was billed by is (the sweep of 2026-10-21: the record was taken again
+    after the preview)."""
+    from minute_filler.deliver import ledger_for
+    job = one_day(window, qt, tmp_path)
+    job.speeds = {A: "Daily", B: "Immediate"}
+    window.output_boxes["agreement"].setChecked(False)
+    window.output_boxes["invoice"].setChecked(True)
+    window.s.preview_before_saving = True
+    detail = job.invoice_detail
+
+    def shown(*a, **k):
+        job.invoice_detail = not detail  # (changed while it was open)
+        window._math_previewed = False
+        return True
+
+    monkeypatch.setattr(window, "_preview", shown)
+    window.fill()
+    wait(window, qt, lambda: job.saved)
+    (origin,) = [json.loads(a.origin)["job"] for a in ledger_for(window.s).activity() if a.kind == "invoice"][:1]
+    assert origin["invoice_detail"] == detail and origin["split_rule"] == "make_whole"
 
 
 def test_the_excerpts_window_sets_the_speeds(window, qt, tmp_path):

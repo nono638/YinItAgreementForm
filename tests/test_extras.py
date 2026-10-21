@@ -1065,14 +1065,57 @@ def test_a_joint_invoice_opens_its_days_again_from_their_documents(window, tmp_p
     wait(window, lambda: len(window.jobs) == 2 and all(j.docs for j in window.jobs))
     window.fill_all_jobs()
     wait(window, lambda: not window.filling)
+    # (Generate all bills copies of the jobs: the window's jobs keep the rule they were billed by too)
+    assert [j.split_rule for j in window.jobs] == ["make_whole", "make_whole"]
     lg = ledger_for(window.s)
     one, = lg.invoices()
     origin = json.loads(lg.origin_of(one.invoice_no))
     assert origin["joint"] is True and sorted(origin["sources"]) == sorted([str(a), str(b)])
+    assert origin["split_rule"] == "make_whole"  # (as Settings said then)
     window._clear_jobs()
+    window.s.invoice_split_rule = "same_speed"  # (changed since: the days are billed as they were all the same)
     assert window.open_past_job(json.dumps(origin)) is True
     wait(window, lambda: len(window.jobs) == 2)
     assert sorted(d.path for j in window.jobs for d in j.docs) == sorted([str(a), str(b)])
+    assert [j.split_rule for j in window.jobs] == ["make_whole", "make_whole"]
+
+
+def test_a_day_billed_by_generate_all_keeps_its_rule_when_a_read_merged_it_meanwhile(window, tmp_path, monkeypatch):
+    """Generate all bills copies of the days; a read that ends meanwhile can put a billed day's documents with
+    another day (group merges them, the billed day's rule not copied back yet). The job now holding them gets the
+    rule (the sweep of 2026-10-21: it was copied onto the day no longer in the window)."""
+    from minute_filler.gui import main_window
+    window.output_boxes["agreement"].setChecked(False)
+    window.output_boxes["invoice"].setChecked(True)
+    window.add_files([str(transcript_pdf(tmp_path / "Day 1.pdf", 6)),
+                      str(transcript_pdf(tmp_path / "Day 2.pdf", 7, date="June 4, 2026"))])
+    wait(window, lambda: len(window.jobs) == 2 and all(j.docs for j in window.jobs))
+    keep, billed = window.jobs
+    keep.include = False  # (only Day 2 is made)
+    real = main_window.fill_jobs
+
+    def and_a_read_merges_them(*a, **k):
+        out = real(*a, **k)
+        keep.docs += billed.docs  # (what group() does when a document names both days)
+        window.jobs = [keep]
+        return out
+
+    monkeypatch.setattr(main_window, "fill_jobs", and_a_read_merges_them)
+    window.fill_all_jobs()
+    wait(window, lambda: not window.filling)
+    assert window.jobs == [keep] and keep.split_rule == "make_whole"
+
+
+def test_the_days_of_an_invoice_opened_again_keep_its_rule_in_a_job_already_there(window, tmp_path):
+    """Its documents read into a job already in the window (a file of the same day dropped meanwhile and read
+    first): that job is billed by the invoice's rule too (the sweep of 2026-10-21: only new jobs got it)."""
+    window.add_files([str(transcript_pdf(tmp_path / "Day 1.pdf", 6))])
+    wait(window, lambda: len(window.jobs) == 1 and window.jobs[0].docs)
+    there = window.jobs[0]
+    window.add_files([str(transcript_pdf(tmp_path / "Day 1, the afternoon.pdf", 5))], batch=True,
+                     split_rule="same_speed")
+    wait(window, lambda: len(window.jobs[0].docs) == 2)
+    assert window.jobs == [there] and there.split_rule == "same_speed"
 
 
 # ------------------------------------------------------------------ the welcome

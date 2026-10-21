@@ -41,6 +41,7 @@ of a run is dated one day (fill_jobs' `day`, workdays.document_day: today, or th
 """
 from __future__ import annotations
 
+import json
 import re
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
@@ -266,6 +267,10 @@ class Job:
     # not set: a firm billed alone chooses from its invoice, and the firms of a split order are asked at Generate
     # (speeds_needed). Set in the "Who ordered what" card, the Excerpts window or Generate's question.
     speeds: dict = field(default_factory=dict)
+    # The split rule (courthouses.base.SplitRule.key) its invoices were priced by, once made (settle_split_rule):
+    # a job billed one way stays billed that way, made again or opened again from the records, whatever Settings
+    # says later (the user, 2026-10-21). "" = not billed yet: as Settings -> Invoice -> Split invoices says.
+    split_rule: str = ""
     runsheet_to: str | None = None  # the run sheet to add to; "" = a new one; None = as Settings say
     # one reporter wrote this case's transcripts: no run sheet for it, though the box is ticked for other cases
     # (set by the window while it ticks the box itself, see MainWindow._auto_runsheet)
@@ -814,7 +819,14 @@ class Job:
                            show=self.invoice_show, detail=self.invoice_detail, orders=self.invoice_orders(),
                            skip=self.billed_keys(), my_pages=self.invoice_pages(),
                            total_pages=self.transcript_pages(), reporters=self.reporters_text(),
-                           typed=self.pages_typed())
+                           typed=self.pages_typed(), split_rule=self.split_rule)
+
+    def settle_split_rule(self, s: Settings) -> None:
+        """Its invoices are being made: the split rule they are priced by is the job's from now on (split_rule),
+        so made again or opened again later it is billed the same way. One it has already is kept."""
+        if not self.split_rule:
+            rule = courthouses.split_rule(s.invoice_split_rule)
+            self.split_rule = rule.key if rule is not None else ""
 
     def reporter_pages(self, docs: list[Doc] | None = None) -> dict[str, int]:
         """How many pages of the job's transcripts (or of these of them) each reporter wrote, by initials
@@ -1337,7 +1349,7 @@ def _renamed(speeds: dict, old: str, new: str) -> dict:
 
 # The choices of a job's invoice that are kept with its records (job_origin) and put back (job_from_origin)
 _ORIGIN_CHOICES = ("parties", "invoice_email", "invoice_index", "index_on_typed", "invoice_show", "invoice_detail",
-                   "portions", "speeds", "page_basis", "front_owner")
+                   "portions", "speeds", "page_basis", "front_owner", "split_rule")
 # Not put back when a job is opened again: they are worked out afresh (today's date, the delivery date from it)
 _ORIGIN_SKIP = ("agreement_date", "delivery_date")
 
@@ -1351,13 +1363,56 @@ def job_origin(job: Job) -> dict:
                     "proc_touched": job.proc_touched, "att_touched": job.att_touched}}
 
 
-def job_from_origin(origin: dict, s: Settings) -> Job:
+# When 2.9.0 (published 2026-10-21, 11:11 New York time) brought a second split rule (Settings -> Invoice -> Split
+# invoices) without keeping yet which one billed an invoice: one recorded before was billed by the courthouse's
+# first rule, the only one there was (Activity.ts is local time, compared as text)
+SPLIT_RULES_SINCE = "2026-10-21T11:11"
+
+
+def recorded_split_rule(value, invoiced: str = "") -> str:
+    """The split rule a record kept (`value`: its job's "split_rule", or None when it has none) as Job.split_rule:
+    the key of one of the courthouse's rules, else "" (as Settings say). An older record has none: `invoiced`
+    (Ledger.invoiced_from) says when the first invoice was made from it, "" for never. Billed before 2.9.0, it was
+    by the courthouse's first rule (Make-Whole Split, in Queens), the only one; by 2.9.0 itself, by either: ""."""
+    if value is None:
+        rules = courthouses.split_rules()
+        return rules[0].key if rules and invoiced and invoiced < SPLIT_RULES_SINCE else ""
+    rule = courthouses.split_rule(value) if isinstance(value, str) and value else None
+    return rule.key if rule is not None and rule.key == value else ""
+
+
+def billed_split_rule(origin: str, ledger) -> str:
+    """The split rule the job of a record (Activity.origin, as kept) was billed by (Job.split_rule), "" for none
+    (as Settings say), for Open this job again: a job billed one way is billed that way again. A job's origin keeps
+    it with its choices, an invoice of several days' at the top ({"joint": True, "split_rule": ...}). The invoices'
+    record keeps the rule they were billed by and the run's other files the job's from before it
+    (deliver.generate's invoice_origin: an invoice that fails leaves the job billed by nothing yet), so the file of
+    a job billed by nothing before ("") was billed when that run's invoice was made: its record is the same but
+    for the rule. ledger: records.Ledger (invoiced_from)."""
+    try:
+        data = json.loads(origin)
+    except (TypeError, ValueError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    choices = data.get("job") if isinstance(data.get("job"), dict) else {}
+    value = choices.get("split_rule", data.get("split_rule"))
+    if value == "" and choices:  # (deliver._where_from writes the invoice's the same way)
+        for rule in courthouses.split_rules():
+            if ledger.invoiced_from(json.dumps({**data, "job": {**choices, "split_rule": rule.key}})):
+                return rule.key
+        return ""
+    return recorded_split_rule(value, ledger.invoiced_from(origin) if value is None else "")
+
+
+def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
     """A job as it was when a file was made from it (origin: Activity.origin, read from JSON), without its
     documents: the window reads those again (origin["sources"]) when they are still there. Each field comes
     back with the source it had, so what the user typed stays theirs and what was read from the documents is
     read again; the attorneys and proceeding types come back as the user left them (ticks included), the day's
-    invoice choices too. The agreement and delivery dates are today's again. Anything in `origin` that isn't as
-    expected is left out."""
+    invoice choices too, and split_rule, the rule it was billed by (billed_split_rule, which needs the records).
+    The agreement and delivery dates are today's again. Anything in `origin` that isn't as expected is left
+    out."""
     job = Job()
     snap = origin.get("case") if isinstance(origin.get("case"), dict) else {}
     choices = origin.get("job") if isinstance(origin.get("job"), dict) else {}
@@ -1402,6 +1457,7 @@ def job_from_origin(origin: dict, s: Settings) -> Job:
         job.portions = [portion_row(r[0], [k for k in r[1] if isinstance(k, str)],
                                     speeds(r[2]) if len(r) > 2 else None) for r in rows]
     job.speeds = speeds(choices.get("speeds"))
+    job.split_rule = recorded_split_rule(split_rule) if split_rule else ""  # (one this courthouse has)
     for name in ("page_basis", "front_owner"):
         value = choices.get(name)
         if isinstance(value, dict):  # (page_basis: a list of reporters too, see Job.basis_of)
@@ -1674,6 +1730,7 @@ def group(docs: list[Doc], s: Settings, jobs: list[Job] | None = None) -> list[J
                 job.page_basis = {**other.page_basis, **job.page_basis}
                 job.front_owner = {**other.front_owner, **job.front_owner}
                 job.speeds = {**other.speeds, **job.speeds}
+                job.split_rule = job.split_rule or other.split_rule  # (one billed already: billed that way)
                 jobs.remove(other)
         else:
             job = Job()
@@ -2066,6 +2123,7 @@ def joint_invoice(group: list[Job]) -> tuple[CaseInfo, InvoiceOpts]:
 
     opts.email, opts.index, opts.show = own("invoice_email"), own("invoice_index"), own("invoice_show")
     opts.detail = any(j.invoice_detail for j in group)  # ticked on any day of the invoice
+    opts.split_rule = next((j.split_rule for j in group if j.split_rule), "")  # (a day billed already: its rule)
     opts.parties = next((j.parties for j in group if j.parties), 0) or max(1, len(case.attorneys))
     # an attorney whose invoice for these days a stopped run made already (on every one of them) isn't billed
     # again; when a day was added since, it is, as its invoice now covers that day too
@@ -2160,6 +2218,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             continue
         sheet = sheet_of.get(id(job))
         keys: list[str] = []  # the attorneys invoiced for this job by generate
+        rule_was = job.split_rule  # (put back when no invoice comes of it: billed by nothing yet)
         try:
             want = job.makeable(outputs)
             billed_elsewhere = job.invoiced or id(job) in in_joint  # billed before, or on the joint invoice
@@ -2171,12 +2230,15 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             job.refresh_copies(s)  # (the parties as they are now, whatever changed the ticks)
             ran_sheet = "runsheet" in want  # (written above, for its case)
             want = [o for o in want if o != "runsheet"]
+            origin = job_origin(job)  # (the other files' record: billed by nothing yet should the invoice fail)
+            if "invoice" in want:
+                job.settle_split_rule(s)  # (billed this way now, and so again: Job.split_rule)
             sheet_made = list(job.saved) if ran_sheet else []
             job.saved = sheet_made + [
                 p for p in generate(job.case, s, out_dir_for(job, s), want, job.invoice_sets(), ledger,
                                     dated=names.count(job.name_key()) > 1, folders=input_folders(job),
-                                    invoiced=keys, origin=job_origin(job), math=math, ordered=job.ordered_pages(),
-                                    speeds=job.ordered_speeds(), day=day)
+                                    invoiced=keys, origin=origin, math=math, ordered=job.ordered_pages(),
+                                    speeds=job.ordered_speeds(), day=day, invoice_origin=job_origin(job))
                 if p not in sheet_made] if want else sheet_made
             job.invoiced |= "invoice" in want
             left_out = [o for o in outputs if o not in want and not job.unneeded(o)
@@ -2206,6 +2268,8 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             if len([j for j in jobs if unit_of[id(j)] == unit]) > 1:  # the other days of its case wait for it
                 stopped[unit] = _held_note(job, e)
                 failed.add(id(job))
+        if not keys:
+            job.split_rule = rule_was
     for k, g in enumerate(trials):  # one agreement per attorney and one MOFR for all the days of a case
         if progress:
             progress(len(sheets) + len(jobs) + k, steps, f"Forms for {g[0].title()}")
@@ -2243,14 +2307,20 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             for job in g:
                 job.error = "; ".join(x for x in (job.error, f"{NOT_INVOICED} {held}") if x)
             continue
+        rules_were = [job.split_rule for job in g]  # (put back when no invoice comes of it)
         try:
+            for job in g:  # (billed this way now, and so again: Job.split_rule; a day billed already keeps its own)
+                job.split_rule = job.split_rule or next((j.split_rule for j in g if j.split_rule), "")
+                job.settle_split_rule(s)
             sets = joint_invoice_sets(g)
             case = sets[0][0]
             # each set with its own case: another reporter's invoices name the days that reporter wrote
-            # (opened again from the records, the days are read from their documents: one job each)
+            # (opened again from the records, the days are read from their documents: one job each, billed by
+            # the invoice's split rule again: MainWindow.open_past_job)
             made = generate(case, s, out_dir_for(first, s), ["invoice"], [o for _, o in sets], ledger,
                             invoiced=keys, math=math, cases=[c for c, _ in sets],
-                            origin={"sources": [d.path for j in g for d in j.docs if d.path], "joint": True},
+                            origin={"sources": [d.path for j in g for d in j.docs if d.path], "joint": True,
+                                    "split_rule": first.split_rule},
                             day=day)
             problem = ""
         except Exception as e:
@@ -2258,6 +2328,9 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             # every day of it says so (plain text, for the window's message)
             problem = f"invoice: {str(e) or type(e).__name__}"
             log_error("could not make the invoice for several days of a case", e)
+        if not keys:
+            for job, rule in zip(g, rules_were):
+                job.split_rule = rule
         for job in g:  # the invoice is each day's: none of them is billed again
             job.saved += [p for p in made if p not in job.saved]
             if problem:

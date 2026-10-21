@@ -319,7 +319,8 @@ class ExcerptsWindow(QDialog):
     def _summary(self, p, shown: list[str]) -> str:
         """The prices under the table: by the firms ordering together (at the speeds they ordered, when set:
         "Counsel & Counsel (Daily) + Smith Law (Immediate): 60 pp. - Counsel & Counsel pays $345.00, Smith Law
-        $435.00 (one original, at Immediate)", the split rule chosen in Settings saying how: SplitRule.run_note),
+        $435.00 (one original, at Immediate)", the split rule saying how: SplitRule.run_note, the job's once
+        billed, else Settings'),
         then each firm's invoice."""
         names = {a.key(): a.label() for a in self.firms}
         if not shown and not p.ordered:
@@ -333,7 +334,8 @@ class ExcerptsWindow(QDialog):
             lines.append(f"{swatch}{who}{' only' if alone else ''}: {pages} pp. - "
                          + (f"costs {costs}" if alone else f"each of the {len(keys)} pays {costs}"))
         order = {sp.name: i for i, sp in enumerate(self.s.sheet().speeds)}  # (cheapest first: the last, fastest)
-        rule = courthouses.split_rule(self.s.invoice_split_rule)
+        billed = next((d.job.split_rule for d in self.days if d.job.split_rule), "")  # (as it was billed, if so)
+        rule = courthouses.split_rule(billed or self.s.invoice_split_rule)
         for i, (pairs, pages, each) in enumerate(p.ordered_groups, len(p.groups)):
             who = " + ".join(f"{names.get(k, k)} ({sp})" for k, sp in pairs)
             swatch = f'<span style="color:{GROUP_COLORS[i % len(GROUP_COLORS)]}">■</span> '

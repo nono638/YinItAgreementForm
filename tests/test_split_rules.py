@@ -7,8 +7,10 @@ ordered its speed).
 The numbers are the reporter's comparer workbook's ("Transcript_Billing_Calculator - comparer.xlsx"): its sample
 job, 100 pages with an index, Attorney A at Regular and Attorney B at Daily, is $565.00 and $885.00 under
 Make-Whole, $565.00 and $762.50 under Same-Speed, with the bundled Sample Rates (the workbook's own). Then the
-rules as a choice: the setting, its note on the invoice, the invoices and their math, the Settings window, and a
-made-up third rule to show a new one plugs in without other changes. All names are made up."""
+rules as a choice: the setting, its note on the invoice, the invoices and their math (with "Who pays what a page",
+invoice_math.split_pages), the Settings window, and a made-up third rule to show a new one plugs in without other
+changes. Then a job billed one way billed that way again (batch.Job.split_rule): made again, its days joined or
+billed together, opened again from its records (batch.billed_split_rule). All names are made up."""
 import json
 from decimal import Decimal
 from fractions import Fraction
@@ -22,7 +24,7 @@ from minute_filler.invoice_calc import Share, quote_ordered
 from minute_filler.settings import Settings
 
 from helpers import pat_settings
-from test_mixed_speeds import A, B, bills, excerpt_example
+from test_mixed_speeds import A, B, bills, excerpt_example, typed_day
 
 
 @pytest.fixture
@@ -295,3 +297,364 @@ def test_saving_settings_keeps_the_default_as_the_default(qt):
     s.save()
     SettingsDialog(Settings.load()).accept()
     assert Settings.load().invoice_split_rule == "make_whole"
+
+
+# ------------------------------------------------------------------ the math: who pays what a page
+# (the user, 2026-10-21: "show it clearly like the compare sheet does": how much each side pays a page, section by
+# section; the comparer workbook's 7B, "Who pays what per page in each stretch")
+
+
+def made_of(s, *jobs):
+    from minute_filler.batch import joint_invoice
+    from minute_filler.invoice import firm_invoices
+    case, opts = joint_invoice(list(jobs))
+    return [(f, "") for f in firm_invoices(case, s, opts)]
+
+
+@pytest.mark.parametrize("rule, smith, together", [("make_whole", "7.25", "13.00"), ("same_speed", "6.70", "12.45")])
+def test_the_math_says_what_each_firm_pays_a_page_on_pages_ordered_at_different_speeds(s, rule, smith, together):
+    """Pages 1-60 (Counsel & Counsel at Daily, Smith Law at Immediate; no index): each firm's part of each charge
+    a page and in all, the firms together, once though both invoices have those pages. Smith Law's pages 61-120,
+    ordered alone, aren't in it."""
+    from minute_filler.invoice_math import SPLIT_HEADING, explain, split_pages
+    s.invoice_split_rule = rule
+    made = made_of(s, excerpt_example())
+    (section,) = split_pages(made)
+    assert section.label == "60 pages ordered by Alex B. Counsel (Daily) and Dana Smith (Immediate)"
+    html, plain = explain(made)
+    original = {"make_whole": "$4.35", "same_speed": "$3.80"}[rule]
+    assert (f"{SPLIT_HEADING}\n  60 pages ordered by Alex B. Counsel (Daily) and Dana Smith (Immediate):\n"
+            "    Alex B. Counsel, at Daily: Original $3.25 + Copy $1.25 + E-mailed copy $1.25 = $5.75 a page\n"
+            f"    Dana Smith, at Immediate: Original {original} + Copy $1.45 + E-mailed copy $1.45 = ${smith} a page\n"
+            f"    Together: ${together} a page; for the 60 pages: ${Decimal(together) * 60:,.2f}\n") in plain
+    assert f"<h2>{SPLIT_HEADING}</h2>" in html and f"<b>${smith}</b>" in html
+    assert explain(made, "firms")[0].count(f"<h2>{SPLIT_HEADING}</h2>") == 1
+    # one firm's invoice alone says what the other firm pays too
+    alone = [m for m in made if m[0].atty.key() == A]
+    assert split_pages(alone)[0].total == section.total
+
+
+def test_each_stretch_of_other_firms_is_a_section_of_its_own(s):
+    """Counsel & Counsel with Smith Law on pages 1-60, Sam Poe (Regular) with Smith Law on 61-120: two sections,
+    each with its own firms and prices."""
+    from test_mixed_speeds import C, poe, counsel, smith
+    from minute_filler.invoice_math import split_pages
+    job = typed_day(attorneys=[counsel(), smith(), poe()])
+    job.portions = [(60, [A, B]), (120, [B, C])]
+    job.speeds = {A: "Daily", B: "Immediate", C: "Regular"}
+    got = [(x.label, [(p.who, p.total) for p in x.firms]) for x in split_pages(made_of(s, job))]
+    assert got == [("60 pages ordered by Alex B. Counsel (Daily) and Dana Smith (Immediate)",
+                    [("Alex B. Counsel", Fraction("5.75")), ("Dana Smith", Fraction("7.25"))]),
+                   # Sam Poe: $4.30 ÷ 2 + $2.00; Smith Law the rest of $7.60, $5.45, + $2.90
+                   ("60 pages ordered by Dana Smith (Immediate) and Sam Poe (Regular)",
+                    [("Dana Smith", Fraction("8.35")), ("Sam Poe", Fraction("4.15"))])]
+
+
+def billed_a_page(f) -> Fraction:
+    """What a firm's own invoice bills a page of its pages ordered together at different speeds, every charge."""
+    return sum((x.per_page for q in f.quotes for l in q.lines for x in l.stretches if x.parts), Fraction(0))
+
+
+@pytest.mark.parametrize("rule", ["make_whole", "same_speed"])
+def test_each_firm_on_pages_ordered_at_different_speeds_pays_what_its_invoice_bills(s, rule):
+    """Parties 3, two firms named (Counsel & Counsel at Daily, Smith Law at Immediate, 120 pages): each invoice
+    takes the party not named to order its own firm's speed, so the first invoice's view of Smith Law's part isn't
+    what Smith Law's invoice bills. Each firm's row is its own invoice's; the party not named is said under the
+    table, neither a row nor in the total (the sweep of 2026-10-21: "another party" was a row, and Smith Law's
+    amounts were Counsel & Counsel's view)."""
+    from minute_filler.invoice_math import explain, split_pages
+    s.invoice_split_rule = rule
+    job = typed_day()
+    job.speeds = {A: "Daily", B: "Immediate"}
+    job.parties = 3
+    made = made_of(s, job)
+    (sec,) = split_pages(made)
+    assert [p.who for p in sec.firms] == ["Alex B. Counsel", "Dana Smith"] and sec.unnamed == 1
+    by_who = {f.atty.label(): f for f, _ in made}
+    assert [p.total for p in sec.firms] == [billed_a_page(by_who[p.who]) for p in sec.firms]
+    assert sec.total == sum(billed_a_page(f) for f, _ in made)
+    assert "another party" not in sec.label
+    plain = explain(made)[1]
+    assert "Also on these pages: 1 more party, counted by Parties but not named." in plain
+
+
+def test_a_charge_one_speed_has_no_price_for_is_still_in_the_other_firms_row(s):
+    """A sheet with no Index price at Daily (Immediate has one), the index on: Counsel & Counsel's invoice has no
+    index line, Smith Law's has; Smith Law's row of the section still has its index (the sweep of 2026-10-21: the
+    section, from Counsel & Counsel's invoice, left it out)."""
+    import copy
+    from minute_filler.invoice_math import split_pages
+    s.invoice_include_index = True
+    sheet = copy.deepcopy(s.sheet())
+    for sp in sheet.speeds:
+        if sp.name == "Daily":
+            sp.extras = {k: ("" if k.lower() == "index" else v) for k, v in sp.extras.items()}
+    s.sheet = lambda: sheet
+    job = typed_day(60)
+    job.speeds = {A: "Daily", B: "Immediate"}
+    made = made_of(s, job)
+    (sec,) = split_pages(made)
+    by_who = {f.atty.label(): f for f, _ in made}
+    smith = sec.firms[1]
+    assert smith.who == "Dana Smith" and any("ndex" in c for c, _ in smith.charges)
+    assert smith.total == billed_a_page(by_who["Dana Smith"])
+
+
+def test_the_section_says_its_prices_are_exact_when_the_invoices_round_each_price(s):
+    """Rounding "the price a page", three firms on 90 pages under Same-Speed ($4.6667 a page each at Daily): the
+    section says its prices are exact and the invoices round theirs."""
+    from test_mixed_speeds import C, poe, counsel, smith
+    from minute_filler.invoice_math import SPLIT_EXACT, explain
+    s.invoice_split_rule, s.invoice_rounding = "same_speed", "page"
+    job = typed_day(90, attorneys=[counsel(), smith(), poe()])
+    job.speeds = {A: "Daily", B: "Immediate", C: "Daily"}
+    html_text, plain = explain(made_of(s, job))
+    assert SPLIT_EXACT in plain
+    s.invoice_rounding = "total"
+    assert SPLIT_EXACT not in explain(made_of(s, job))[1]
+
+
+def test_the_rate_of_a_charge_in_parts_is_what_a_page_of_it_comes_to(s):
+    """Smith Law with Counsel & Counsel (Daily) on pages 1-60 and with Sam Poe (Regular) on 61-120, Same-Speed:
+    the Original's row "In parts" has a rate that, times its pages, is its cost; a part of a cent shows as it is
+    (the sweep of 2026-10-21: $7.60 for a cost of $780, and $6.87 for $6.8666…)."""
+    from test_mixed_speeds import C, poe, counsel, smith
+    from minute_filler.invoice_math import IN_PARTS, _speed_table, rows
+    s.invoice_split_rule = "same_speed"
+    job = typed_day(attorneys=[counsel(), smith(), poe()])
+    job.portions = [(60, [A, B]), (120, [B, C])]
+    job.speeds = {A: "Daily", B: "Immediate", C: "Regular"}
+    f = next(f for f, _ in made_of(s, job) if f.atty.key() == B)
+    (row,) = [r for r in rows(f.quotes[0]) if r.label == "Original" and r.how == IN_PARTS]
+    assert row.rate * 120 == row.cost
+    job = typed_day(60, attorneys=[counsel(), smith(), poe()])
+    job.speeds = {A: "Daily", B: "Immediate", C: "Daily"}
+    f = next(f for f, _ in made_of(s, job) if f.atty.key() == A)
+    assert "$6.8667…" in _speed_table(f.quotes[0])
+
+
+@pytest.mark.parametrize("rule, rate", [("make_whole", "7.60"), ("same_speed", "7.05")])
+def test_the_rate_of_a_charge_billed_once_is_what_the_firms_parts_come_to(s, rule, rate):
+    """The table's Rate and Cost of the original on pages ordered at different speeds: what the firms' parts add
+    up to, one original at Immediate under Make-Whole, $3.25 + $3.80 under Same-Speed (it showed $7.60 either
+    way)."""
+    from minute_filler.invoice_math import rows
+    s.invoice_split_rule = rule
+    f = next(f for f, _ in made_of(s, excerpt_example()) if f.atty.key() == A)
+    (row,) = [r for r in rows(f.quotes[0]) if r.label == "Original"]
+    assert (row.rate, row.cost) == (Decimal(rate), Decimal(rate) * 60)
+
+
+# ------------------------------------------------------------------ billed one way, billed that way again
+# (the user, 2026-10-21: "If a job was calculated one way, it should be left alone that way")
+
+
+def test_a_job_keeps_the_rule_it_was_billed_by(s, tmp_path):
+    """Generate all bills the job by the rule in Settings and keeps it (Job.split_rule, and its records' origin):
+    Settings changed afterwards, the job made again or opened again from its record is billed the same way."""
+    from minute_filler.batch import billed_split_rule, fill_jobs, job_from_origin, job_origin
+    from minute_filler.deliver import ledger_for
+    job = excerpt_example()
+    assert job.split_rule == ""
+    fill_jobs([job], s, outputs=["invoice"])
+    assert job.split_rule == "make_whole" and job_origin(job)["job"]["split_rule"] == "make_whole"
+    s.invoice_split_rule = "same_speed"
+    assert bills(s, job)[B] == [("Immediate", Decimal("1065.00"))]  # (Make-Whole still)
+    lg = ledger_for(s)
+    origin = next(a.origin for a in lg.activity() if a.kind == "invoice")
+    again = job_from_origin(json.loads(origin), s, billed_split_rule(origin, lg))
+    assert again.split_rule == "make_whole" and again.invoice_opts().split_rule == "make_whole"
+    new = excerpt_example()  # (a job not billed yet: as Settings say now)
+    assert bills(s, new)[B] == [("Immediate", Decimal("1032.00"))]
+
+
+def test_a_record_says_which_rule_it_was_billed_by(s):
+    """An older invoice's record has none: before 2.9.0 (published 2026-10-21, 11:11) it was billed by the
+    courthouse's first rule (the only one), and opened again it is billed so again; one of 2.9.0's (either rule,
+    none kept) as Settings say; a record of something else (an agreement) as Settings say; an unknown rule (or "")
+    as Settings say. Ledger.invoiced_from tells an invoice's record, and when it was made (the reviews of
+    2026-10-21: an agreement's record had come back billed by the first rule, and so had 2.9.0's own invoices)."""
+    from minute_filler.batch import billed_split_rule, fill_jobs, recorded_split_rule
+    from minute_filler.deliver import ledger_for
+    old, that_morning, new = "2026-10-01T14:05:00", "2026-10-21T09:00:00", "2026-10-21T16:00:00"
+    assert [recorded_split_rule(None, when) for when in ("", old, that_morning, new)] == \
+        ["", "make_whole", "make_whole", ""]
+    assert [recorded_split_rule(v, new) for v in ("same_speed", "layered", "")] == ["same_speed", "", ""]
+    lg = ledger_for(s)
+    # an invoice of several days whose documents are gone: opened as one job, billed as the invoice was
+    assert billed_split_rule(json.dumps({"joint": True, "split_rule": "same_speed"}), lg) == "same_speed"
+    assert billed_split_rule(json.dumps({"job": {"parties": 2}}), lg) == ""  # (an older record, no invoice of it)
+    assert billed_split_rule("not JSON", lg) == billed_split_rule("[]", lg) == ""
+    job = excerpt_example()
+    fill_jobs([job], s, outputs=["agreement", "invoice"])
+    kinds = {a.kind: a for a in lg.activity()}
+    assert lg.invoiced_from(kinds["invoice"].origin) == kinds["invoice"].ts
+    assert lg.invoiced_from(json.dumps({"job": {"parties": 2}})) == "" and lg.invoiced_from("") == ""
+    # the agreement of the run keeps the job's rule from before it (none): its invoice's record says the rule
+    assert json.loads(kinds["agreement"].origin)["job"]["split_rule"] == ""
+    s.invoice_split_rule = "same_speed"
+    assert [billed_split_rule(kinds[k].origin, lg) for k in ("invoice", "agreement")] == ["make_whole"] * 2
+
+
+def test_a_job_billed_keeps_its_rule_in_the_records_of_later_files(s):
+    """Billed by Make-Whole, then an agreement made again another day (its record not the invoice's), Settings
+    now Same-Speed: opened again from that agreement, the job is billed by Make-Whole still (the review of the
+    sweep's fixes, 2026-10-21: only a record the same as an invoice's kept it)."""
+    from minute_filler.batch import billed_split_rule, fill_jobs, job_from_origin
+    from minute_filler.deliver import ledger_for
+    job = excerpt_example()
+    fill_jobs([job], s, outputs=["invoice"])
+    job.case.set("judge", "Hon. Pat Doe", "user")  # (something changed since: a record of its own)
+    fill_jobs([job], s, outputs=["agreement"])
+    s.invoice_split_rule = "same_speed"
+    lg = ledger_for(s)
+    later = next(a.origin for a in lg.activity() if a.kind == "agreement")
+    assert not lg.invoiced_from(later)
+    assert job_from_origin(json.loads(later), s, billed_split_rule(later, lg)).split_rule == "make_whole"
+
+
+def test_an_agreement_made_when_the_invoice_failed_keeps_no_rule(s, monkeypatch):
+    """Agreement and invoice made in one run, the invoice failing (open in another program): nothing was billed,
+    so the agreement's record keeps no rule, and opened again from it the job is billed as Settings say by then (the
+    sweep of 2026-10-21: it kept the rule the invoice was about to be billed by)."""
+    from minute_filler import invoice
+    from minute_filler.batch import billed_split_rule, fill_jobs
+    from minute_filler.deliver import ledger_for
+
+    def locked(*a, **k):
+        raise PermissionError("the invoice is open in another program")
+
+    s.invoice_split_rule = "same_speed"
+    monkeypatch.setattr(invoice.Invoices, "make", staticmethod(locked))
+    job = excerpt_example()
+    fill_jobs([job], s, outputs=["agreement", "invoice"])
+    assert "PermissionError" in job.error and job.split_rule == ""
+    lg = ledger_for(s)
+    agreement = next(a for a in lg.activity() if a.kind == "agreement")
+    assert json.loads(agreement.origin)["job"]["split_rule"] == ""
+    s.invoice_split_rule = "make_whole"
+    assert billed_split_rule(agreement.origin, lg) == ""
+
+
+def test_no_invoice_made_no_rule_kept(s, monkeypatch):
+    """A run that makes no invoice (it failed before any: a file open in another program, say) keeps no rule: the
+    job is billed as Settings say when it is (the review of 2026-10-21: the rule was kept before anything was
+    billed)."""
+    from minute_filler import batch
+
+    def locked(*a, **k):
+        raise PermissionError("the invoice is open in another program")
+
+    monkeypatch.setattr(batch, "generate", locked)
+    job = excerpt_example()
+    batch.fill_jobs([job], s, outputs=["invoice"])
+    assert "PermissionError" in job.error and job.split_rule == ""
+    monkeypatch.undo()
+    batch.fill_jobs([job], s, outputs=["invoice"])  # (made this time: kept)
+    assert job.split_rule == "make_whole"
+
+
+def two_days_billed_together(s):
+    """Two days of the excerpt example (6/3 and 6/4), billed on one invoice (or the test is skipped)."""
+    from minute_filler.batch import invoice_groups
+    days = [excerpt_example(), excerpt_example()]
+    days[1].case.set("dates", "6/4/2026", "user")
+    if len(invoice_groups(days, s)[0]) < 2:
+        pytest.skip("the two days aren't billed together here")
+    return days
+
+
+def test_days_billed_together_keep_no_rule_when_no_invoice_was_made(s, monkeypatch):
+    from minute_filler import batch
+    days = two_days_billed_together(s)
+
+    def locked(*a, **k):
+        raise PermissionError("the invoice is open in another program")
+
+    monkeypatch.setattr(batch, "generate", locked)
+    batch.fill_jobs(days, s, outputs=["invoice"])
+    assert [d.split_rule for d in days] == ["", ""]
+
+
+def test_a_day_billed_already_keeps_its_rule_billed_with_a_new_day(s):
+    """Day 1 billed by Same-Speed, Day 2 not billed yet, Settings now Make-Whole: billed together, both are billed
+    by Day 1's rule, and Day 2 keeps it too."""
+    from minute_filler.batch import fill_jobs
+    days = two_days_billed_together(s)
+    days[0].split_rule = "same_speed"
+    fill_jobs(days, s, outputs=["invoice"])
+    assert [d.split_rule for d in days] == ["same_speed", "same_speed"]
+
+
+def test_days_joined_into_one_job_keep_the_rule_one_was_billed_by(s):
+    """A document naming both days joins them (batch.group): the job keeps the billed day's rule, whichever
+    of the two it is."""
+    from minute_filler.batch import Doc, Ident, group, ident
+    from minute_filler.ingest import ingest_text
+    from minute_filler.models import Extraction
+    for billed in (0, 1):
+        days = [excerpt_example(), excerpt_example()]
+        days[1].case.set("dates", "6/4/2026", "user")
+        days[billed].split_rule = "same_speed"
+        one, two = ident(days[0].case), ident(days[1].case)
+        doc = Doc(ingest_text("Jane Roe v. X.Y. Holding Corporation, 6/3 and 6/4", "letter.txt"), Extraction(),
+                  ident=Ident(one.index, one.dates | two.dates, one.sides))
+        s.batch_combine_dates = False
+        (job,) = group([doc], s, days)
+        assert job.split_rule == "same_speed"
+
+
+def test_the_note_on_the_invoice_is_in_the_words_of_the_rule_it_was_billed_by(s):
+    """Billed by Make-Whole, then Split invoices set to Same-Speed (which rewords the note as it came): the
+    invoice made again for the job still says Make-Whole's note; a note the user wrote is printed as written."""
+    from minute_filler.batch import fill_jobs, joint_invoice
+    from minute_filler.invoice import firm_invoices, invoice_texts
+    job = excerpt_example()
+    fill_jobs([job], s, outputs=["invoice"])
+    s.use_split_rule("same_speed")
+    case, opts = joint_invoice([job])
+    f = next(f for f in firm_invoices(case, s, opts) if f.atty.key() == B)
+    assert MAKE_WHOLE.invoice_note in invoice_texts(s, f.case, f.atty, f.quotes, "", f.opts)["amounts"]
+    for r in s.invoice_texts:
+        if r["when"] == "mixed_speeds":
+            r["text"] = "Pages ordered with another firm: see the math."
+    assert "Pages ordered with another firm: see the math." in \
+        invoice_texts(s, f.case, f.atty, f.quotes, "", f.opts)["amounts"]
+
+
+def test_two_days_of_the_same_firms_are_one_section_of_their_pages(s):
+    """Two days of 60 pages, Counsel & Counsel at Daily and Smith Law at Immediate both days: one section of 120
+    pages, as the invoices bill them (the review of 2026-10-21: the second day was left out, and the section said
+    60 pages)."""
+    from minute_filler.invoice_math import split_pages
+    days = []
+    for date in ("6/3/2026", "6/4/2026"):
+        d = typed_day(60, date)
+        d.speeds = {A: "Daily", B: "Immediate"}
+        days.append(d)
+    made = made_of(s, *days)
+    (sec,) = split_pages(made)
+    assert sec.pages == 120 and [(p.who, p.total * 120) for p in sec.firms] == [
+        ("Alex B. Counsel", Fraction(690)), ("Dana Smith", Fraction(870))]
+    assert {f.atty.key(): f.quotes[0].per_party for f, _ in made} == {A: Decimal("690.00"), B: Decimal("870.00")}
+
+
+def test_an_invoice_of_several_days_keeps_its_rule(s):
+    """Days billed together keep the rule too, and the record of their invoice says it (opened again, each day is
+    read from its documents and billed by it: MainWindow.open_past_job)."""
+    from minute_filler.batch import fill_jobs, invoice_groups, joint_invoice
+    from minute_filler.deliver import ledger_for
+    days = [excerpt_example(), excerpt_example()]
+    days[1].case.set("dates", "6/4/2026", "user")
+    s.invoice_split_rule = "same_speed"
+    if len(invoice_groups(days, s)[0]) < 2:
+        pytest.skip("the two days aren't billed together here")
+    fill_jobs(days, s, outputs=["invoice"])
+    assert [d.split_rule for d in days] == ["same_speed", "same_speed"]
+    origins = [json.loads(a.origin) for a in ledger_for(s).activity() if a.origin]
+    assert any(o.get("joint") and o.get("split_rule") == "same_speed" for o in origins)
+    s.invoice_split_rule = "make_whole"
+    assert joint_invoice(days)[1].split_rule == "same_speed"
+    days[0].split_rule = ""  # (a day added since, not billed yet: the invoice is the billed day's)
+    assert joint_invoice(days)[1].split_rule == "same_speed"
+

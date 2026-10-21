@@ -36,8 +36,9 @@ e-mailed copies and the index on or off for its own invoice (quotes_for); otherw
 Such an invoice of several speeds, the firm to choose one, is for a firm billed alone. Firms that ordered the
 same pages (a split order) commit to a speed each, as the courthouse says (courthouses.speed_upfront), and are
 billed that speed alone (quote_ordered): one original of those pages is divided between the firms as the
-courthouse's split rule chosen in Settings says (Queens, by default: billed at the fastest speed ordered on them,
-each slower firm pays its share as if every firm had ordered its speed, the fastest pay the rest;
+courthouse's split rule says (chosen in Settings, or the one the job was billed by already; Queens, by default:
+billed at the fastest speed ordered on them, each slower firm pays its share as if every firm had ordered its
+speed, the fastest pay the rest;
 courthouses/queens_supreme_civil/billing.py), while each pays its own copy, e-mailed copy and index at its own
 speed. With every firm at one speed that is quote_shares' price.
 
@@ -143,6 +144,10 @@ class QuoteLine:
         return any(x.mixed for x in self.stretches)
 
 
+# What Stretch.parts calls a party a Parties number counts beyond the firms named (it orders this firm's speed)
+ANOTHER_PARTY = "another party"
+
+
 @dataclass(frozen=True)
 class Stretch:
     """Pages of one line of an ordered quote (quote_ordered) priced alike: how many, how many firms ordered them
@@ -150,7 +155,11 @@ class Stretch:
     On a charge billed once for pages ordered at different speeds (`mixed`): the fastest speed ordered on them and
     a page's price there (what Make-Whole Split bills it at), how this firm's part was reached (steps of words and
     amounts, see courthouses.base.Part) and the split rule that divided it, whose words the math and the invoice
-    use (courthouses.base.SplitRule)."""
+    use (courthouses.base.SplitRule). share: the position of the firm's Share these pages are (the same on every
+    line; every Stretch quote_ordered makes has it). parts, on pages ordered together at different speeds (on every
+    line, the firm's own copies too): what each firm on them pays a page of this charge, (name, speed, exact) each,
+    this firm first (named ""), a party a Parties number counts beyond the firms named as ANOTHER_PARTY - the
+    math's "Who pays what a page" (invoice_math.split_pages)."""
     pages: int
     n: int
     per_page: Fraction
@@ -159,6 +168,8 @@ class Stretch:
     billed_rate: Fraction = Fraction(0)
     steps: tuple[tuple[str, Fraction], ...] = ()
     rule: SplitRule | None = None
+    share: int | None = None
+    parts: tuple[tuple[str, str, Fraction], ...] = ()
 
     @property
     def mixed(self) -> bool:
@@ -388,7 +399,7 @@ def quote_ordered(shares: list[Share], sheet: RateSheet, rule: SplitRule | None 
     billed once for the pages (the original, the judge's index, and the index too with index_split) is split
     between the n firms that ordered them: / n when they all ordered one speed, as quote_shares; at different
     speeds it is divided as the split rule says (rule.split(parties, me) -> courthouses.base.Part: the
-    courthouse's rule chosen in Settings, courthouses.split_rule(Settings.invoice_split_rule)), the fastest
+    courthouse's rule chosen in Settings, or the one the job was billed by already: invoice.firm_invoices), the fastest
     speed being that of the highest original on the sheet.
     One speed gives the lines "Original", "Copy"...; two (a firm that ordered Daily on one day, Regular on
     another) "Original (Daily)", ... for each. The amount is worked out exactly (Quote.due) and rounded up to the
@@ -409,30 +420,38 @@ def quote_ordered(shares: list[Share], sheet: RateSheet, rule: SplitRule | None 
               ordered=tuple(own), by_page=by_page)
     a_page = [Fraction(0)] * len(shares)  # what the firm pays a page of each share, every charge together
 
-    def stretch(x: Share, price, once: bool) -> Stretch:
-        """What this firm pays a page of one charge (price(speed) -> its rate) on the share's pages."""
+    def stretch(k: int, price, once: bool) -> Stretch:
+        """What this firm pays a page of one charge (price(speed) -> its rate) on the pages of shares[k]; with
+        firms at other speeds on them, what each firm pays a page of it too (Stretch.parts)."""
+        x = shares[k]
         mine = found[x.speed]
         n = max(1, x.n)
-        if not once:
-            return Stretch(x.pages, n, Fraction(price(mine)), x.others)
         # the firms on these pages: this one, the others, and parties counted by a Parties number (its speed)
         theirs = [(name, found[o]) for name, o in x.others]
-        theirs += [("another party", mine)] * max(0, n - 1 - len(theirs))
-        if all(sp is mine for _, sp in theirs):
-            return Stretch(x.pages, n, Fraction(price(mine)) / n, x.others)
+        theirs += [(ANOTHER_PARTY, mine)] * max(0, n - 1 - len(theirs))
+        alike = all(sp is mine for _, sp in theirs)
+        if not once:  # (each firm its own, at its own speed)
+            parts = () if alike else (("", mine.name, Fraction(price(mine))),
+                                      *((name, sp.name, Fraction(price(sp))) for name, sp in theirs))
+            return Stretch(x.pages, n, Fraction(price(mine)), x.others, share=k, parts=parts)
+        if alike:
+            return Stretch(x.pages, n, Fraction(price(mine)) / n, x.others, share=k)
         if rule is None:
             raise ValueError("pages ordered together at different speeds can't be billed: the courthouse has no "
                              "rule for dividing them")
         parties = [Party("This firm", mine.name, Fraction(price(mine)), rank[id(mine)])]
         parties += [Party(name, sp.name, Fraction(price(sp)), rank[id(sp)]) for name, sp in theirs]
         part = rule.split(parties, 0)
+        parts = tuple(("" if i == 0 else p.name, p.speed, rule.split(parties, i).per_page)
+                      for i, p in enumerate(parties))
         top = max(parties, key=lambda p: p.rank)
-        return Stretch(x.pages, len(parties), part.per_page, x.others, top.speed, top.rate, part.steps, rule)
+        return Stretch(x.pages, len(parties), part.per_page, x.others, top.speed, top.rate, part.steps, rule, k,
+                       parts)
 
     def line(label: str, part: list[int], price, once: bool) -> None:
         """Adds a line for the shares at these positions (once: a charge billed once for their pages, divided
         between the firms that ordered them); none when it comes to $0 (no such column on the sheet)."""
-        got = [stretch(shares[k], price, once) for k in part]
+        got = [stretch(k, price, once) for k in part]
         amount = sum((x.per_page * x.pages for x in got), Fraction(0))
         if not amount:
             return

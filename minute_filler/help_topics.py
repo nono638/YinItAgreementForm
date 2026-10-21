@@ -640,7 +640,7 @@ invoice with your text; <b>Restore defaults</b> brings back the first ones.</p>
 """),
     T("inv-math", INVOICE, "The math: how each amount is reached",
       "math calculation breakdown explain how worked out copy all save as pdf by invoice firms side by side "
-      "the math pdf",
+      "the math pdf who pays what a page different speeds stretch each side",
       """
 <p><b>The math</b> shows how each amount is reached, in tables:</p>
 <ul>
@@ -648,6 +648,10 @@ invoice with your text; <b>Restore defaults</b> brings back the first ones.</p>
 (<i>Original | 59 | $5.40 | $318.60 | Each firm splits this cost (÷ 4) | $79.65</i>);</li>
 <li><b>Firms side by side</b>: a column for each firm.</li>
 </ul>
+<p>When firms ordered the same pages at <a href="topic:exc-speeds">different speeds</a>, <b>Who pays what a page</b>
+follows, a table for each set of those pages: what each firm on them pays a page of each charge and in all, as its
+invoice bills it, and the firms together (<i>Alex B. Counsel · Daily · Original $3.25 · Copy $1.25 · E-mailed copy
+$1.25 · $5.75 a page</i>).</p>
 <p>It is the first tab of the preview, and behind the links under Who pays what and in the Invoice panel. With
 previews off it comes in a window after saving: <b>Copy all</b>, <b>Save as PDF…</b> (for an attorney who asks) or
 <b>Don't show this anymore</b> (Settings → Options → <i>Show the math of each invoice</i> turns it back on).</p>
@@ -726,7 +730,9 @@ the firms</i>).</p>
 <p>Example (10 pages, no index): one firm orders Daily, one Immediate. The original is billed at Immediate, $7.60 a
 page. The Daily firm pays $6.50 ÷ 2 = $3.25 of it plus its own copies: $57.50. The Immediate firm pays the rest,
 $4.35, plus its own: $72.50.</p>
-<p>The math of an invoice says how it was divided.</p>
+<p>The math of an invoice says how it was divided, and what each firm on those pages pays a page. A job once
+invoiced keeps the way it was divided: made again, or opened again from Records, it is billed the same way, whatever
+Split invoices says by then.</p>
 <p>A firm whose speeds differ by day gets an agreement ticking both speeds, with <i>see below</i> on the rate line.
 For now, at most two different speeds may share the same pages: a run with three holds the invoice, with the reason
 shown.</p>

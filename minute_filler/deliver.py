@@ -188,7 +188,7 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
              invoiced: list[str] | None = None, origin: dict | None = None, math: list | None = None,
              detailed: list | None = None, cases: list[CaseInfo] | None = None,
              ordered: dict[str, int] | None = None, speeds: dict[str, list] | None = None,
-             day: date | None = None) -> list[Path]:
+             day: date | None = None, invoice_origin: dict | None = None) -> list[Path]:
     """Writes the chosen outputs (keys of settings.OUTPUTS; others are left out) and logs them in the records,
     each made by its maker (courthouses.OutputSpec.maker), in the order of courthouses.make_order: the run
     sheet first, the invoices last. Each output goes to its own folder when Settings -> Options -> Folders gives
@@ -203,7 +203,9 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
     when given, gets the InvoiceOpts.skip_key ("" for a blank Bill To) of each invoice made, so a run that stops
     part way can be tried again without billing them twice (see InvoiceOpts.skip). `origin`: where the job came
     from (the documents read and its invoice choices, see batch.job_origin); it is kept with each file's record,
-    together with the case as it is now, so the job can be opened again from the Records window. `math`, when given, gets a
+    together with the case as it is now, so the job can be opened again from the Records window; `invoice_origin`,
+    when given, is the invoices' instead (batch: with the split rule they are billed by, which the run's other files
+    don't keep: an invoice that fails leaves the job billed by nothing yet). `math`, when given, gets a
     (FirmInvoice, number) pair for each invoice made, to spell out its math (invoice_math.explain). With
     Settings.invoice_detailed_copy each invoice that doesn't show the granular detail gets a copy that does
     ("... (detailed).pdf", the same number and date; it is among the files returned, and in `detailed` when given,
@@ -249,6 +251,7 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
     made = m.made
 
     where_from = _where_from(origin, case)
+    billed_from = _where_from(invoice_origin, case) if invoice_origin is not None else where_from
     mine = (own.my_pages or own.pages) if own else 0
     whole = (own.total_pages if own else 0) or max((o.total_pages for o in sets), default=0) or mine
 
@@ -258,7 +261,8 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
         names it, an attorney's invoice naming only its own days; my, total: the user's pages of the
         transcripts and all their pages, when there are transcripts)."""
         made.append(path)
-        _record(ledger, kind, path, on, atty, number, count, my, total, where_from)
+        _record(ledger, kind, path, on, atty, number, count, my, total,
+                billed_from if kind == "invoice" else where_from)
 
     m.ledger, m.pages, m.record = ledger, pages, record
     try:

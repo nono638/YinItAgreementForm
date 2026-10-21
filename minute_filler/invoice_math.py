@@ -28,15 +28,19 @@ Under each invoice's heading (about): the pages the user wrote of the whole tran
 total pages.") and whether there is an index and why (FirmInvoice.index_note). When several firms are billed for
 the same work, a last section, "All the firms together", adds up what they pay against their exact shares added
 up, which shows what rounding each one up to the cent added (or what rounding each price a page added or took
-off). who_pays() is the short version the main window keeps up to date as things are ticked: a row per firm,
-its pages, how it ordered them and what it pays at each speed; page_rates() goes under it.
+off). Before it, when firms ordered the same pages at different speeds, "Who pays what a page" (split_pages)
+has a table for each set of those pages: what each firm named on them pays a page of each charge, as its own
+invoice bills it, and the firms together. who_pays() is the short version the main window keeps up to date as
+things are ticked: a row per firm, its pages, how it ordered them and what it pays at each speed; page_rates()
+goes under it.
 
 A firm that committed to a speed (an ordered quote, invoice_calc.quote_ordered) has its speed headed "Daily
 (ordered)" (speed_name), and the "firms" layout puts such firms in one table, "As ordered", each at its own
 speed. On pages ordered together at different speeds the original (and the judge's index) is billed once and
-divided by the split rule chosen in Settings, and its row says how this firm's part was reached, in that rule's
-own words and steps (_how_once, Make-Whole Split: "Billed once, at Immediate ($7.60 a page). This firm ordered
-Daily, so it pays as if both firms had ordered Daily: $6.50 ÷ 2 = $3.25 a page."); a charge whose pages were
+divided by the split rule (chosen in Settings; a job keeps the one it was first invoiced by), and its row says
+how this firm's part was reached, in that rule's own words and steps (_how_once, Make-Whole Split: "Billed once,
+at Immediate ($7.60 a page). This firm ordered Daily, so it pays as if both firms had ordered Daily: $6.50 ÷ 2 =
+$3.25 a page."); a charge whose pages were
 ordered with different firms is shown "In parts", a row for each stretch. Such an invoice says so once under its
 heading, in the rule's words (_mixed_note: SplitRule.note). The words come from the rule each stretch was priced
 with (Stretch.rule), so the math of an invoice still says how it was billed after the setting is changed.
@@ -51,7 +55,8 @@ from fractions import Fraction
 from pathlib import Path
 
 from .invoice import FirmInvoice
-from .invoice_calc import Quote, QuoteLine, Stretch, exact_number, fmt, money_exact, page_prices_text
+from .invoice_calc import (ANOTHER_PARTY, Quote, QuoteLine, Stretch, exact_number, fmt, money_exact,
+                           page_prices_text)
 
 # the PDF's look (to_pdf); the window's is gui.preview.MATH_CSS
 CSS = """
@@ -163,8 +168,11 @@ def rows(q: Quote) -> list[Row]:
             subs = []
             for x in l.stretches:
                 if x.mixed:
+                    # what a page of it comes to, all the firms' parts together: one at the fastest speed under
+                    # Make-Whole Split, each firm's at its own under Same-Speed (Stretch.parts)
+                    whole = sum((a for _, _, a in x.parts), Fraction(0)) if x.parts else x.billed_rate
                     subs.append(Row(f"{_pages(x.pages)} ordered with {_with(x.others)}", _num(x.pages),
-                                    _d(x.billed_rate), _d(x.billed_rate * x.pages), _how_once(x),
+                                    _d(whole), _d(whole * x.pages), _how_once(x),
                                     _d(x.per_page * x.pages),
                                     f"{_num(x.pages)} pp. × {money_exact(x.per_page)}", True, True))
                 elif x.n > 1:
@@ -180,10 +188,12 @@ def rows(q: Quote) -> list[Row]:
                 out.append(Row(l.label, r.pages, r.rate, r.cost, f"{r.label}. {r.how}", r.pays, r.short, True,
                                once=True))
                 continue
-            # (in parts: "60 pp. × $3.25 + 60 pp. × $7.60", each part's row under it saying how)
+            # (in parts: "60 pp. × $3.25 + 60 pp. × $7.60", each part's row under it saying how; the rate what a
+            # page of them comes to, so that rate × pages is the cost)
             short = " + ".join(r.short for r in subs)
-            out.append(Row(l.label, _num(pages), l.rate, sum((r.cost for r in subs), Decimal(0)),
-                           IN_PARTS, l.amount, short, True, once=True))
+            cost = sum((r.cost for r in subs), Decimal(0))
+            out.append(Row(l.label, _num(pages), cost / pages if pages else l.rate, cost, IN_PARTS, l.amount, short,
+                           True, once=True))
             out += subs
             continue
         if not q.share:
@@ -404,7 +414,8 @@ def _speed_table(q: Quote) -> str:
     out = [_TABLE, _cells([(h, "left" if i in (0, 4) else "right") for i, h in enumerate(heads)], "th")]
     for r in rows(q):
         label = ("&nbsp;" * 6 + _e(r.label)) if r.sub else _e(r.label)
-        out.append(_cells([(label, "left"), (_e(r.pages), "right"), (fmt(r.rate), "right"),
+        # (money_exact: the firms' parts of a page at different speeds add up to part of a cent, $6.8666…)
+        out.append(_cells([(label, "left"), (_e(r.pages), "right"), (money_exact(r.rate), "right"),
                            (money_exact(r.cost), "right"), (_e(r.how), "left"), (money_exact(r.pays), "right")]))
     for what, amount in _foot(q):
         out.append(f"<tr><td colspan='5' align='right'><b>{_e(what)}</b></td>"
@@ -662,12 +673,175 @@ def page_rates(firms: list[FirmInvoice]) -> str:
     return "A page of the original: " + " · ".join(bits) if bits else ""
 
 
+@dataclass
+class SplitPart:
+    """One firm on pages ordered together at different speeds (split_pages): who (Attorney.label()), the speed it
+    ordered, what it pays a page of each charge ((charge, exact) each, in the invoice's order) and in all."""
+    who: str
+    speed: str
+    charges: list[tuple[str, Fraction]]
+
+    @property
+    def total(self) -> Fraction:
+        return sum((a for _, a in self.charges), Fraction(0))
+
+
+@dataclass
+class SplitSection:
+    """Pages that the same firms ordered together at different speeds, priced alike (split_pages): how many, each
+    firm named on them (SplitPart), the first invoice's firm first, and how many parties a Parties number counts
+    beyond them (unnamed: on no invoice here, so neither a row nor in the total)."""
+    pages: int
+    firms: list[SplitPart]
+    unnamed: int = 0
+
+    @property
+    def label(self) -> str:
+        """'60 pages ordered by Alex B. Counsel (Daily) and Dana Smith (Immediate)'."""
+        return f"{_pages(self.pages)} ordered by {_with([(p.who, p.speed) for p in self.firms])}"
+
+    @property
+    def total(self) -> Fraction:
+        return sum((p.total for p in self.firms), Fraction(0))
+
+    @property
+    def note(self) -> str:
+        """What the rows leave out: 'Also on these pages: 1 more party, counted by Parties but not named. Each
+        firm's invoice takes it to order that firm's speed.'; "" when there is none."""
+        if not self.unnamed:
+            return ""
+        more = "1 more party" if self.unnamed == 1 else f"{self.unnamed} more parties"
+        return (f"Also on these pages: {more}, counted by Parties but not named. Each firm's invoice takes "
+                f"{'it' if self.unnamed == 1 else 'them'} to order that firm's speed.")
+
+
+def _stretch_sections(f: FirmInvoice) -> list[SplitSection]:
+    """The stretches of f's pages ordered together at different speeds, as f's invoice priced them: a section each,
+    f's firm first, what each firm named on them pays a page of each charge (Stretch.parts)."""
+    me = f.atty.label() if f.atty is not None else "(no attorney)"
+    out = []
+    for q in f.quotes:
+        by_share: dict[int, SplitSection] = {}
+        for l in q.lines:
+            for x in l.stretches:
+                if not x.parts:
+                    continue
+                named = [(who or me, speed, each) for who, speed, each in x.parts if who != ANOTHER_PARTY]
+                sec = by_share.get(x.share)
+                if sec is None:
+                    sec = by_share[x.share] = SplitSection(x.pages, [SplitPart(who, speed, []) for who, speed, _ in
+                                                                     named], len(x.parts) - len(named))
+                for p, (_, _, each) in zip(sec.firms, named):
+                    p.charges.append((l.charge, each))
+        out += by_share.values()
+    return out
+
+
+def split_pages(made: list[tuple[FirmInvoice, str]]) -> list[SplitSection]:
+    """Who pays what a page on the pages ordered together at different speeds (as the reporter's comparer workbook
+    shows them, stretch by stretch: the user, 2026-10-21): a section for each stretch of pages the same firms
+    ordered and priced alike, what each of them pays a page of each charge (its part of the original and the
+    judge's index, as the split rule divided them; its own copies at its own speed: Stretch.parts) and in all.
+    Each stretch once, from the first invoice that has it (every firm's on it has it), each firm's row as its own
+    invoice bills it when that invoice is here too (an invoice prices a party a Parties number counts beyond the
+    firms named at its own firm's speed, and leaves out a charge it has none of: the sweep of 2026-10-21);
+    stretches of the same firms at the same prices (two days, say) added up. Invoices of another set
+    (FirmInvoice.group, another reporter's) are counted apart. [] when no pages were ordered at different speeds."""
+    views = [(f, (f.group, f.opts.reporter), _stretch_sections(f)) for f, _ in made]
+
+    def firms_on(sec: SplitSection) -> tuple:
+        return sec.pages, tuple(sorted((p.who, p.speed) for p in sec.firms))
+
+    own: dict[tuple, list[SplitPart]] = {}  # each firm's own row of a stretch, by its set, the firm and the stretch
+    for f, group, secs in views:
+        for sec in secs:
+            own.setdefault((group, sec.firms[0].who, firms_on(sec)), []).append(sec.firms[0])
+    out: list[SplitSection] = []
+    billed: dict[tuple, set[str]] = {}  # each set's firms whose invoice gave its stretches already
+    alike: dict[tuple, SplitSection] = {}  # each set's sections by their firms and prices: pages added up
+    for f, group, secs in views:
+        before = billed.setdefault(group, set())
+        for sec in secs:
+            if any(p.who in before for p in sec.firms[1:]):
+                continue  # (an invoice before this one has these pages)
+            for i, p in enumerate(sec.firms[1:], 1):
+                theirs = own.get((group, p.who, firms_on(sec)))
+                if theirs:
+                    sec.firms[i] = theirs.pop(0)
+            key = (group, sec.unnamed, tuple((p.who, p.speed, tuple(p.charges)) for p in sec.firms))
+            if key in alike:
+                alike[key].pages += sec.pages
+            else:
+                alike[key] = sec
+                out.append(sec)
+        if secs:
+            before.add(secs[0].firms[0].who)
+    return out
+
+
+def _split_plain(sections: list[SplitSection]) -> list[str]:
+    """split_pages as the plain text says it: 'Alex B. Counsel, at Daily: Original $3.25 + Copy $1.25 + ... =
+    $7.625 a page', and what the firms pay together."""
+    out = []
+    for sec in sections:
+        out.append(f"  {sec.label}:")
+        for p in sec.firms:
+            bits = " + ".join(f"{charge} {money_exact(a)}" for charge, a in p.charges)
+            out.append(f"    {p.who}, at {p.speed}: {bits} = {money_exact(p.total)} a page")
+        out.append(f"    Together: {money_exact(sec.total)} a page; for the {_pages(sec.pages)}: "
+                   f"{money_exact(_d(sec.total * sec.pages))}")
+        if sec.note:
+            out.append(f"    {sec.note}")
+    return out
+
+
+def _split_tables(sections: list[SplitSection]) -> list[str]:
+    """split_pages as tables: for each stretch a row per firm, a column per charge and what it pays a page in
+    all, then the firms together."""
+    parts = []
+    for sec in sections:
+        charges = list(dict.fromkeys(c for p in sec.firms for c, _ in p.charges))
+        heads = [("Firm", "left"), ("Speed", "left")] + [(_e(c), "right") for c in charges] + [("A page", "right")]
+        out = [f"<p><b>{_e(sec.label)}</b></p>", _TABLE, _cells(heads, "th")]
+        for p in sec.firms:
+            mine = dict(p.charges)
+            out.append(_cells([(_e(p.who), "left"), (_e(p.speed), "left")]
+                              + [(money_exact(mine[c]) if c in mine else "—", "right") for c in charges]
+                              + [(f"<b>{money_exact(p.total)}</b>", "right")]))
+        out.append(f"<tr><td colspan='{len(charges) + 2}' align='right'><b>Together, a page (× {sec.pages:,} "
+                   f"= {money_exact(_d(sec.total * sec.pages))})</b></td>"
+                   f"<td align='right'><b>{money_exact(sec.total)}</b></td></tr>")
+        out.append("</table>")
+        if sec.note:
+            out.append(f"<p class='muted'>{_e(sec.note)}</p>")
+        parts.append("".join(out))
+    return parts
+
+
+# Under SPLIT_HEADING when an invoice rounded a price a page to the cent (Quote.page_rounded)
+SPLIT_EXACT = ("The prices a page here are exact; each invoice rounds its own price a page to the cent (see what "
+               "each firm pays above).")
+
+
+# The heading of split_pages in the math
+SPLIT_HEADING = "Who pays what a page, on pages ordered together at different speeds"
+
+
 def explain(made: list[tuple[FirmInvoice, str]], layout: str = "invoice") -> tuple[str, str]:
     """(html, plain text) of the math of each invoice: (FirmInvoice, its number) pairs, the number "" for one
     not made yet. layout: "invoice" (a table for each invoice and speed) or "firms" (a table for each set of
-    firms and speed, a column per firm); the plain text is the same for both."""
+    firms and speed, a column per firm); the plain text is the same for both. Pages ordered together at different
+    speeds get a section of their own after the invoices, what each firm on them pays a page (split_pages)."""
     parts = _by_firms(made) if layout == "firms" else _by_invoice(made)
     plain = _plain(made)
+    split = split_pages(made)
+    if split:
+        rounded = any(q.page_rounded for f, _ in made for q in f.quotes)
+        parts.append(f"<h2>{_e(SPLIT_HEADING)}</h2>")
+        if rounded:
+            parts.append(f"<p class='muted'>{_e(SPLIT_EXACT)}</p>")
+        parts += _split_tables(split)
+        plain += [SPLIT_HEADING] + ([f"  {SPLIT_EXACT}"] if rounded else []) + _split_plain(split) + [""]
     check = together(made)
     if check:
         parts.append("<h2>All the firms together</h2>")
