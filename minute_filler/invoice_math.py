@@ -33,11 +33,13 @@ its pages, how it ordered them and what it pays at each speed; page_rates() goes
 
 A firm that committed to a speed (an ordered quote, invoice_calc.quote_ordered) has its speed headed "Daily
 (ordered)" (speed_name), and the "firms" layout puts such firms in one table, "As ordered", each at its own
-speed. On pages ordered together at different speeds the original (and the judge's index) is billed once, at
-the fastest speed, and its row says how this firm's part was reached, in the courthouse's split rule's own
-steps (_how_once: "Billed once, at Immediate ($7.60 a page). This firm ordered Daily, so it pays as if both
-firms had ordered Daily: $6.50 ÷ 2 = $3.25 a page."); a charge whose pages were ordered with different firms
-is shown "In parts", a row for each stretch. Such an invoice says so once under its heading (MIXED_NOTE).
+speed. On pages ordered together at different speeds the original (and the judge's index) is billed once and
+divided by the split rule chosen in Settings, and its row says how this firm's part was reached, in that rule's
+own words and steps (_how_once, Make-Whole Split: "Billed once, at Immediate ($7.60 a page). This firm ordered
+Daily, so it pays as if both firms had ordered Daily: $6.50 ÷ 2 = $3.25 a page."); a charge whose pages were
+ordered with different firms is shown "In parts", a row for each stretch. Such an invoice says so once under its
+heading, in the rule's words (_mixed_note: SplitRule.note). The words come from the rule each stretch was priced
+with (Stretch.rule), so the math of an invoice still says how it was billed after the setting is changed.
 """
 from __future__ import annotations
 
@@ -70,10 +72,6 @@ ALONE = "This firm alone"
 AT_OWN = ", at its own speed"  # (after OWN, on an invoice of pages ordered at different speeds)
 ONCE = "Billed once, divided by speed"  # a charge of pages ordered at different speeds, for the firms' layout
 IN_PARTS = "In parts: each row below says how"  # (such a charge with pages ordered with different firms)
-# Said once under an invoice some of whose pages were ordered with a firm at another speed (Quote.mixed)
-MIXED_NOTE = ("Some pages were ordered together with a firm at another speed: one original of them is billed, "
-              "at the fastest speed ordered on them, and divided between the firms as each row says; each firm "
-              "pays for its own copies at its own speed.")
 
 CENT = Decimal("0.01")
 # (money_exact: '$8.175', '$1.4333…', in invoice_calc since the courthouses' split rules word their steps with it)
@@ -113,9 +111,16 @@ def _with(others) -> str:
 def _how_once(x: Stretch) -> str:
     """How this firm's part of a charge billed once was reached, on pages ordered at different speeds: 'Billed
     once, at Immediate ($7.60 a page). This firm ordered Daily, so it pays as if both firms had ordered Daily:
-    $6.50 ÷ 2 = $3.25 a page.' (the courthouse's split rule gives the steps)."""
+    $6.50 ÷ 2 = $3.25 a page.' (the split rule it was priced with gives the words and the steps)."""
     steps = " ".join(f"{words}." for words, _ in x.steps)
-    return f"Billed once, at {x.billed_at} ({money_exact(x.billed_rate)} a page). {steps}".strip()
+    return f"{x.rule.billed(x.billed_at, x.billed_rate)}. {steps}".strip()
+
+
+def _mixed_note(quotes: list[Quote]) -> str:
+    """Said once under an invoice (or the firms' table) some of whose pages were ordered with a firm at another
+    speed: how such pages are billed, in the words of the split rule they were priced with (SplitRule.note); ""
+    when there are none."""
+    return " ".join(dict.fromkeys(q.rule.note for q in quotes if q.mixed))
 
 
 # ------------------------------------------------------------------ the rows of the tables
@@ -125,9 +130,11 @@ class Row:
     """One row of the math's tables: a charge of a quote or, `sub`, a stretch of its pages under it (those a firm
     ordered alone, those it ordered with 2 firms...). pages: as shown ("60", "2 × 60" for the copies of a whole
     invoice); cost: the charge before anyone splits it; how: how it is paid (SPLITS, OWN, ALONE, with "(÷ 2)";
-    IN_PARTS, or "Billed once, ..." for pages ordered together at different speeds);
+    IN_PARTS, or the split rule's words for pages ordered together at different speeds);
     pays: what this firm, or each party of a whole invoice, pays for it (exact: maybe part of a cent); short: that
-    in a few words, for the firms' layout ("59 pp. ÷ 4", "70 alone + 50 ÷ 2"); split: its cost is divided."""
+    in a few words, for the firms' layout ("59 pp. ÷ 4", "70 alone + 50 ÷ 2"); split: its cost is divided; once: a
+    charge billed once for pages ordered together at different speeds (ONCE in the firms' layout, whatever the
+    rule's words)."""
     label: str
     pages: str
     rate: Decimal
@@ -137,6 +144,7 @@ class Row:
     short: str = ""
     split: bool = False
     sub: bool = False
+    once: bool = False
 
 
 def rows(q: Quote) -> list[Row]:
@@ -169,12 +177,13 @@ def rows(q: Quote) -> list[Row]:
                                     f"{_num(x.pages)} pp. × {money_exact(l.rate)}", False, True))
             if len(subs) == 1:  # every page of it ordered with the same firms: the one row
                 r = subs[0]
-                out.append(Row(l.label, r.pages, r.rate, r.cost, f"{r.label}. {r.how}", r.pays, r.short, True))
+                out.append(Row(l.label, r.pages, r.rate, r.cost, f"{r.label}. {r.how}", r.pays, r.short, True,
+                               once=True))
                 continue
             # (in parts: "60 pp. × $3.25 + 60 pp. × $7.60", each part's row under it saying how)
             short = " + ".join(r.short for r in subs)
             out.append(Row(l.label, _num(pages), l.rate, sum((r.cost for r in subs), Decimal(0)),
-                           IN_PARTS, l.amount, short, True))
+                           IN_PARTS, l.amount, short, True, once=True))
             out += subs
             continue
         if not q.share:
@@ -351,11 +360,11 @@ def speed_name(q: Quote) -> str:
 
 
 def _sections(made: list[tuple[FirmInvoice, str]]) -> list[tuple[str, str, list[tuple[str, list[str], list[str]]]]]:
-    """For each invoice: its heading, the lines under it (about; MIXED_NOTE when some of its pages were ordered at
-    another speed by a firm sharing them) and, for each speed, (its name, the charge lines, the sum lines), as the
-    plain text says them."""
+    """For each invoice: its heading, the lines under it (about; _mixed_note when some of its pages were ordered
+    at another speed by a firm sharing them) and, for each speed, (its name, the charge lines, the sum lines), as
+    the plain text says them."""
     return [(heading(f, number),
-             " ".join(x for x in (about(f), MIXED_NOTE if any(q.mixed for q in f.quotes) else "") if x),
+             " ".join(x for x in (about(f), _mixed_note(f.quotes)) if x),
              [(speed_name(q), [x for l in q.lines for x in _line(l, q)], _sum(q)) for q in f.quotes])
             for f, number in made]
 
@@ -413,7 +422,7 @@ def _by_invoice(made: list[tuple[FirmInvoice, str]]) -> list[str]:
         if note:
             parts.append(f"<p class='muted'>{_e(note)}</p>")
         if any(q.mixed for q in f.quotes):
-            parts.append(f"<p class='muted'>{_e(MIXED_NOTE)}</p>")
+            parts.append(f"<p class='muted'>{_e(_mixed_note(f.quotes))}</p>")
         for q in f.quotes:
             parts.append(f"<h3>{_e(speed_name(q))}</h3>")
             parts.append(_speed_table(q))
@@ -446,7 +455,7 @@ def _by_firms(made: list[tuple[FirmInvoice, str]]) -> list[str]:
         else:
             parts += [f"<p class='muted'>{_e(_who(f) or '(no attorney)')}: {_e(n)}</p>" for f, n in notes]
         if any(q.mixed for f, _ in firms for q in f.quotes):
-            parts.append(f"<p class='muted'>{_e(MIXED_NOTE)}</p>")
+            parts.append(f"<p class='muted'>{_e(_mixed_note([q for f, _ in firms for q in f.quotes]))}</p>")
         ordered = [x for x in firms if _ordered(x[0])]
         chosen = [x for x in firms if not _ordered(x[0])]
         if ordered:
@@ -473,9 +482,7 @@ def _firms_table(firms: list[tuple[FirmInvoice, str]], quotes: list[Quote | None
     for label in labels:
         got = [t.get(label) for t in tables]
         first = next(r for r in got if r is not None)
-        how = (ONCE if any(r and r.how.startswith(("Billed once", SPLITS + " (the pages ordered together, each",
-                                                   IN_PARTS))
-                           or r and " Billed once" in r.how for r in got)
+        how = (ONCE if any(r and r.once for r in got)
                else SPLITS if any(r and r.split for r in got)
                else OWN + (AT_OWN if own_speed else "") if any(r and r.how.startswith(OWN) for r in got) else ALONE)
         rate = "" if own_speed else fmt(first.rate)  # (each firm's at its own speed: in its cell)
@@ -520,8 +527,9 @@ def together(made: list[tuple[FirmInvoice, str]]) -> list[str]:
     added, or rounding each price a page what it added or took off: _together; another reporter's set says whose:
     'Regular (DS invoices): ...'). The firms billed the speeds they
     ordered are added up together: 'As ordered (Daily, Immediate): the 2 firms together pay $780.00 for work that
-    costs $780.00', and when some of their pages were ordered at different speeds, that their parts of each
-    original add up to one original at the fastest speed. [] when no set has two firms."""
+    costs $780.00', and when some of their pages were ordered at different speeds, what their parts of each
+    original add up to (the split rule's words, SplitRule.adds_up: one original at the fastest speed, under
+    Make-Whole Split). [] when no set has two firms."""
     groups: dict[int, list[FirmInvoice]] = {}
     for f, _ in made:
         if f.quotes and f.quotes[0].share:
@@ -534,9 +542,7 @@ def together(made: list[tuple[FirmInvoice, str]]) -> list[str]:
             whose = ordered[0].opts.reporter
             speeds = ", ".join(dict.fromkeys(sp for q in quotes for sp in q.ordered))
             out.append(_together(f"As ordered ({speeds}){f' ({whose.upper()} invoices)' if whose else ''}", quotes))
-            if any(q.mixed for q in quotes):
-                out.append("On the pages ordered at different speeds, the firms' parts of each original (and of the "
-                           "judge's index) add up to one, billed at the fastest speed ordered on them.")
+            out += list(dict.fromkeys(q.rule.adds_up for q in quotes if q.mixed))
         firms = [f for f in firms if not _ordered(f)]
         if len(firms) < 2:
             continue
@@ -606,9 +612,9 @@ def who_pays(firms: list[FirmInvoice]) -> list[PayRow]:
     return out
 
 
-# Under "Who pays what" when some pages were ordered together at different speeds
-MIXED_RATES = ("Pages ordered together at different speeds: one original, billed at the fastest speed ordered on "
-               "them; each firm pays its share at its own speed.")
+# Under "Who pays what" when some pages were ordered together at different speeds, with how the split rule bills
+# them (SplitRule.summary)
+MIXED_RATES = "Pages ordered together at different speeds: {how}."
 
 
 def _line_speed(q: Quote, l: QuoteLine) -> str:
@@ -623,7 +629,8 @@ def page_rates(firms: list[FirmInvoice]) -> str:
     """What a page of the original costs a firm, at each speed, alone and shared, for the ways these firms
     ordered their pages: 'A page of the original: Regular $4.30 alone, $2.15 shared by 2 · Expedite $5.40
     alone, $2.70 shared by 2'. Firms billed the speeds they ordered: the speeds they ordered, and MIXED_RATES
-    when some ordered the same pages at different speeds. "" when there is nothing to price."""
+    when some ordered the same pages at different speeds (in the words of the rule they were priced with). ""
+    when there is nothing to price."""
     if any(_ordered(f) for f in firms):
         rates: dict[str, tuple[Decimal, set[int]]] = {}
         for f in firms:
@@ -635,8 +642,9 @@ def page_rates(firms: list[FirmInvoice]) -> str:
         bits = [f"{sp} " + ", ".join(f"{money_exact(rate / k)} {'alone' if k == 1 else f'shared by {k}'}"
                                      for k in sorted(ns)) for sp, (rate, ns) in rates.items() if ns]
         text = "A page of the original: " + " · ".join(bits) if bits else ""
-        if any(q.mixed for f in firms for q in f.quotes):
-            text = (text + ". " if text else "") + MIXED_RATES
+        hows = dict.fromkeys(q.rule.summary for f in firms for q in f.quotes if q.mixed)
+        if hows:
+            text = (text + ". " if text else "") + " ".join(MIXED_RATES.format(how=how) for how in hows)
         return text
     ns: set[int] = set()
     for f in firms:

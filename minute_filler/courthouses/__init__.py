@@ -12,7 +12,7 @@ Settings comes in a later release.
 """
 from __future__ import annotations
 
-from .base import ASKS, GROUPS, Courthouse, OutputSpec, Part, Party  # noqa: F401 (for the profiles and rules)
+from .base import ASKS, GROUPS, Courthouse, OutputSpec, Part, Party, SplitRule  # noqa: F401 (for the profiles)
 from .queens_supreme_civil import COURTHOUSE as QUEENS_SUPREME_CIVIL
 
 BUILT_IN = (QUEENS_SUPREME_CIVIL,)  # the courthouses that come with the program (the build bundles their makers)
@@ -61,10 +61,18 @@ def asks(outputs, question: str) -> bool:
     return any(o.key in set(outputs) and question in o.asks for o in _current.outputs)
 
 
-def split_rule():
-    """How the courthouse divides a charge billed once for pages firms ordered together at different speeds
-    (Courthouse.split_rule: split(parties, me) -> Part), or None when it bills no such pages."""
-    return _current.split_rule_impl()
+def split_rules() -> tuple[SplitRule, ...]:
+    """The ways the courthouse may divide a charge billed once for pages firms ordered together at different
+    speeds (Courthouse.split_rules), its default first; () when it bills no such pages."""
+    return _current.split_rules_impl()
+
+
+def split_rule(key: str = "") -> SplitRule | None:
+    """The courthouse's split rule of this key (Settings.invoice_split_rule), else its default (the first: a key
+    it doesn't have, from another courthouse or a later version, falls back to it); None when it bills no pages
+    ordered together at different speeds."""
+    rules = split_rules()
+    return next((r for r in rules if r.key == key), rules[0] if rules else None)
 
 
 def speeds_together() -> int:

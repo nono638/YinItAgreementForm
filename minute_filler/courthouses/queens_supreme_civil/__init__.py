@@ -5,11 +5,13 @@ window the Invoice panel comes second (panel_pos). The bundled rate sheets and t
 here too, not in rates.py: they are this courthouse's (and New York's), not every court's. So are New York's
 court holidays (holidays), the list Settings -> Dates starts with.
 
-So is how it bills firms that order the same pages at different speeds (billing.py): the original is billed
-once, at the fastest speed ordered, each slower firm pays its share as if every firm had ordered its speed, and
-the fastest pay the rest. Firms that order pages together commit to their speed upfront (speed_upfront): only a
-firm billed alone chooses one from its invoice. research/ (git-ignored, never published) holds the workbook
-the rule came from and the questions still open about it.
+So is how it bills firms that order the same pages at different speeds (billing.py), one of two ways the user
+picks in Settings: Make-Whole Split, the default (the original is billed once, at the fastest speed ordered, each
+slower firm pays its share as if every firm had ordered its speed, and the fastest pay the rest), or Same-Speed
+Split (every firm, the fastest too, pays as if every firm had ordered its speed). Firms that order pages
+together commit to their speed upfront (speed_upfront): only a firm billed alone chooses one from its invoice.
+research/ (git-ignored, never published) holds the workbooks the rules came from and the questions still open
+about them.
 """
 from pathlib import Path
 
@@ -22,10 +24,10 @@ COURTHOUSE = Courthouse(
     rate_sheets=Path(__file__).resolve().parents[2] / "rate_sheets",
     # the minimums on the New York minute agreement form
     fallback_rates=(("Regular", "3.30", "1.00"), ("Expedited", "4.40", "1.10"), ("Daily", "5.50", "1.25")),
-    split_rule="minute_filler.courthouses.queens_supreme_civil.billing:split",
+    split_rules="minute_filler.courthouses.queens_supreme_civil.billing:RULES",
     # TEMPORARY, ARBITRARY CAP: at most two different speeds on the same pages. How three or more are billed
     # isn't settled yet (the workbook's rule and a "layered" one disagree from three speeds up; see
-    # research/OPEN_QUESTIONS.md). billing.split works for any number: raise this once the practice is settled.
+    # research/OPEN_QUESTIONS.md). billing's rules work for any number: raise this once the practice is settled.
     speeds_together=2,
     speed_upfront=True,
     # The New York State courts' legal holidays (nycourts.gov, Court Terms & Holidays): one that falls on a Saturday

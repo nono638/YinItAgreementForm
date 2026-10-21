@@ -17,7 +17,7 @@ import pytest
 from minute_filler import courthouses
 from minute_filler.batch import CaseFolder, Job, fill_jobs, joint_invoice, remerge, speeds_to_ask
 from minute_filler.courthouses.base import Party
-from minute_filler.courthouses.queens_supreme_civil.billing import split
+from minute_filler.courthouses.queens_supreme_civil.billing import MAKE_WHOLE
 from minute_filler.invoice import firm_invoices, index_priced
 from minute_filler.invoice_calc import Share, quote_ordered
 from minute_filler.models import Attorney
@@ -81,15 +81,15 @@ def test_a_faster_speeds_lower_index_price_bills_nobody_less_than_nothing():
     firms -$0.125. A slower firm's share is now never above the price billed."""
     daily, immediate = Party("Counsel & Counsel", "Daily", Fraction("1.50"), 2), \
         Party("Smith Law", "Immediate", Fraction("1.00"), 3)
-    slow, fast = split([daily, immediate], 0), split([daily, immediate], 1)
+    slow, fast = MAKE_WHOLE.split([daily, immediate], 0), MAKE_WHOLE.split([daily, immediate], 1)
     assert slow.per_page == fast.per_page == Fraction("0.50")
-    assert "billed at Immediate, for less: $1.00 ÷ 2 = $0.50 a page" in slow.steps[0][0]
+    assert "but Immediate, the fastest ordered, costs less: $1.00 ÷ 2 = $0.50 a page" in slow.steps[0][0]
     four = [daily, daily, daily, immediate]
-    parts = [split(four, i).per_page for i in range(4)]
+    parts = [MAKE_WHOLE.split(four, i).per_page for i in range(4)]
     assert min(parts) >= 0 and sum(parts) == Fraction("1.00")
     # (the usual sheet, dearer at the faster speed: unchanged)
     usual = [Party("A", "Daily", Fraction("6.50"), 2), Party("B", "Immediate", Fraction("7.60"), 3)]
-    assert [split(usual, i).per_page for i in range(2)] == [Fraction("3.25"), Fraction("4.35")]
+    assert [MAKE_WHOLE.split(usual, i).per_page for i in range(2)] == [Fraction("3.25"), Fraction("4.35")]
 
 
 INDEX_ON_DAILY = ("Rate,Original,Copy,Email,Index,Days\n"
@@ -274,10 +274,10 @@ def test_a_line_in_parts_side_by_side_is_billed_once(s):
     assert ONCE in html and SPLITS not in html
 
 
-def test_the_default_invoice_texts_have_a_copy_of_the_mixed_speeds_row():
-    from minute_filler.settings import MIXED_SPEEDS_ROW, default_invoice_texts
-    assert any(r == MIXED_SPEEDS_ROW for r in default_invoice_texts())
-    assert all(r is not MIXED_SPEEDS_ROW for r in default_invoice_texts())
+def test_the_default_invoice_texts_have_a_new_mixed_speeds_row():
+    from minute_filler.settings import default_invoice_texts, mixed_speeds_row
+    assert mixed_speeds_row() in default_invoice_texts()
+    assert mixed_speeds_row() is not mixed_speeds_row()  # (a row edited in place mustn't change the next)
 
 
 # ------------------------------------------------------------------ the window

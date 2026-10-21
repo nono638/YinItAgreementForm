@@ -4,7 +4,9 @@ needs its Original, Copy, Email and Index price. The Email and Index prices are 
 close to the name ("E-mail", "Index Price"), unless that would be a guess (two close ones, a judge's index). The
 window warns when the sheet in use is incomplete (picked, read again, after Settings, at start) and asks whether
 to use it anyway (kept until the file changes), to go back to the sheet before, to open the sheet to fill it in
-(read again each time it is saved), or not now. All names and prices are made up."""
+(read again each time it is saved), or not now. It also warns when a price is lower at a faster speed, which
+can't be right (the user, 2026-10-20), comparing only the four speeds known by name. All names and prices are
+made up."""
 import os
 from decimal import Decimal
 from pathlib import Path
@@ -12,7 +14,8 @@ from pathlib import Path
 import pytest
 
 from minute_filler.invoice_calc import extra_rate
-from minute_filler.rates import BUNDLED_DIR, FALLBACK, load_sheet, missing_prices, sheet_fingerprint
+from minute_filler.rates import (BUNDLED_DIR, FALLBACK, cheaper_faster, load_sheet, missing_prices,
+                                 sheet_fingerprint)
 from minute_filler.settings import LOCAL, Settings
 
 from helpers import pat_settings
@@ -27,6 +30,14 @@ GAPS = ("Rate,Original,Copy,Email,Index Price,Days\n"  # ("Index Price": read as
         "Note:,prices include tax\n"
         "Rates Last Updated:,5/2/2026\n")
 COMPLETE = "Rate,Original,Copy,Email,Index\nRegular,$4.30,$1.00,$1.00,$1.00\n"
+WRONG = ("Rate,Original,Copy,Email,Index\n"
+         "Regular,$4.30,$1.00,$1.00,$1.00\n"
+         "Expedite,$5.40,$1.10,$1.10,$1.00\n"    # (an Index the same as Regular's: fine)
+         "Daily,$5.00,$1.25,$1.05,$1.25\n"       # an Original and an Email lower than Expedite's
+         "Immediate,$7.60,$1.45,$1.45,\n"        # (no Index: missing, not compared)
+         "Realtime,$3.00,$0.50,$0.50,$0.50\n")   # a speed of another name: not compared
+WRONG_SAID = ["Daily's Original, $5.00, is less than Expedite's, $5.40",
+              "Daily's Email, $1.05, is less than Expedite's, $1.10"]
 
 
 def sheet(tmp_path, text, name="Court Rates"):
@@ -38,6 +49,30 @@ def sheet(tmp_path, text, name="Court Rates"):
 def test_the_bundled_sheet_is_complete():
     assert missing_prices(load_sheet(BUNDLED_DIR / "Sample Rates.csv")) == []
     assert missing_prices(FALLBACK) == [] and sheet_fingerprint(FALLBACK) == ""
+
+
+def test_the_bundled_sheet_costs_more_at_each_faster_speed():
+    assert cheaper_faster(load_sheet(BUNDLED_DIR / "Sample Rates.csv")) == [] and cheaper_faster(FALLBACK) == []
+
+
+def test_what_counts_as_lower_at_a_faster_speed(tmp_path):
+    """Each known speed against the next slower one on the sheet, whatever order the file has them in (Daily's
+    Original is below Expedite's, so the sheet itself lists Daily first); equal prices, a price left out and a
+    speed of another name aren't said."""
+    sh = sheet(tmp_path, WRONG)
+    assert [sp.name for sp in sh.speeds] == ["Realtime", "Regular", "Daily", "Expedite", "Immediate"]
+    assert cheaper_faster(sh) == WRONG_SAID
+    named = sheet(tmp_path, "Rate,Original,Copy\nRush,$5.40,$1.10\nNext day,$6.50,$1.00\n", "Named")
+    assert cheaper_faster(named) == ["Next day's Copy, $1.00, is less than Rush's, $1.10"]
+    # $0.00: not charged at that speed (an index only at Daily), not a lower price
+    free = sheet(tmp_path, "Rate,Original,Copy,Email,Index\nDaily,$6.50,$1.25,$1.25,$1.25\n"
+                           "Immediate,$7.60,$1.45,$1.45,$0.00\n", "Free")
+    assert cheaper_faster(free) == []
+    # a speed between that doesn't charge it (or has no price) is skipped: Daily against Regular
+    for between in ("$0.00", ""):
+        gap = sheet(tmp_path, "Rate,Original,Copy,Email,Index\nRegular,$4.30,$1.00,$1.00,$1.00\n"
+                              f"Expedite,$5.40,$1.10,$1.10,{between}\nDaily,$6.50,$1.25,$1.25,$0.90\n", "Gap")
+        assert cheaper_faster(gap) == ["Daily's Index, $0.90, is less than Regular's, $1.00"]
 
 
 def test_what_counts_as_missing(tmp_path):
@@ -220,7 +255,7 @@ def test_open_the_sheet_and_it_is_read_again_when_saved(window, boxes, monkeypat
     assert window._sheet_watched is not None
     path.write_text(COMPLETE, encoding="utf-8")
     window._sheet_saved()
-    assert note() == 'Read "Court Rates" again: it has all its prices now.' and len(boxes) == 1
+    assert note() == 'Read "Court Rates" again: its prices are all there and in order now.' and len(boxes) == 1
     assert window._sheet_watched is None and window._sheet_watch.files() == []
 
 
@@ -243,7 +278,7 @@ def test_the_watch_sees_the_sheet_saved(window, boxes, monkeypatch, tmp_path, qt
     while time.time() < end and window._sheet_watched is not None:
         qt.QApplication.processEvents()
         time.sleep(0.02)
-    assert window.statusBar().currentMessage() == 'Read "Court Rates" again: it has all its prices now.'
+    assert window.statusBar().currentMessage() == 'Read "Court Rates" again: its prices are all there and in order now.'
 
 
 def test_after_settings_the_sheet_in_use_is_checked(window, boxes):
@@ -262,3 +297,106 @@ def test_the_headings_hint_only_when_email_or_index_is_missing(window, boxes, tm
     pick(window, "No Copy")
     (_, text, _), = boxes
     assert "•  Regular: no Copy price\n" in text and "headed" not in text
+
+
+def test_a_sheet_lower_at_a_faster_speed_warns(window, boxes, tmp_path):
+    (tmp_path / "sheets" / "Wrong.csv").write_text(WRONG.replace("$1.45,\n", "$1.45,$1.45\n"), encoding="utf-8")
+    window._reload_sheets()
+    boxes.answer = "Go back to Sample Rates"
+    pick(window, "Wrong")
+    (title, text, buttons), = boxes
+    assert title == "Your rate sheet's prices look wrong"
+    assert text == ('The rate sheet "Wrong" has prices that are lower at a faster speed:\n\n'
+                    + "\n".join(f"•  {c}" for c in WRONG_SAID) + "\n\nA faster speed shouldn't cost less: please "
+                    "check these against your own rates.\n\nUse this rate sheet anyway?")
+    assert buttons == ["Use it anyway", "Go back to Sample Rates", "Open the sheet to fix it"]
+    assert "\n⚠ Lower at a faster speed: " + "; ".join(WRONG_SAID) in \
+        window.sheet_box.itemData(window.sheet_box.findData("Wrong"), 3)  # (tooltip)
+
+
+def test_missing_prices_and_lower_ones_in_one_box(window, boxes, tmp_path):
+    (tmp_path / "sheets" / "Both.csv").write_text("Rate,Original,Copy,Email,Index\nRegular,$4.30,$1.00,$1.00,$1.00\n"
+                                                  "Daily,$6.50,$0.90,,$1.25\n", encoding="utf-8")
+    window._reload_sheets()
+    boxes.answer = "Go back to Sample Rates"
+    pick(window, "Both")
+    (title, text, buttons), = boxes
+    assert title == "Your rate sheet is incomplete" and "•  Daily: no Email price\n" in text
+    assert text.endswith("\n\nIt also has prices that are lower at a faster speed:\n\n"
+                         "•  Daily's Copy, $0.90, is less than Regular's, $1.00\n\nA faster speed shouldn't cost less: "
+                         "please check these against your own rates.\n\nUse this rate sheet anyway?")
+    assert "Open the sheet to fill it in" in buttons
+
+
+def test_a_sheet_opened_to_fix_says_what_is_still_lower(window, boxes, monkeypatch, tmp_path):
+    monkeypatch.setattr("minute_filler.gui.main_window.open_path", lambda p: None)
+    path = tmp_path / "sheets" / "Wrong.csv"
+    wrong = WRONG.replace("$1.45,\n", "$1.45,$1.45\n")  # (every price there: only the order is wrong)
+    path.write_text(wrong, encoding="utf-8")
+    window._reload_sheets()
+    boxes.answer = "Open the sheet to fix it"
+    pick(window, "Wrong")
+    assert window.s.rate_sheet == "Wrong" and window._sheet_watched is not None
+    path.write_text(wrong.replace("Daily,$5.00", "Daily,$6.50"), encoding="utf-8")
+    window._sheet_saved()
+    assert window.statusBar().currentMessage() == ('Read "Wrong" again. Still lower at a faster speed: Daily\'s Email, '
+                                                   "$1.05, is less than Expedite's, $1.10")
+    path.write_text(COMPLETE, encoding="utf-8")
+    window._sheet_saved()
+    assert window.statusBar().currentMessage() == 'Read "Wrong" again: its prices are all there and in order now.'
+    assert window._sheet_watched is None and len(boxes) == 1
+
+
+def test_a_lower_price_kept_as_it_is_ends_the_watch(window, boxes, monkeypatch, tmp_path):
+    """Opened to be fixed, then kept with Use it anyway (the user may mean that price): no longer watched, so no
+    note at each save; and a lower price alone doesn't hold the old Days question (the sweep of 2026-10-21: it
+    was watched all session, and the question never came)."""
+    monkeypatch.setattr("minute_filler.gui.main_window.open_path", lambda p: None)
+    path = tmp_path / "sheets" / "Wrong.csv"
+    wrong = WRONG.replace("$1.45,\n", "$1.45,$1.45\n")
+    path.write_text(wrong, encoding="utf-8")
+    window._reload_sheets()
+    boxes.answer = "Open the sheet to fix it"
+    pick(window, "Wrong")
+    assert window._sheet_watched is not None
+    asked = []
+    monkeypatch.setattr(type(window), "_check_old_days", lambda self: asked.append(self.s.rate_sheet))
+    path.write_text(wrong + "Rates Last Updated:,5/2/2026\n", encoding="utf-8")  # (saved, still lower)
+    window._sheet_saved()
+    assert window._sheet_watched is not None and asked == ["Wrong"]
+    boxes.answer = "Use it anyway"
+    window._reload_sheets()  # (⟳: asked again, kept as it is)
+    assert boxes[-1][0] == "Your rate sheet's prices look wrong" and window._sheet_watched is None
+
+
+def test_no_box_while_generate_all_runs(window, boxes, qt, monkeypatch):
+    """A sheet picked (or read again) while Generate all runs isn't asked about then, nor under the batch's own
+    windows when it ends (Batch finished, The math); it is asked about once they are closed, with Go back to the
+    sheet in use before the batch's picks (the sweep of 2026-10-21, and the review of its fixes)."""
+    import time
+    from PySide6.QtWidgets import QApplication
+    end = time.time() + 0.3
+    while time.time() < end:  # (the window's start, with its own check of the sheet: Sample Rates, complete)
+        qt.QApplication.processEvents()
+    window.filling = True
+    window.s.rate_sheet = "Court Rates"
+    boxes.answer = "Not now"
+    assert window._check_rate_sheet("Sample Rates", sheet=window.s.sheet()) is True and boxes == []
+    window._check_rate_sheet("Court Rates", again=True)  # (another pick: Go back is still to the first)
+    window.filling = False
+    open_box = object()
+    monkeypatch.setattr(QApplication, "activeModalWidget", staticmethod(lambda: open_box))  # "Batch finished"
+    window._batch_ended()
+    end = time.time() + 1.5
+    while time.time() < end:
+        qt.QApplication.processEvents()
+    assert boxes == []  # (still open: asked again in half a second)
+    monkeypatch.setattr(QApplication, "activeModalWidget", staticmethod(lambda: None))  # (closed)
+    end = time.time() + 1.5
+    while time.time() < end and not boxes:
+        qt.QApplication.processEvents()
+    (title, _, buttons), = boxes
+    assert title == "Your rate sheet is incomplete" and "Go back to Sample Rates" in buttons
+    window._batch_ended()  # (once only)
+    qt.QApplication.processEvents()
+    assert len(boxes) == 1

@@ -4,15 +4,16 @@ Settings holds every choice (the defaults are what a new user gets) and load() b
 The tables here name the choices the window and the Settings dialog offer: the outputs (OUTPUTS, the
 courthouse's: see courthouses/), the speeds (SPEEDS) and which one the agreement form names when its first
 choice isn't offered (AGREEMENT_FALLBACKS), which days of an invoice get an index (INDEX_RULES), who pays the
-index of pages several firms ordered together (INDEX_SHARED), how a price a page of part of a cent is rounded
-(ROUNDINGS), what "Show granular detail" adds to an invoice (DETAIL_ITEMS), how the math of the invoices is laid
-out and which of it is saved (MATH_LAYOUTS, MATH_SAVES), where the invoice's own text goes and when it is shown
-(TEXT_PLACES, TEXT_WHEN, default_invoice_texts), when the AI may tick who ordered (AI_TICKS), the folders the
-outputs go to when they have none of their own (OUTPUT_FOLDERS, see Settings.folder_for), what to do when a case's
-own folder is there already (CASE_FOLDER_EXISTING), and, under Settings -> Dates, the day the turnaround days are
-counted from (TURNAROUND_FROM) and what a court holiday on a weekend does (HOLIDAY_WEEKEND). The dating itself and
-the holidays' rules are workdays.py's (Settings.holiday_calendar); the Records window's tick boxes and row colours
-are tracking.py's (Settings.boxes, Settings.rules).
+index of pages several firms ordered together (INDEX_SHARED), how pages firms ordered together at different
+speeds are divided (the courthouse's split rules: Settings.invoice_split_rule), how a price a page of part of a
+cent is rounded (ROUNDINGS), what "Show granular detail" adds to an invoice (DETAIL_ITEMS), how the math of the
+invoices is laid out and which of it is saved (MATH_LAYOUTS, MATH_SAVES), where the invoice's own text goes and
+when it is shown (TEXT_PLACES, TEXT_WHEN, default_invoice_texts), when the AI may tick who ordered (AI_TICKS), the
+folders the outputs go to when they have none of their own (OUTPUT_FOLDERS, see Settings.folder_for), what to do when a
+case's own folder is there already (CASE_FOLDER_EXISTING), and, under Settings -> Dates, the day the turnaround days are
+counted from (TURNAROUND_FROM) and what a court holiday on a weekend does (HOLIDAY_WEEKEND). The dating itself and the
+holidays' rules are workdays.py's (Settings.holiday_calendar); the Records window's tick boxes and row colours are
+tracking.py's (Settings.boxes, Settings.rules).
 
 A settings.json that load() can't read (locked by a sync, damaged) is never written over on the app's own: the
 app runs on the defaults (Settings.unreadable), and only the user's own Save does (save(force=True)).
@@ -34,7 +35,7 @@ from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 
 from .courthouses import OUTPUT_FOLDERS, OUTPUTS  # (re-exported: the outputs are the courthouse's)
-from .courthouses import current as current_courthouse, holiday_rows
+from .courthouses import current as current_courthouse, holiday_rows, split_rule, split_rules
 from .tracking import (ColourRule, TrackBox, box_rows, clean_boxes, clean_rules, default_boxes, default_rules,
                        rule_rows, rules_280)
 
@@ -408,11 +409,13 @@ TEXT_PLACEHOLDERS = ("{case} {index} {dates} {pages} {total_pages} {parties} {nu
                      "with Index on shared pages split, \"the original, the index and the judge's index\")")
 
 
-# The note on an invoice some of whose pages were ordered together with a firm at another speed (added to the
-# rows of earlier settings once, v12: it shows only on such invoices, which earlier versions never made)
-MIXED_SPEEDS_ROW = {"where": "amounts", "when": "mixed_speeds",
-                    "text": "Pages ordered together at different speeds: the original is billed once, at the "
-                            "faster speed; you pay your share at the speed you ordered."}
+def mixed_speeds_row(rule: str = "") -> dict:
+    """The note on an invoice some of whose pages were ordered together with a firm at another speed, as the
+    courthouse's split rule of this key words it (SplitRule.invoice_note; "": its default), a new row each time (one
+    edited in place mustn't change the next). Added to the rows of earlier settings once (v12: it shows only on such
+    invoices, which earlier versions never made); {} when the courthouse bills no such pages."""
+    how = split_rule(rule)
+    return {"where": "amounts", "when": "mixed_speeds", "text": how.invoice_note} if how else {}
 
 
 def default_invoice_texts(payment: str = INVOICE_PAYMENT_TEXT, footer: str = INVOICE_FOOTER) -> list[dict]:
@@ -425,7 +428,7 @@ def default_invoice_texts(payment: str = INVOICE_PAYMENT_TEXT, footer: str = INV
          "text": "Amounts are your share: {shared} of pages ordered together are split between the parties who "
                  "ordered them."},
         {"where": "amounts", "when": "split_even", "text": "Amounts are per party ({parties} parties ordered)."},
-        dict(MIXED_SPEEDS_ROW),  # (a copy: a row edited in place mustn't change the one the migration adds)
+        *[r for r in [mixed_speeds_row()] if r],
         {"where": "amounts", "when": "parties", "text": "The {transcript} {is} delivered once every party has paid."},
         {"where": "amounts", "when": "one_party", "text": "The {transcript} {is} sent after payment is received."},
         {"where": "payment", "when": "always", "text": payment},
@@ -541,6 +544,10 @@ class Settings:
     # one of ROUNDINGS: "exact" keeps every fraction of a cent and rounds the amount up once; "page" rounds each
     # price a page to the cent first, as reporters do by hand, so their own math matches (the user, 2026-10-10)
     invoice_rounding: str = "exact"
+    # how a charge billed once for pages firms ordered together at different speeds is divided: the key of one of
+    # the courthouse's split rules (courthouses.split_rules: "make_whole", "same_speed" in Queens), "" its default
+    # (the first). Changed with use_split_rule, which rewords the invoice's note on it when it is the rule's own
+    invoice_split_rule: str = ""
     invoice_joint: bool = True       # Generate all bills the days of one case on one invoice (False: one per day)
     invoice_detail_items: list = field(default_factory=lambda: list(DETAIL_ITEMS))  # what granular detail adds
     # also save a copy of each invoice with granular detail ("... (detailed).pdf": the same number, not recorded
@@ -731,6 +738,18 @@ class Settings:
         keys = {speed_key(w) for w in self.invoice_speeds if w}
         speeds = self.sheet().speeds
         return [sp for sp in speeds if sp.key in keys] or list(speeds)
+
+    def use_split_rule(self, key: str) -> None:
+        """Bills pages firms ordered together at different speeds by the courthouse's split rule of this key from
+        now on (invoice_split_rule; one it doesn't have: its default). The invoice's note on such pages (the
+        "mixed_speeds" rows of invoice_texts) is reworded for it when it is in a rule's own words (as it came, or put
+        back by the invoice text's Defaults); one the user wrote is kept."""
+        rule = split_rule(key)
+        self.invoice_split_rule = key if rule is not None and rule.key == key else ""
+        own = {r.invoice_note for r in split_rules()}
+        for r in self.invoice_texts:
+            if rule is not None and r["when"] == "mixed_speeds" and r["text"] in own:
+                r["text"] = rule.invoice_note
 
     def agreement_speed(self) -> str:
         """The speed the minute agreement form names, in the sheet's spelling: agreement_speed_first when the
@@ -996,6 +1015,8 @@ class Settings:
             s.invoice_index_shared = "each"
         if s.invoice_rounding not in ROUNDINGS:
             s.invoice_rounding = "exact"
+        if s.invoice_split_rule not in [r.key for r in split_rules()]:  # (another courthouse's, a later version's)
+            s.invoice_split_rule = ""
         if s.math_layout not in MATH_LAYOUTS:
             s.math_layout = "invoice"
         if s.save_math not in MATH_SAVES:
@@ -1037,7 +1058,9 @@ class Settings:
             notes = [i + 1 for i, r in enumerate(s.invoice_texts)
                      if r["where"] == "amounts" and r["when"] in ("speeds", "split_share", "split_even")]
             first = next((i for i, r in enumerate(s.invoice_texts) if r["where"] == "amounts"), len(s.invoice_texts))
-            s.invoice_texts.insert(max(notes, default=first), dict(MIXED_SPEEDS_ROW))
+            row = mixed_speeds_row(s.invoice_split_rule)
+            if row:
+                s.invoice_texts.insert(max(notes, default=first), row)
         s.records_columns = {k: [c for c in v if isinstance(c, str)] for k, v in s.records_columns.items()
                              if k in ("invoices", "activity") and isinstance(v, list)}
         # v13: the Records window's Notes can be typed in its table, so a choice of columns saved before shows it

@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QPushButton, QRadioButton, QScrollArea, QSpinBox, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
 )
 
-from .. import __version__
+from .. import __version__, courthouses
 from ..models import Attorney, FIELD_LABELS
 from ..settings import (AGREEMENT_FALLBACKS, AI_TICKS, CASE_FOLDER_EXISTING, CASE_FOLDER_PATTERN, DETAIL_ITEMS,
                         INDEX_RULES, INDEX_SHARED, MATH_SAVES, OUTPUT_FOLDERS, OUTPUTS, ROUNDINGS, SPEEDS,
@@ -385,6 +385,22 @@ class SettingsDialog(QDialog):
                                  "or one index is split between them like the original. The judge's index is\n"
                                  "always split, page by page (A pays 95 pages of it, B 5).")
         f.addRow("Index on shared pages", self.i_shared)
+        # how pages ordered together at different speeds are divided: one of the courthouse's split rules (a
+        # courthouse with none bills no such pages, and has no row)
+        self.i_split = QComboBox()
+        rules = courthouses.split_rules()
+        for i, rule in enumerate(rules):
+            self.i_split.addItem(rule.label, rule.key)
+            self.i_split.setItemData(i, rule.tip, Qt.ToolTipRole)
+        chosen = courthouses.split_rule(settings.invoice_split_rule)
+        self.i_split.setCurrentIndex(max(0, self.i_split.findData(chosen.key if chosen else "")))
+        self.i_split.setToolTip("How firms that ordered the same pages at different speeds share the one original\n"
+                                "(and the judge's index). Each always pays its own copies at its own speed, and its\n"
+                                "own index too unless Index on shared pages splits it. Point at a choice in the list\n"
+                                "to see how it works. The invoice's note on\n"
+                                "such pages (Invoice text) follows the choice, unless you have reworded it.")
+        if rules:
+            f.addRow("Split invoices", self.i_split)
         self.i_rounding = QComboBox()
         for key, label in ROUNDINGS.items():
             self.i_rounding.addItem(label, key)
@@ -1092,6 +1108,11 @@ class SettingsDialog(QDialog):
         s.invoice_detail_items = [k for k, cb in self.i_items.items() if cb.isChecked()]
         s.invoice_turnaround = {k: e.text().strip() for k, e in self.i_turn.items()}
         s.invoice_texts = self.i_texts.rows()
+        split = self.i_split.currentData() or ""
+        rules = courthouses.split_rules()
+        if not s.invoice_split_rule and rules and split == rules[0].key:
+            split = ""  # (the default left as it was: "" follows the courthouse's default, should it change)
+        s.use_split_rule(split)  # (after the text: it may reword the note on such pages)
         s.firm_answers = [list(r) for r in self._firm_answers]
         s.invoice_number_format = self.i_number.text().strip() or s.invoice_number_format
         s.invoice_filename_pattern = self.i_pattern.text().strip() or s.invoice_filename_pattern
@@ -1392,8 +1413,8 @@ class SplitSpeedsDialog(QDialog):
         lay = QVBoxLayout(self)
         intro = QLabel("These firms ordered the same pages, so each one commits to a speed and is billed that "
                        "speed alone (a firm ordering by itself can still choose from its invoice). At different "
-                       "speeds, the original is billed once, at the fastest, and each firm pays its share at its "
-                       "own speed. Which speed did each one order?")
+                       "speeds, the original is divided as Settings → Invoice → Split invoices says, and each "
+                       "firm pays its own copies at its own speed. Which speed did each one order?")
         intro.setWordWrap(True)
         intro.setObjectName("subtitle")
         lay.addWidget(intro)
@@ -2031,6 +2052,12 @@ WEBSITE_URL = "https://nono638.github.io/YinItAgreementForm/"
 SOURCE_URL = "https://github.com/nono638/YinItAgreementForm"
 FEEDBACK_URL = f"mailto:{CONTACT_EMAIL}?subject=YinItAgreementForm%20{__version__}"
 COFFEE_URL = "https://buymeacoffee.com/noahcollin"
+# The About window's disclaimer (the AGPL's own, sections 15 and 16, in short)
+NO_WARRANTY = ("<b>No warranty.</b> This program is provided \"as is\", without warranty of any kind, express or "
+               "implied, including the implied warranties of merchantability and fitness for a particular purpose. "
+               "You are responsible for checking every form, invoice and amount it makes before you use or send "
+               "it; it is not legal, billing or tax advice. The author is not liable for any loss or damage "
+               "arising from its use (sections 15 and 16 of the license).")
 
 COMPONENTS = [
     ("Qt / PySide6", "LGPL-3.0", "https://www.qt.io/qt-for-python"),
@@ -2067,6 +2094,7 @@ class AboutDialog(QDialog):
         lay = QVBoxLayout(self)
         lay.setSpacing(10)
         pic = Path(__file__).resolve().parent.parent / "assets" / "yin_done.jpg"
+        img = None
         if pic.exists():
             img = QLabel()
             img.setPixmap(rounded(pic, 420, 12))
@@ -2088,6 +2116,7 @@ class AboutDialog(QDialog):
             f"{CONTACT_EMAIL}</a><br><br>"
             "Free software under the GNU AGPL-3.0 license."
             + (f' Source code: <a href="{SOURCE_URL}">{SOURCE_URL}</a>' if SOURCE_URL else "")
+            + f"<br><br>{NO_WARRANTY}"
             + f'<br><br>If this saves you time, you can <a href="{COFFEE_URL}">buy me a coffee</a> ☕')
         body.setWordWrap(True)
         body.setMinimumWidth(z(520))  # so its height is measured at the width it's shown at (else the end is cut)
@@ -2114,6 +2143,20 @@ class AboutDialog(QDialog):
         row.addStretch(1)
         row.addWidget(ok)
         lay.addLayout(row)
+        # Qt opens a window at most 2/3 of the screen tall, which cut off the end of the text on a laptop at 125 %
+        # (1080 px): as tall as it needs, as long as the screen has room; short of room (a high zoom on a small
+        # screen), the picture gets smaller first, or goes, so the text is all there
+        hint, screen = self.sizeHint(), self.screen()
+        room = screen.availableGeometry().height() - z(40) if screen else hint.height()
+        if img is not None and hint.height() > room:
+            tall = img.pixmap().deviceIndependentSize().height()
+            keep = tall - (hint.height() - room)
+            if keep >= z(60):
+                img.setPixmap(rounded(pic, int(420 * keep / tall), 12))
+            else:
+                img.hide()
+            hint = self.sizeHint()
+        self.resize(hint.width(), min(hint.height(), room))
 
     def _credits(self):
         """Shows the list of open-source components (COMPONENTS) and how the optional AI features are supplied."""

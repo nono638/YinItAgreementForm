@@ -239,6 +239,45 @@ def missing_prices(sheet: RateSheet) -> list[tuple[str, list[str]]]:
     return out + [(name, ["Original"]) for name in sheet.skipped]
 
 
+# The speeds cheaper_faster compares, slowest first, as speed_key names them
+SPEED_RANKS = ("regular", "expedited", "daily", "immediate")
+
+
+def _price(sp: Speed, label: str) -> Decimal | None:
+    """One of the four prices every speed needs ("Original", "Copy", "Email", "Index"), None when it has none."""
+    if label in ("Original", "Copy"):
+        return parse_money(sp.original if label == "Original" else sp.copy)
+    names = next(names for lb, names, _ in EXTRA_PRICES if lb == label)
+    return parse_money(next((v for k, v in sp.extras.items() if k.strip().lower() in names), ""))
+
+
+def cheaper_faster(sheet: RateSheet) -> list[str]:
+    """The prices of a rate sheet that are lower at a faster speed than at the slower one before it:
+    ["Daily's Index, $1.00, is less than Expedite's, $1.10"]. A faster speed can't cost less (the user,
+    2026-10-20), but the prices are the user's to get right: the window warns and lets them use the sheet anyway.
+    Only the four speeds speed_key knows by name are compared (Regular, Expedite, Daily, Immediate, however spelt:
+    "Rush", "Next day"), each with the next slower one on the sheet that charges it, and only the four prices every
+    speed needs; a speed of another name ("Realtime") isn't guessed at, and a price left out is missing_prices' to
+    say. Equal prices are fine, and so is $0.00: a charge not made at that speed (an index charged only at Daily),
+    not a lower price. [] for fallback()'s."""
+    if sheet.path is None:
+        return []
+    ranked = [[sp for sp in sheet.speeds if sp.key == k] for k in SPEED_RANKS]
+    ranked = [group for group in ranked if group]
+    out = []
+    for label in ("Original", "Copy", "Email", "Index"):
+        # the speeds that charge it, slowest first (None: missing; 0: not charged at that speed): each against the
+        # next slower one that does, so Regular $1.00, Expedite not charged, Daily $0.90 is still said
+        priced = [[(sp, p) for sp in group if (p := _price(sp, label))] for group in ranked]
+        priced = [group for group in priced if group]
+        for slower, faster in zip(priced, priced[1:]):
+            for fast, a in faster:
+                for slow, b in slower:
+                    if a < b:
+                        out.append(f"{fast.name}'s {label}, ${a}, is less than {slow.name}'s, ${b}")
+    return out
+
+
 def sheet_fingerprint(sheet: RateSheet) -> str:
     """The sheet's name and a hash of its file as it was read ("Court Rates:3f2a9c..."), to tell whether it
     changed since the user said to use it as it was (Settings.rate_sheets_ok). Of the file as read, not as it is

@@ -20,6 +20,7 @@ build can't see such imports, so it lists them (Courthouse.modules).
 from __future__ import annotations
 
 import importlib
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -127,7 +128,7 @@ def resolve(ref: str):
 
 @dataclass(frozen=True)
 class Party:
-    """One firm on pages several firms ordered, as a split rule (Courthouse.split_rule) sees it: its name (for the
+    """One firm on pages several firms ordered, as a split rule (SplitRule.split) sees it: its name (for the
     math's words: "Smith Law"; "This firm" for the one whose part is worked out), the speed it ordered (the rate
     sheet's name, "Daily"), the price of a page of the charge being split at that speed (the original, or the
     judge's index), and how fast that speed is (rank: higher is faster; its place among the rate sheet's speeds,
@@ -147,6 +148,53 @@ class Part:
     steps: tuple[tuple[str, Fraction], ...] = ()
 
 
+class SplitRule(ABC):
+    """A way of billing pages that firms ordered together at different speeds (a split order): how a charge billed
+    once for those pages (the original, the judge's index) is divided between the firms (split), and the words the
+    windows, the invoice and the math say it in. Each firm's own copy and e-mailed copy are its own, at its own
+    speed, whatever the rule, and so is its index unless Settings' Index on shared pages splits it (then the index is
+    billed once too, and divided by the rule: invoice_calc.quote_ordered).
+
+    A courthouse offers one or more (Courthouse.split_rules), the first its default; the user picks one in
+    Settings -> Invoice -> "Split invoices" (Settings.invoice_split_rule, by key). A new way is a subclass with its
+    own key, added to the courthouse's tuple: nothing else changes. Instances hold nothing but these words, so one
+    of each is made, at import.
+
+    key: its name in settings.json, never changed once released. label: its name in Settings. tip: its tooltip
+    there, in plain words with an example. summary: what it does, as a phrase for the windows' tips and "Who pays
+    what" ("each firm pays its share of the original as if every firm had ordered its speed"). note: said once in the math under an invoice with such pages. adds_up: said in the math under what
+    the firms pay together, of what their parts of an original add up to. invoice_note: the note printed on such
+    an invoice as it comes (the "mixed_speeds" row of Settings.invoice_texts, which the user may reword)."""
+    key: str = ""
+    label: str = ""
+    tip: str = ""
+    summary: str = ""
+    note: str = ""
+    adds_up: str = ""
+    invoice_note: str = ""
+
+    @abstractmethod
+    def split(self, parties: list[Party], me: int) -> Part:
+        """What parties[me] pays a page of a charge billed once for pages these firms ordered (each Party's rate
+        is that charge's price at its own speed), and how, in steps for the math. When every firm ordered one
+        speed it must be the usual split, the price ÷ the number of firms."""
+
+    @abstractmethod
+    def billed(self, speed: str, rate: Fraction) -> str:
+        """The math's words before a firm's steps, given the fastest speed ordered on the pages and the charge's
+        price there: "Billed once, at Immediate ($7.60 a page)"."""
+
+    @abstractmethod
+    def your_part(self, speed: str) -> str:
+        """After a firm's part on its invoice's granular detail, given the fastest speed ordered on the pages:
+        "your part, billed at Immediate"."""
+
+    @abstractmethod
+    def run_note(self, speed: str) -> str:
+        """After what each firm pays for a run in the Excerpts window, given its fastest speed: "one original,
+        at Immediate"."""
+
+
 @dataclass(frozen=True)
 class Courthouse:
     """A courthouse (or court-reporting agency): key, the name shown, and its outputs in the order they are
@@ -155,12 +203,12 @@ class Courthouse:
     rate sheet can be read, so a form still gets a rate: (speed, original, copy) each.
 
     How it bills firms that order the same pages (a split order) at different speeds, the first of its billing
-    rules (MIGRATION.md, BillingRules): split_rule, "module:name" of a function split(parties: list[Party], me:
-    int) -> Part, how a charge billed once for those pages (the original, the judge's index) is divided between
-    them ("" = it isn't: pages ordered together must all be at one speed); speeds_together, how many different
-    speeds may share pages (1 = one); speed_upfront, whether the firms of a split order must each commit to a
-    speed before they are billed (True: their invoices bill that speed alone, and Generate asks when it isn't
-    set), rather than choosing one from the invoice as a firm billed alone does.
+    rules (MIGRATION.md, BillingRules): split_rules, "module:name" of a tuple of SplitRule, the ways it may divide
+    a charge billed once for those pages (the original, the judge's index) between them, its default first, the
+    user choosing in Settings ("" = none: pages ordered together must all be at one speed); speeds_together, how
+    many different speeds may share pages (1 = one); speed_upfront, whether the firms of a split order must each
+    commit to a speed before they are billed (True: their invoices bill that speed alone, and Generate asks when
+    it isn't set), rather than choosing one from the invoice as a firm billed alone does.
 
     holidays: the days its courts are closed, (name, rule in plain words: workdays.parse_rule) each, the first list
     of Settings -> Dates (Settings.holidays): as that tab says, forms and invoices made on one are dated the next
@@ -172,22 +220,30 @@ class Courthouse:
     outputs: tuple[OutputSpec, ...]
     rate_sheets: Path | None = None
     fallback_rates: tuple[tuple[str, str, str], ...] = ()
-    split_rule: str = ""
+    split_rules: str = ""
     speeds_together: int = 1
     speed_upfront: bool = False
     holidays: tuple[tuple[str, str], ...] = ()
     holiday_weekend: str = "nearest"
 
     def modules(self) -> list[str]:
-        """Every module its outputs and rules name (maker, policy, panel, split_rule), each once: imported only
+        """Every module its outputs and rules name (maker, policy, panel, split_rules), each once: imported only
         when needed, by name, so the build lists them (YinItAgreementForm.spec), as it can't see such imports."""
         refs = [r for o in self.outputs for r in (o.maker, o.policy, o.panel) if r]
-        refs += [self.split_rule] if self.split_rule else []
+        refs += [self.split_rules] if self.split_rules else []
         return list(dict.fromkeys(r.partition(":")[0] for r in refs))
 
-    def split_rule_impl(self):
-        """What split_rule names, imported now; None when the courthouse has none (mixed speeds can't be billed)."""
-        return resolve(self.split_rule) if self.split_rule else None
+    def split_rules_impl(self) -> tuple[SplitRule, ...]:
+        """The rules split_rules names, imported now, the default first; () when the courthouse has none (mixed
+        speeds can't be billed). ValueError when they aren't SplitRules with keys of their own."""
+        found = resolve(self.split_rules) if self.split_rules else ()
+        if not isinstance(found, (tuple, list)):  # (one rule, or something else, named instead of a tuple of them)
+            raise ValueError(f"courthouse {self.key!r}: split_rules must name a tuple of SplitRules")
+        rules = tuple(found)
+        keys = [r.key for r in rules if isinstance(r, SplitRule)]
+        if len(keys) != len(rules) or not all(keys) or len(set(keys)) != len(keys):
+            raise ValueError(f"courthouse {self.key!r}: split_rules must be SplitRules, each with a key of its own")
+        return rules
 
     def __post_init__(self):
         keys = [o.key for o in self.outputs]
@@ -198,6 +254,6 @@ class Courthouse:
             raise ValueError(f"courthouse {self.key!r}: two outputs share a mark ({', '.join(marks)})")
         if self.speeds_together < 1:
             raise ValueError(f"courthouse {self.key!r}: speeds_together must be 1 or more")
-        if self.speeds_together > 1 and not self.split_rule:
-            raise ValueError(f"courthouse {self.key!r}: several speeds may share pages, but no split_rule says "
+        if self.speeds_together > 1 and not self.split_rules:
+            raise ValueError(f"courthouse {self.key!r}: several speeds may share pages, but no split_rules say "
                              "how they are billed")

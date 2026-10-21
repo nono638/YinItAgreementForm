@@ -18,7 +18,7 @@ import pymupdf
 import pytest
 
 from helpers import ROE, make_case, pat_settings
-from minute_filler.courthouses.queens_supreme_civil.billing import split
+from minute_filler.courthouses.queens_supreme_civil.billing import MAKE_WHOLE
 from minute_filler.invoice import DayOrder, InvoiceOpts, Portion, _detail, firm_invoices, make_invoices
 from minute_filler.invoice_calc import Share, index_days, quote, quote_ordered, quote_shares, to_cent
 from minute_filler.invoice_math import explain, together
@@ -104,10 +104,10 @@ def test_pages_ordered_together_at_different_speeds(s):
     alone. Its price a page: $2.1666… + 3 x $1.25 + $0.41666… = $6.3333… on the 60, $9.00 on the 25 (no index)."""
     shares = [Share(60, 3, True, "Daily", (("Smith Law", "Immediate"), ("Counsel & Counsel", "Daily"))),
               Share(25, 1, False, "Daily")]
-    q = quote_ordered(shares, s.sheet(), split, by_page=True)
+    q = quote_ordered(shares, s.sheet(), MAKE_WHOLE, by_page=True)
     assert q.prices == [(Fraction(19, 3), 60), (Fraction(9), 25)]
     assert q.per_party == Decimal("604.80")  # 60 x 6.33 + 25 x 9.00
-    assert quote_ordered(shares, s.sheet(), split).per_party == Decimal("605.00")
+    assert quote_ordered(shares, s.sheet(), MAKE_WHOLE).per_party == Decimal("605.00")
 
 
 def test_the_prices_a_page_add_up_to_the_exact_share(s):
@@ -132,7 +132,7 @@ def test_the_prices_a_page_add_up_to_the_exact_share(s):
         names = [x.name for x in sheet.speeds]  # (with another firm on the pages at any speed, or none)
         ordered = [Share(x.pages, x.n, x.indexed, rnd.choice(names),
                          (("Smith Law", rnd.choice(names)),) if x.n > 1 else ()) for x in shares]
-        q = quote_ordered(ordered, sheet, split, rnd.random() < 0.5, mode == "split", by_page=True)
+        q = quote_ordered(ordered, sheet, MAKE_WHOLE, rnd.random() < 0.5, mode == "split", by_page=True)
         assert sum(p * k for p, k in q.prices) == q.due
         assert q.per_party == sum(to_cent(p) * k for p, k in q.prices)
 

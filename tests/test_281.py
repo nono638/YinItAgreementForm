@@ -24,10 +24,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 CASE = "Jane Roe v. X.Y. Holding Corporation"
 OLD_SHEET = ("Rate,Original,Copy,Email,Index,Days\r\n"
-             "Immediate,$7.60,$1.45,$1.45,$1.45,0\r\n"
+             "Immediate,\"$1,007.60\",$1.45,$1.45,$1.45,0\r\n"
              "Daily,$6.50,$1.25,$1.25,$1.25,1\r\n"
              "Expedite,$5.40,$1.10,$1.10,$1.10, 7\r\n"
-             "Regular,\"$1,004.30\",$1.00,$1.00,$1.00,21\r\n"
+             "Regular,$4.30,$1.00,$1.00,$1.00,21\r\n"
              ",,,,,\r\n"
              "Rates Last Updated:,5/2/2024,,,,\r\n")
 
@@ -72,7 +72,7 @@ def test_a_sheet_with_the_old_days_is_found_and_only_its_days_change(tmp_path):
     assert p.read_bytes() == b"\xef\xbb\xbf" + want.encode()
     sheet = load_sheet(p)
     assert [(sp.name, sp.days) for sp in sheet.speeds if sp.name in ("Expedite", "Regular")] == [
-        ("Expedite", 5), ("Regular", 15)] and not old_days(sheet)
+        ("Regular", 15), ("Expedite", 5)] and not old_days(sheet)
     assert not list(tmp_path.glob("*.new"))
 
 
@@ -174,6 +174,19 @@ def test_a_sheet_being_filled_in_is_asked_about_once_it_has_its_prices(old_sheet
     path.write_bytes(OLD_SHEET.replace("Rates Last", ",,,,,\r\nRates Last").encode())  # (saved: another size)
     win._sheet_saved()
     assert win._sheet_watched is None and win._days_box is not None
+    answer(win, "Keep 7 and 21")
+
+
+def test_a_lower_price_alone_doesnt_hold_the_question(old_sheet_window):
+    """Watched while being fixed, a sheet with all its prices whose only problem is a price lower at a faster
+    speed (the user may mean it) is asked about its Days all the same (the review of the 2026-10-21 sweep)."""
+    win, path = old_sheet_window(business_days=False)  # (nothing asked at the start)
+    path.write_bytes(OLD_SHEET.replace("Daily,$6.50,$1.25", "Daily,$6.50,$1.05").encode())  # (Copy below Expedite's)
+    win.s.reload_rates()
+    win.s.turnaround_business_days = True
+    win._watch_sheet(path)
+    win._check_old_days()
+    assert win._days_box is not None
     answer(win, "Keep 7 and 21")
 
 

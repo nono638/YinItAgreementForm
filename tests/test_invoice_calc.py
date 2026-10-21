@@ -1,15 +1,19 @@
-"""The invoice arithmetic at its edges: an index from exactly the threshold, the "total" rule, the index decided by
-the whole transcript (every reporter's pages) and charged on the user's own, and why in a few words, a firm's
-share of one page, of no pages and of stretches ordered alone and with others (the parts the small print adds up),
-no $0 lines, no "÷ 1 firm", and Parties 0. Most tests catch changes to invoice_calc.py that a mutation run
-(tools/mutate.py) showed no other test would. Prices are from the bundled "Sample Rates" sheet (Regular: original
-$4.30, copy, e-mailed copy and index $1.00 a page); names are made up."""
+"""The invoice arithmetic at its edges: an index from exactly the threshold, the "total" rule, the index decided by the
+whole transcript (every reporter's pages) and charged on the user's own, and why in a few words, a firm's share of
+one page, of no pages and of stretches ordered alone and with others (the parts the small print adds up), no $0
+lines, no "÷ 1 firm", Parties 0, a firm's ordered quote at its edges (no pages, no speed, the parties a Parties
+number counts, a speed tag on its lines) and the numbers worked out as they are. Most tests catch changes to
+invoice_calc.py that a mutation run (tools/mutate.py) showed no other test would. Prices are from the bundled "Sample
+Rates" sheet (Regular: original $4.30, copy, e-mailed copy and index $1.00 a page); names are made up."""
 from decimal import Decimal
+from fractions import Fraction
 
 import pytest
 
+from minute_filler import courthouses
 from minute_filler.invoice import DayOrder, FirmInvoice, InvoiceOpts, Portion, firm_invoices, index_reason
-from minute_filler.invoice_calc import Share, index_days, quote, quote_shares
+from minute_filler.invoice_calc import (Quote, Share, exact_number, index_days, money_exact, page_prices_text,
+                                        quote, quote_ordered, quote_shares)
 from minute_filler.invoice_math import explain
 from minute_filler.models import Attorney
 from minute_filler.rates import Speed
@@ -183,3 +187,82 @@ def test_a_quote_of_no_pages_costs_nothing_a_page(sp):
     """No pages: no lines and $0.00 a page (not a division by zero)."""
     q = quote(0, sp)
     assert (q.lines, q.total, q.per_page) == ([], Decimal("0.00"), Decimal("0.00"))
+
+
+def test_a_charge_the_sheet_does_not_have_adds_nothing_to_the_price_a_page():
+    """A speed with no e-mailed copy or index column: its price a page (Quote.prices, what rounding by the page
+    rounds) is the original and the copy only."""
+    q = quote(10, Speed("Plain", "4.30", "1.00"), by_page=True)
+    assert q.prices == [(Fraction("5.30"), 10)] and q.per_party == Decimal("53.00")
+
+
+# ------------------------------------------------------------------ the numbers as worked out
+def test_a_number_as_worked_out_keeps_only_the_decimals_it_has():
+    assert exact_number(Decimal("8"), 2) == "8"
+    assert exact_number(Decimal("8.175"), 4) == "8.175"
+    assert exact_number(Decimal(1000), 4, 2) == "1,000.00"
+    # part of a cent too small to show at 4 places, over or under: the cents, then "…"
+    assert money_exact(Decimal("2.00004")) == money_exact(Decimal("1.99996")) == "$2.00…"
+
+
+def test_the_prices_a_page_say_which_were_rounded():
+    """By the page: a price in whole cents as it is, one rounded up said so, and 1 page is "1 page"."""
+    q = Quote("Immediate", 41, 4, prices=[(Fraction("6.30"), 40), (Fraction("6.6175"), 1)], by_page=True)
+    assert page_prices_text(q) == "$6.30 a page × 40 pages + $6.6175 a page, rounded to $6.62, × 1 page"
+    assert page_prices_text(q, short=True) == "40 × $6.30 + 1 × $6.62"
+
+
+# ------------------------------------------------------------------ a firm's ordered quote
+@pytest.fixture
+def sheet():
+    return pat_settings().sheet()
+
+
+def ordered(sheet, *shares):
+    return quote_ordered(list(shares), sheet, courthouses.split_rule())
+
+
+def test_an_ordered_quote_needs_the_speed_of_its_pages(sheet):
+    for shares in ([], [Share(10)], [Share(10, speed="Daily"), Share(5)]):
+        with pytest.raises(ValueError, match="needs the speed of every page"):
+            ordered(sheet, *shares)
+
+
+def test_an_ordered_stretch_of_no_pages_is_left_out(sheet):
+    """Pages of another speed that come to none (or fewer: a portion that ends before it starts) name no speed:
+    the lines are the one speed's, untagged."""
+    alone = ordered(sheet, Share(10, speed="Daily"))
+    for other in (Share(0, speed="Regular"), Share(-5, speed="Regular")):
+        q = ordered(sheet, Share(10, speed="Daily"), other)
+        assert (q.speed, q.ordered, labels(q)) == ("Daily", ("Daily",), labels(alone))
+        assert q.per_party == alone.per_party
+
+
+def test_an_ordered_stretch_by_no_firm_counts_as_ordered_alone(sheet):
+    q = ordered(sheet, Share(10, 0, speed="Daily"))
+    assert q.per_party == ordered(sheet, Share(10, speed="Daily")).per_party == Decimal("90.00")
+    assert not line(q, "Original").shared
+
+
+def test_two_speeds_tag_their_lines_one_does_not(sheet):
+    q = ordered(sheet, Share(10, speed="Daily"), Share(5, speed="Regular"))
+    assert q.speed == "Daily + Regular"
+    assert labels(q)[:2] == ["Original (Daily)", "Copy (Daily)"] and "Original (Regular)" in labels(q)
+    assert line(q, "Original (Daily)").charge == "Original"
+    assert labels(ordered(sheet, Share(10, speed="Daily")))[:2] == ["Original", "Copy"]
+
+
+def test_an_original_is_shared_only_with_another_firm(sheet):
+    alone = ordered(sheet, Share(10, speed="Daily"))
+    both = ordered(sheet, Share(10, 2, speed="Daily", others=(("Smith Law", "Daily"),)))
+    assert not line(alone, "Original").shared
+    assert line(both, "Original").shared and not line(both, "Copy").shared
+
+
+@pytest.mark.parametrize("n", [3, 4])
+def test_the_parties_a_parties_number_counts_beyond_the_firms_named_order_this_firms_speed(sheet, n):
+    """n firms on the pages, one named (Immediate): the n - 2 others counted are taken at this firm's Daily, so
+    this firm, a slower one, pays Daily's original ÷ n."""
+    q = ordered(sheet, Share(10, n, speed="Daily", others=(("Smith Law", "Immediate"),)))
+    x = line(q, "Original").stretches[0]
+    assert x.mixed and x.n == n and x.per_page == Fraction("6.50") / n

@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout,
 )
 
+from .. import courthouses
 from ..excerpts import (
     Day, Run, billed_in, carve, case_days, firms_of, prices, remove, runs_of, store, whole_day,
 )
@@ -92,8 +93,8 @@ class ExcerptsWindow(QDialog):
                        f"{shared_words(s)}; each firm pays for its own {own_words(s)}. A run nobody ticks is billed "
                        "to nobody. Each colour is one set of firms ordering together, as listed under the table. "
                        "Firms ordering the same pages commit to a speed: set each firm's above the table, or one "
-                       "run's by right-clicking its box. At different speeds the original is billed once, at the "
-                       "fastest, and each firm pays its share at its own speed.")
+                       "run's by right-clicking its box. At different speeds the original is billed once and "
+                       "divided as Settings → Invoice → Split invoices says.")
         intro.setWordWrap(True)
         intro.setObjectName("muted")
         lay.addWidget(intro)
@@ -318,7 +319,8 @@ class ExcerptsWindow(QDialog):
     def _summary(self, p, shown: list[str]) -> str:
         """The prices under the table: by the firms ordering together (at the speeds they ordered, when set:
         "Counsel & Counsel (Daily) + Smith Law (Immediate): 60 pp. - Counsel & Counsel pays $345.00, Smith Law
-        $435.00 (one original, at Immediate)"), then each firm's invoice."""
+        $435.00 (one original, at Immediate)", the split rule chosen in Settings saying how: SplitRule.run_note),
+        then each firm's invoice."""
         names = {a.key(): a.label() for a in self.firms}
         if not shown and not p.ordered:
             return "<i>Tick a speed above to see the prices.</i>"
@@ -331,6 +333,7 @@ class ExcerptsWindow(QDialog):
             lines.append(f"{swatch}{who}{' only' if alone else ''}: {pages} pp. - "
                          + (f"costs {costs}" if alone else f"each of the {len(keys)} pays {costs}"))
         order = {sp.name: i for i, sp in enumerate(self.s.sheet().speeds)}  # (cheapest first: the last, fastest)
+        rule = courthouses.split_rule(self.s.invoice_split_rule)
         for i, (pairs, pages, each) in enumerate(p.ordered_groups, len(p.groups)):
             who = " + ".join(f"{names.get(k, k)} ({sp})" for k, sp in pairs)
             swatch = f'<span style="color:{GROUP_COLORS[i % len(GROUP_COLORS)]}">■</span> '
@@ -341,7 +344,7 @@ class ExcerptsWindow(QDialog):
                              for n, (k, _) in enumerate(pairs))
             kinds = list(dict.fromkeys(sp for _, sp in pairs))
             fastest = max(kinds, key=lambda sp: order.get(sp, -1))
-            how = f" (one original, at {fastest})" if len(kinds) > 1 else ""
+            how = f" ({rule.run_note(fastest)})" if len(kinds) > 1 else ""
             lines.append(f"{swatch}{who}: {pages} pp. - {pays}{how}")
         nobody = sum(billed_in(r.day, r) for r in self.runs if not r.keys)
         if nobody:

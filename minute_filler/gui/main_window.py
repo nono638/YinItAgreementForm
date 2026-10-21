@@ -20,8 +20,8 @@ The job list is a tree: a row per job (Case / file, Date, Pages, Yours) and, und
 a row per document; a document with no index number, or with another than its job's, gets a ⚠ there and a note
 under the list (_label_docs, _show_index_notes), and Generate asks first about documents whose index numbers
 don't match (_ask_index_numbers).
-The "Minute agreement form details" card holds the rate sheet (one missing prices is warned about:
-_check_rate_sheet; opened from that warning to be filled in, it is read again each time it is saved: _watch_sheet)
+The "Minute agreement form details" card holds the rate sheet (one missing prices, or with a price lower at a faster
+speed, is warned about: _check_rate_sheet; opened from that warning to be filled in, it is read again each time it is saved: _watch_sheet)
 and the one speed and rate the agreement form names (the Settings rule's,
 Settings.agreement_speed, or the job's own choice; when an e-mail asks for another speed, the user is asked
 which), among the speeds the invoice offers (ticked in the Invoice panel, each at its price). A firm whose speed
@@ -116,7 +116,7 @@ ORDER_TIPS = {  # the headings' tooltips
     "Pages ordered": "The pages of the day this attorney ordered: every page, or an excerpt (Excerpts…)",
     "Speed": "The speed this attorney ordered its pages of the day at. Firms that ordered the same pages commit "
              "to a speed (Generate asks when one isn't set) and are billed it alone: at different speeds the "
-             "original is billed once, at the fastest, and each pays its share at its own speed. A firm "
+             "original is billed once and divided as Settings → Invoice → Split invoices says. A firm "
              "ordering alone may leave it to choose from its invoice. Different speeds for different pages: "
              "Excerpts…",
     "Printed page numbers": "The page numbers printed on those pages of the transcript",
@@ -1016,6 +1016,9 @@ class MainWindow(QMainWindow):
         self._sheets_warned: set[str] = set()
         self._days_box = None  # the question about a rate sheet's old Days while it is open (_check_old_days)
         self._days_later: set[str] = set()  # the sheets answered Not now this session (_check_old_days)
+        # the rate sheet changed while Generate all ran: checked when it ends (the sheet in use before then, for Go
+        # back; None: nothing waits)
+        self._sheet_check_later: str | None = None
         # the incomplete rate sheet opened from that warning to be filled in: read again and checked each time it
         # is saved (_watch_sheet, _sheet_saved). Its path and the file's size and time as last read; the watcher
         # is made when first needed
@@ -3350,17 +3353,19 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------ rate sheets / speed
     def _fill_sheet_box(self):
-        """Lists the rate sheets (each tooltip shows its speeds, the headings read as another price's and the prices
-        it is missing), says which files were skipped, then the speeds."""
-        from ..rates import missing_prices
+        """Lists the rate sheets (each tooltip shows its speeds, the headings read as another price's, the prices
+        it is missing and those lower at a faster speed), says which files were skipped, then the speeds."""
+        from ..rates import cheaper_faster, missing_prices
         sheets, problems = self.s.sheets()
         current = self.s.sheet()
         shown = sheets or [current]
 
         def missing(sh) -> str:
-            """'\n⚠ Missing: Regular: Email, Index; Realtime: Original' ('' for a complete sheet)."""
-            gaps = missing_prices(sh)
-            return ("\n⚠ Missing: " + "; ".join(f"{name}: {', '.join(what)}" for name, what in gaps)) if gaps else ""
+            """'\n⚠ Missing: Regular: Email, Index; Realtime: Original', then any price lower at a faster speed ('' for
+            a complete sheet in order)."""
+            gaps, cheaper = missing_prices(sh), cheaper_faster(sh)
+            out = ("\n⚠ Missing: " + "; ".join(f"{name}: {', '.join(what)}" for name, what in gaps)) if gaps else ""
+            return out + (("\n⚠ Lower at a faster speed: " + "; ".join(cheaper)) if cheaper else "")
 
         days = "business days" if self.s.turnaround_business_days else "days"
         tips = ["\n".join(sp.label() + (f"  ·  {sp.days} {days}" if sp.days is not None else "") for sp in sh.speeds)
@@ -3634,7 +3639,9 @@ class MainWindow(QMainWindow):
                           sheet=None) -> bool:
         """Warns when the rate sheet in use leaves out prices (rates.missing_prices): a speed left off the sheet is
         one not offered, which is fine, but every speed on it needs its Original, Copy, Email and Index price, or
-        invoices come out wrong (the user, 2026-10-09). Called whenever the sheet in use may have changed: at start
+        invoices come out wrong (the user, 2026-10-09); or when a price is lower at a faster speed
+        (rates.cheaper_faster), which can't be right, though the prices are the user's to get right (2026-10-20).
+        Called whenever the sheet in use may have changed: at start
         (it may have been edited meanwhile), when another is picked or the sheets are read again (⟳), and after
         Settings or an import. Use it anyway remembers the sheet as it was read (Settings.rate_sheets_ok, by
         rates.sheet_fingerprint, the last RATE_SHEETS_OK_KEPT): not asked again until its file is changed and read
@@ -3646,32 +3653,43 @@ class MainWindow(QMainWindow):
         already (they are priced from `previous` again on Go back). sheet: the one to check, when it isn't in use
         yet (picked in the dropdown: Settings names it only once it is kept). False = Go back was clicked (the
         sheet before is in use again)."""
-        from ..rates import missing_prices, sheet_fingerprint
+        from ..rates import cheaper_faster, missing_prices, sheet_fingerprint
         from ..settings import RATE_SHEETS_OK_KEPT
+        if self.filling:  # (Generate all runs, on its own copy of the settings: asked when it ends, _batch_ended)
+            if self._sheet_check_later is None:  # (the first sheet before: Go back goes there)
+                self._sheet_check_later = previous
+            return True
         sheet = sheet or self.s.sheet()
-        gaps = missing_prices(sheet)
+        gaps, cheaper = missing_prices(sheet), cheaper_faster(sheet)
         mark = sheet_fingerprint(sheet)
-        if not gaps or not mark or mark in self.s.rate_sheets_ok or (mark in self._sheets_warned and not again):
+        if (not (gaps or cheaper) or not mark or mark in self.s.rate_sheets_ok
+                or (mark in self._sheets_warned and not again)):
             return True
         self._sheets_warned.add(mark)
         lines = "\n".join(f"•  {name}: no {_or(what)} price"
                           + (" (so it isn't offered at all)" if what == ["Original"] else "") for name, what in gaps[:8])
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("Your rate sheet is incomplete")
-        box.setText(f'The rate sheet "{sheet.name}" is missing some prices:\n\n{lines}'
-                    + ("\n…" if len(gaps) > 8 else "") + "\n\nLeaving off a speed you don't offer is fine, but every "
-                    "speed on the sheet needs all four prices: Original, Copy, Email and Index. Without them, "
-                    "invoices can come out wrong (no index charged, or copies at $0.00)."
-                    + (' The Email and Index prices are read from the columns headed so, or close to it ("E-mail", '
-                       '"Index Price") when only one column is.' if any({"Email", "Index"} & set(what)
-                                                                        for _, what in gaps) else "")
-                    + "\n\nUse this rate sheet anyway?")
+        box.setWindowTitle("Your rate sheet is incomplete" if gaps else "Your rate sheet's prices look wrong")
+        said = [f'The rate sheet "{sheet.name}" is missing some prices:\n\n{lines}'
+                + ("\n…" if len(gaps) > 8 else "") + "\n\nLeaving off a speed you don't offer is fine, but every "
+                "speed on the sheet needs all four prices: Original, Copy, Email and Index. Without them, "
+                "invoices can come out wrong (no index charged, or copies at $0.00)."
+                + (' The Email and Index prices are read from the columns headed so, or close to it ("E-mail", '
+                   '"Index Price") when only one column is.' if any({"Email", "Index"} & set(what)
+                                                                    for _, what in gaps) else "")] if gaps else []
+        if cheaper:
+            said.append(("It also has" if gaps else f'The rate sheet "{sheet.name}" has')
+                        + " prices that are lower at a faster speed:\n\n" + "\n".join(f"•  {c}" for c in cheaper[:8])
+                        + ("\n…" if len(cheaper) > 8 else "") + "\n\nA faster speed shouldn't cost less: please "
+                        "check these against your own rates.")
+        box.setText("\n\n".join(said) + "\n\nUse this rate sheet anyway?")
         use = box.addButton("Use it anyway", QMessageBox.AcceptRole)
         names = [sh.name for sh in self.s.sheets()[0]]
         back = box.addButton(f"Go back to {previous}", QMessageBox.RejectRole) \
             if previous and previous != sheet.name and previous in names else None
-        fix = box.addButton("Open the sheet to fill it in", QMessageBox.ActionRole)
+        fix = box.addButton("Open the sheet to fill it in" if gaps else "Open the sheet to fix it",
+                            QMessageBox.ActionRole)
         fix.setToolTip(f'Opens "{sheet.path.name}" in Excel (or the program that opens CSV files on this '
                        "computer).\nEach time you save it, it is read again and checked.")
         later = box.addButton("Not now", QMessageBox.RejectRole) if back is None else None
@@ -3681,6 +3699,8 @@ class MainWindow(QMainWindow):
         if box.clickedButton() is use:
             self.s.rate_sheets_ok = [m for m in self.s.rate_sheets_ok if m != mark][-(RATE_SHEETS_OK_KEPT - 1):] + [mark]
             self._save_settings()
+            if self._sheet_watched is not None and self._sheet_watched[0] == sheet.path:
+                self._unwatch_sheet()  # (opened to be fixed, then kept as it is: no note at each save)
         elif back is not None and box.clickedButton() is back:
             self.s.rate_sheet = previous
             self._fill_sheet_box()
@@ -3700,13 +3720,15 @@ class MainWindow(QMainWindow):
         into the sheet (rates.set_new_days) and prices every job again; Keep is remembered for that sheet
         (Settings.sheet_days_kept); Not now (and Esc, and the box's X) asks again at the next start. Called where
         _check_rate_sheet is, after it, and once a sheet opened to be filled in has all its prices (_sheet_saved):
-        not while it is (one question at a time, and the sheet waits for its prices first). Not asked while
+        not while it misses some (one question at a time, and the sheet waits for its prices first; a price lower
+        at a faster speed doesn't hold it, as the user may mean it). Not asked while
         Generate all runs, nor with business days off (Settings -> Dates: 7 and 21 are calendar days again then).
         Not modal to the app (open, not exec): nothing waits for the answer."""
-        from ..rates import OLD_DAYS, old_days
+        from ..rates import OLD_DAYS, cheaper_faster, missing_prices, old_days
         from ..settings import RATE_SHEETS_OK_KEPT
         sheet = self.s.sheet()
-        watched = self._sheet_watched is not None and self._sheet_watched[0] == sheet.path
+        watched = (self._sheet_watched is not None and self._sheet_watched[0] == sheet.path
+                   and (bool(missing_prices(sheet)) or not cheaper_faster(sheet)))
         if (self._days_box is not None or self.filling or watched or not self.s.turnaround_business_days
                 or not old_days(sheet) or sheet.name in self.s.sheet_days_kept or sheet.name in self._days_later):
             return
@@ -3799,6 +3821,26 @@ class MainWindow(QMainWindow):
         self._sheet_watched = (path, _file_mark(path))
         self._sheet_watch.addPaths([str(path), str(path.parent)])
 
+    def _batch_ended(self) -> None:
+        """Generate all (or its preview) ended: the rate sheet check held back while it ran (_check_rate_sheet: a
+        sheet picked or read again meanwhile) is made soon (_held_sheet_check)."""
+        if self._sheet_check_later is not None:
+            QTimer.singleShot(0, self, self._held_sheet_check)
+
+    def _held_sheet_check(self) -> None:
+        """The rate sheet check held back while Generate all ran, then its old Days question (both wait for the
+        batch). Not under the batch's own windows (Batch finished, The math, the preview's Save or Go back): again
+        in half a second while one is open; a new batch checks when it ends. Go back goes to the sheet in use
+        before the batch's picks."""
+        if self._sheet_check_later is None or self.filling:
+            return
+        if QApplication.activeModalWidget() is not None:
+            QTimer.singleShot(500, self, self._held_sheet_check)
+            return
+        previous, self._sheet_check_later = self._sheet_check_later, None
+        self._check_rate_sheet(previous, again=True)
+        self._check_old_days()
+
     def _unwatch_sheet(self) -> None:
         """No rate sheet is watched any more (_watch_sheet)."""
         self._sheet_watched = None
@@ -3812,9 +3854,11 @@ class MainWindow(QMainWindow):
         """The rate sheet opened to be filled in, or its folder, changed (a second ago: SHEET_SAVED_MS). When the
         file itself was saved and can be read: the sheets are read again and every job priced again, as ⟳ does,
         and the note at the bottom says whether the sheet has all its prices now or what it still misses (no box:
-        the user may save as they go). Watched until it has them all, or isn't the sheet in use any more. Waits
+        the user may save as they go), and which prices are still lower at a faster speed (rates.cheaper_faster).
+        Watched until it has them all and none is lower, until Use it anyway keeps it as it is (_check_rate_sheet), or
+        until it isn't the sheet in use any more; the old Days question waits only for missing prices. Waits
         while a question is on screen or Generate all runs: what they show isn't priced again under them."""
-        from ..rates import load_sheet, missing_prices, sheet_fingerprint
+        from ..rates import cheaper_faster, load_sheet, missing_prices, sheet_fingerprint
         if self._sheet_watched is None:
             return
         if QApplication.activeModalWidget() is not None or self.filling:
@@ -3839,14 +3883,16 @@ class MainWindow(QMainWindow):
         if sheet.path != path:  # (no longer read as a sheet: _fill_sheet_box said why)
             self._unwatch_sheet()
             return
-        gaps = missing_prices(sheet)
+        gaps, cheaper = missing_prices(sheet), cheaper_faster(sheet)
         self._sheets_warned.add(sheet_fingerprint(sheet))  # (told below: no box about it again this session)
-        if gaps:
-            self._toast(f'Read "{sheet.name}" again. Still missing: '
-                        + "; ".join(f"{name}: {_or(what)}" for name, what in gaps))
+        if gaps or cheaper:
+            still = ["Still missing: " + "; ".join(f"{name}: {_or(what)}" for name, what in gaps)] if gaps else []
+            still += ["Still lower at a faster speed: " + "; ".join(cheaper)] if cheaper else []
+            self._toast(f'Read "{sheet.name}" again. ' + ". ".join(still))
         else:
             self._unwatch_sheet()
-            self._toast(f'Read "{sheet.name}" again: it has all its prices now.')
+            self._toast(f'Read "{sheet.name}" again: its prices are all there and in order now.')
+        if not gaps:
             self._check_old_days()  # (its Days, waiting for the prices)
 
     def _remerge_others(self):
@@ -4999,6 +5045,7 @@ class MainWindow(QMainWindow):
             self._idle()
             self.fill_btn.setEnabled(True)
             self._refresh_job_labels()
+            self._batch_ended()
 
         def done(paths):
             ended()
@@ -5059,6 +5106,7 @@ class MainWindow(QMainWindow):
             self._update_header_buttons()
             self._idle()
             self.fill_btn.setEnabled(True)
+            self._batch_ended()
 
         def step(i, n, name):
             self.busy.setRange(0, n)

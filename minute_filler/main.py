@@ -16,7 +16,7 @@ def selftest(out_dir: str, files: list[str]) -> int:
     clean and original: fill.FORMS), checks the libraries a build can lose without anything else failing (fuzzy_search,
     regex_search, heic_photos, update_check, printing, math_pdf, single_instance, moving_picture, help_search,
     tick_marks: True each, else the error), that the code each output names can be imported (outputs) and that the
-    courthouse's split rule bills a made-up split order as the workbook does (mixed_speeds), then writes
+    courthouse's split rules bill a made-up split order as the workbooks do (mixed_speeds), then writes
     selftest.json into out_dir.
     The default settings are used; the saved ones are not touched."""
     import json
@@ -107,18 +107,23 @@ def selftest(out_dir: str, files: list[str]) -> int:
         report["outputs"] = True
     except Exception as e:
         report["outputs"] = f"{type(e).__name__}: {e}"
-    try:  # firms ordering the same pages at different speeds are billed by the courthouse's split rule, imported
-        # by name too (courthouses.Courthouse.split_rule): the workbook's example, 10 pages, Daily and Immediate
+    try:  # firms ordering the same pages at different speeds are billed by the courthouse's split rules, imported
+        # by name too (courthouses.Courthouse.split_rules): the workbooks' example, 10 pages, Daily and Immediate,
+        # Make-Whole Split (the default) and Same-Speed Split
         from minute_filler import courthouses
         from minute_filler.invoice_calc import Share, quote_ordered
         from minute_filler.rates import RateSheet, Speed
         sheet = RateSheet("selftest", None, [
             Speed("Daily", "6.50", "1.25", extras={"Email": "1.25"}),
             Speed("Immediate", "7.60", "1.45", extras={"Email": "1.45"})])
-        rule = courthouses.split_rule()
-        daily = quote_ordered([Share(10, 2, False, "Daily", (("B", "Immediate"),))], sheet, rule)
-        immediate = quote_ordered([Share(10, 2, False, "Immediate", (("A", "Daily"),))], sheet, rule)
-        report["mixed_speeds"] = (str(daily.per_party), str(immediate.per_party)) == ("57.50", "72.50")
+        got = []
+        for key in ("make_whole", "same_speed"):
+            rule = courthouses.split_rule(key)
+            daily = quote_ordered([Share(10, 2, False, "Daily", (("B", "Immediate"),))], sheet, rule)
+            immediate = quote_ordered([Share(10, 2, False, "Immediate", (("A", "Daily"),))], sheet, rule)
+            got.append((rule.key, str(daily.per_party), str(immediate.per_party)))
+        want = [("make_whole", "57.50", "72.50"), ("same_speed", "57.50", "67.00")]
+        report["mixed_speeds"] = True if got == want else f"got {got}"  # (which rule went wrong, or went missing)
     except Exception as e:
         report["mixed_speeds"] = f"{type(e).__name__}: {e}"
     try:  # the Help search's sense of meaning reads data/help_words.bin (the spec's datas) and forgives typos with

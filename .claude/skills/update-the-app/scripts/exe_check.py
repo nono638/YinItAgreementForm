@@ -16,7 +16,7 @@ fields" button, removed in 1.3.1); one run sheet with the 4 takes of each day; a
 libraries only the window uses are in the build (the Records' Fuzzy and Regex searches, HEIC photos, the look
 for a newer version, printing, The math as a PDF, the moving yin-yang, the Help search's word table and typo
 fixing, the tick in ticked boxes), and so is the code the courthouse names by "module:name" (each output's maker,
-rules and window panel, and the split rule billing firms at different speeds: the spec's hiddenimports). Exit code
+rules and window panel, and the split rules billing firms at different speeds: the spec's hiddenimports). Exit code
 1 if something is off.
 """
 import csv
@@ -147,7 +147,7 @@ for key, what, lib in (("fuzzy_search", "the Records' Fuzzy search", "rapidfuzz"
                        ("outputs", "the outputs' code (makers, rules, window panels)",
                         "each module courthouses names (see the spec's hiddenimports)"),
                        ("mixed_speeds", "billing firms that order at different speeds",
-                        "the courthouse's split rule (Courthouse.modules, the spec's hiddenimports)")):
+                        "the courthouse's split rules (Courthouse.modules, the spec's hiddenimports)")):
     got = st.get(key, "no selftest.json" if not st else "missing from selftest.json")
     print(f"  {key.replace('_', ' ')}:", got)
     if got is not True:

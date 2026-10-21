@@ -19,7 +19,7 @@ firms ordering together pays for its pages ("A + B: 15 pp., each pays ..."), and
 Each firm on a run ordered it at a speed (Run.speeds; the day's, Job.speeds, unless the run has its own). A
 firm billed alone may leave it unset and choose from its invoice; firms that ordered a run together commit to
 theirs (courthouses.speed_upfront), and are priced at it (invoice_calc.quote_ordered): at different speeds, the
-run's one original is billed at the fastest and divided as the courthouse's split rule says. Until a speed is
+run's one original is divided as the courthouse's split rule chosen in Settings says. Until a speed is
 set, such a firm is priced at the agreement form's (invoice.default_speed), as Generate's question offers.
 """
 from __future__ import annotations
@@ -332,7 +332,7 @@ def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
         return q.per_party if by_page else q.total
 
     out = Prices([sp.name for sp in speeds], fallback=default_speed(case, s))
-    upfront, rule = courthouses.speed_upfront(), courthouses.split_rule()
+    upfront, rule = courthouses.speed_upfront(), courthouses.split_rule(s.invoice_split_rule)
     names = {a.key(): a.label() for a in firms_of(group)}
 
     def shares_of(run: Run, key: str | None = None) -> list[Share]:

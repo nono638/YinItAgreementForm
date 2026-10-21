@@ -708,7 +708,7 @@ $207.50.</p>
 """),
     T("exc-speeds", EXCERPTS, "Firms ordering the same pages at different speeds",
       "split order shared pages different speeds daily immediate faster slower fastest commit speed which speed "
-      "did each firm order",
+      "did each firm order split invoices",
       """
 <p>When firms order the same pages, each one <b>commits to a speed</b> and is billed that speed alone. Only a firm
 ordering by itself gets the invoice that lists every speed to choose from.</p>
@@ -718,13 +718,15 @@ for one run, by right-clicking the firm's box in Excerpts… (<i>Dana Smith on t
 Excerpts table set the speed of all a firm's pages.</li>
 <li>When one isn't set, Generate asks <i>Which speed did each firm order?</i> before anything is made.</li>
 </ul>
-<p>At different speeds, the one original is billed at the <b>fastest</b> speed ordered. Each slower firm pays its
-share as if every firm had ordered its speed, and the fastest pays the rest. The judge's index is divided the same
-way. Each pays its own copies at its own speed, and its own index too (unless Settings → Invoice → <i>Index on
-shared pages</i> is <i>Split between the firms</i>).</p>
+<p>At different speeds, the one original is divided as Settings → Invoice → <b>Split invoices</b> says. By
+default, it is billed at the <b>fastest</b> speed ordered. Each slower firm pays its share as if every firm had
+ordered its speed, and the fastest pays the rest. The judge's index is divided the same way. Each pays its own copies
+at its own speed, and its own index too (unless Settings → Invoice → <i>Index on shared pages</i> is <i>Split between
+the firms</i>).</p>
 <p>Example (10 pages, no index): one firm orders Daily, one Immediate. The original is billed at Immediate, $7.60 a
 page. The Daily firm pays $6.50 ÷ 2 = $3.25 of it plus its own copies: $57.50. The Immediate firm pays the rest,
-$4.35, plus its own: $72.50. Together $130.00, the whole bill.</p>
+$4.35, plus its own: $72.50.</p>
+<p>The math of an invoice says how it was divided.</p>
 <p>A firm whose speeds differ by day gets an agreement ticking both speeds, with <i>see below</i> on the rate line.
 For now, at most two different speeds may share the same pages: a run with three holds the invoice, with the reason
 shown.</p>
@@ -1011,7 +1013,7 @@ long as only one heading could be it. The dropdown's tooltip says when a heading
 </ul>
 """),
     T("rates-missing", RATES, "A price missing from a rate sheet", "missing price warning incomplete rate sheet use it "
-      "anyway open the sheet to fill it in",
+      "anyway open the sheet to fill it in fix it lower cheaper faster speed costs less wrong prices order",
       """
 <p>Every speed on a sheet needs all four prices ($0.00 counts). When one is missing, the app warns you and lists
 what ("Regular: no Email or Index price"):</p>
@@ -1022,6 +1024,10 @@ what ("Regular: no Email or Index price"):</p>
 bottom of the window what is still missing;</li>
 <li><i>Not now</i> (shown instead of Go back, at start or after ⟳) keeps using it and asks again next time.</li>
 </ul>
+<p>It warns the same way when a price is lower at a faster speed, which can't be right ("Daily's Index, $1.00, is
+less than Expedite's, $1.10"). Only Regular, Expedite, Daily and Immediate (also by their usual other names, such as
+Rush or Next day) are compared, each with the next slower one on the sheet that charges it; a speed of another name,
+such as Realtime, isn't, and neither is $0.00 (a charge not made at that speed). The prices are yours to get right: <i>Use it anyway</i> keeps the sheet as it is.</p>
 """),
     # --------------------------------------------------------------------------------------------------- Run sheet
     T("run-overview", RUNSHEET, "The run sheet of a shared trial",
@@ -1199,8 +1205,8 @@ turnaround from</i> (<a href="topic:dates-turnaround">more</a>).</li>
 </ul>
 """),
     T("set-invoice", SETTINGS, "Settings → Invoice", "invoice settings speeds offered agreement form speed granular detail "
-      "save the math emailed copy index rounding days of one case firms you answered turnaround invoice text numbers "
-      "file name records folder",
+      "save the math emailed copy index split invoices rounding days of one case firms you "
+      "answered turnaround invoice text numbers file name records folder",
       """
 <ul>
 <li><b>Speeds offered</b> and <b>Agreement form speed</b> (<a href="topic:inv-speeds">more</a>).</li>
@@ -1211,6 +1217,8 @@ in each amount</i>, <i>The split between parties</i>; and <i>Also save a detaile
 <li><i>Each party also gets an e-mailed copy (Email column of the rate sheet)</i>; <i>Add an index (and one for the
 judge) from</i> 50 pages; <b>Index on several days</b> and <b>Index on shared pages</b>
 (<a href="topic:inv-index">more</a>).</li>
+<li><b>Split invoices</b>: how firms that ordered the same pages at different speeds share the original
+(<a href="topic:exc-speeds">more</a>).</li>
 <li><b>Rounding</b> (<a href="topic:inv-rounding">more</a>) and <b>Days of one case</b>
 (<a href="topic:inv-several-days">more</a>).</li>
 <li><b>Firms you answered</b> (<a href="topic:check-same-firm">more</a>).</li>

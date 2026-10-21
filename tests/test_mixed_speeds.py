@@ -26,7 +26,7 @@ from minute_filler import courthouses
 from minute_filler.batch import (Job, job_from_origin, job_origin, joint_invoice, settle_split_speeds,
                                  speeds_to_ask)
 from minute_filler.courthouses.base import Party
-from minute_filler.courthouses.queens_supreme_civil.billing import split
+from minute_filler.courthouses.queens_supreme_civil.billing import MAKE_WHOLE
 from minute_filler.invoice import firm_invoices, render, text_conditions
 from minute_filler.invoice_calc import Share, quote_ordered, quote_shares
 from minute_filler.models import Attorney
@@ -51,7 +51,7 @@ def priced(sheet, speed, others, pages=10, n=None, indexed=False, email=True):
 def test_a_slower_firm_pays_its_own_speeds_share_and_the_fastest_the_rest():
     daily = Party("Counsel & Counsel", "Daily", Fraction("6.50"), 2)
     immediate = Party("Smith Law", "Immediate", Fraction("7.60"), 3)
-    slow, fast = split([daily, immediate], 0), split([daily, immediate], 1)
+    slow, fast = MAKE_WHOLE.split([daily, immediate], 0), MAKE_WHOLE.split([daily, immediate], 1)
     assert slow.per_page == Fraction("3.25") and fast.per_page == Fraction("4.35")
     assert slow.per_page + fast.per_page == Fraction("7.60")  # one original, at Immediate
     assert "as if both firms had ordered Daily: $6.50 ÷ 2 = $3.25 a page" in slow.steps[0][0]
@@ -63,18 +63,18 @@ def test_a_slower_firm_pays_its_own_speeds_share_and_the_fastest_the_rest():
 def test_the_firms_at_the_fastest_speed_split_the_rest():
     parties = [Party("A", "Daily", Fraction("6.50"), 2), Party("B", "Immediate", Fraction("7.60"), 3),
                Party("C", "Immediate", Fraction("7.60"), 3)]
-    parts = [split(parties, i).per_page for i in range(3)]
+    parts = [MAKE_WHOLE.split(parties, i).per_page for i in range(3)]
     assert parts[0] == Fraction("6.50") / 3
     assert parts[1] == parts[2] == (Fraction("7.60") - Fraction("6.50") / 3) / 2
     assert sum(parts) == Fraction("7.60")
-    assert "The 2 firms at Immediate split the rest" in split(parties, 1).steps[-1][0]
+    assert "The 2 firms at Immediate split the rest" in MAKE_WHOLE.split(parties, 1).steps[-1][0]
 
 
 def test_the_rule_works_for_three_speeds_though_queens_allows_two_for_now():
     # (the workbook's rule; the cap is the profile's, speeds_together, until three speeds are settled)
     parties = [Party("A", "Regular", Fraction("4.30"), 0), Party("B", "Daily", Fraction("6.50"), 2),
                Party("C", "Immediate", Fraction("7.60"), 3)]
-    parts = [split(parties, i).per_page for i in range(3)]
+    parts = [MAKE_WHOLE.split(parties, i).per_page for i in range(3)]
     assert parts[:2] == [Fraction("4.30") / 3, Fraction("6.50") / 3]
     assert sum(parts) == Fraction("7.60")
     assert courthouses.speeds_together() == 2
@@ -312,11 +312,11 @@ def test_a_day_s_runs_at_two_speeds_say_which_pages(s):
 
 
 def test_the_math_says_how_each_firm_s_part_of_the_original_is_reached(s):
-    from minute_filler.invoice_math import MIXED_NOTE, explain
+    from minute_filler.invoice_math import explain
     case, opts = joint_invoice([excerpt_example()])
     made = [(f, "") for f in firm_invoices(case, s, opts)]
     html, plain = explain(made)
-    assert "  Daily (ordered)\n" in plain and "  Immediate (ordered)\n" in plain and MIXED_NOTE in plain
+    assert "  Daily (ordered)\n" in plain and "  Immediate (ordered)\n" in plain and MAKE_WHOLE.note in plain
     assert ("    Original: 60 pages ordered with Dana Smith (Immediate): 60 × $3.25 = $195.00. Billed once, at "
             "Immediate ($7.60 a page). This firm ordered Daily, so it pays as if both firms had ordered Daily: "
             "$6.50 ÷ 2 = $3.25 a page.\n") in plain
@@ -417,7 +417,7 @@ def test_the_card_s_speed_box_sets_a_firm_s_speed(window, qt, tmp_path):
     assert job.speeds == {A: "Daily"} and speed_box(window, "Alex B. Counsel").currentText() == "Daily"
     assert "Each firm's own speed" in window._form_speed_text()
     # Who pays what: Smith Law priced at the form's speed (Expedite) meanwhile, so at different speeds
-    assert "at its own speed. Each firm also pays" in window.pays.text()  # (one full stop between them)
+    assert "the fastest pay the rest. Each firm also pays" in window.pays.text()  # (one full stop between them)
 
 
 def test_generate_asks_the_speeds_of_a_split_order_first(window, qt, tmp_path, monkeypatch):

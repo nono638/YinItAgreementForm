@@ -35,11 +35,11 @@ e-mailed copies and the index on or off for its own invoice (quotes_for); otherw
 
 Such an invoice of several speeds, the firm to choose one, is for a firm billed alone. Firms that ordered the
 same pages (a split order) commit to a speed each, as the courthouse says (courthouses.speed_upfront), and are
-billed that speed alone (quote_ordered): one original of those pages is billed, at the fastest speed ordered on
-them, and divided between the firms as the courthouse's split rule says (Queens: each slower firm pays its share
-as if every firm had ordered its speed, the fastest pay the rest; courthouses/queens_supreme_civil/billing.py),
-while each pays its own copy, e-mailed copy and index at its own speed. With every firm at one speed that is
-quote_shares' price.
+billed that speed alone (quote_ordered): one original of those pages is divided between the firms as the
+courthouse's split rule chosen in Settings says (Queens, by default: billed at the fastest speed ordered on them,
+each slower firm pays its share as if every firm had ordered its speed, the fastest pay the rest;
+courthouses/queens_supreme_civil/billing.py), while each pays its own copy, e-mailed copy and index at its own
+speed. With every firm at one speed that is quote_shares' price.
 
 Money is kept in Decimal and rounded to cents (a firm's share is worked out exactly first, as a fraction). Each
 quote also keeps what a party pays a page, exactly, for each stretch of pages at one price (Quote.prices), which
@@ -52,7 +52,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
 from fractions import Fraction
 
-from .courthouses.base import Party
+from .courthouses.base import Party, SplitRule
 from .rates import RateSheet, Speed, parse_money, speed_key
 
 CENT = Decimal("0.01")
@@ -147,9 +147,10 @@ class QuoteLine:
 class Stretch:
     """Pages of one line of an ordered quote (quote_ordered) priced alike: how many, how many firms ordered them
     (n), what this firm pays a page of the line's charge (exact) and the other firms on them, (name, speed) each.
-    On a charge billed once for pages ordered at different speeds (`mixed`): the speed and price of a page it is
-    billed at (the fastest ordered on them) and how this firm's part was reached (the courthouse's split rule:
-    steps of words and amounts, see courthouses.base.Part)."""
+    On a charge billed once for pages ordered at different speeds (`mixed`): the fastest speed ordered on them and
+    a page's price there (what Make-Whole Split bills it at), how this firm's part was reached (steps of words and
+    amounts, see courthouses.base.Part) and the split rule that divided it, whose words the math and the invoice
+    use (courthouses.base.SplitRule)."""
     pages: int
     n: int
     per_page: Fraction
@@ -157,6 +158,7 @@ class Stretch:
     billed_at: str = ""
     billed_rate: Fraction = Fraction(0)
     steps: tuple[tuple[str, Fraction], ...] = ()
+    rule: SplitRule | None = None
 
     @property
     def mixed(self) -> bool:
@@ -193,6 +195,11 @@ class Quote:
     def mixed(self) -> bool:
         """Some of its pages were ordered together with a firm at another speed (an ordered quote)."""
         return any(x.mixed for l in self.lines for x in l.stretches)
+
+    @property
+    def rule(self) -> SplitRule | None:
+        """The split rule that divided its pages ordered at different speeds (None when it has none: not mixed)."""
+        return next((x.rule for l in self.lines for x in l.stretches if x.mixed), None)
 
     @property
     def total(self) -> Decimal:
@@ -374,14 +381,15 @@ def sheet_speed(sheet: RateSheet, name: str) -> Speed:
     return sp
 
 
-def quote_ordered(shares: list[Share], sheet: RateSheet, rule=None, include_email: bool = True,
+def quote_ordered(shares: list[Share], sheet: RateSheet, rule: SplitRule | None = None, include_email: bool = True,
                   index_split: bool = False, days: list[int] | None = None, by_page: bool = False) -> Quote:
     """One firm's price for the speeds it committed to (each share's `speed`), the pages of each priced at its
     own speed: its copy, e-mailed copy and (index_split False) index in full, as quote_shares does. A charge
     billed once for the pages (the original, the judge's index, and the index too with index_split) is split
     between the n firms that ordered them: / n when they all ordered one speed, as quote_shares; at different
-    speeds it is billed at the fastest of them (the highest original on the sheet) and divided as the
-    courthouse's split rule says (rule(parties, me) -> courthouses.base.Part; see courthouses.split_rule).
+    speeds it is divided as the split rule says (rule.split(parties, me) -> courthouses.base.Part: the
+    courthouse's rule chosen in Settings, courthouses.split_rule(Settings.invoice_split_rule)), the fastest
+    speed being that of the highest original on the sheet.
     One speed gives the lines "Original", "Copy"...; two (a firm that ordered Daily on one day, Regular on
     another) "Original (Daily)", ... for each. The amount is worked out exactly (Quote.due) and rounded up to the
     cent once (Quote.per_party); with by_page, each stretch's price a page (Quote.prices) is rounded to the nearest
@@ -417,9 +425,9 @@ def quote_ordered(shares: list[Share], sheet: RateSheet, rule=None, include_emai
                              "rule for dividing them")
         parties = [Party("This firm", mine.name, Fraction(price(mine)), rank[id(mine)])]
         parties += [Party(name, sp.name, Fraction(price(sp)), rank[id(sp)]) for name, sp in theirs]
-        part = rule(parties, 0)
+        part = rule.split(parties, 0)
         top = max(parties, key=lambda p: p.rank)
-        return Stretch(x.pages, len(parties), part.per_page, x.others, top.speed, top.rate, part.steps)
+        return Stretch(x.pages, len(parties), part.per_page, x.others, top.speed, top.rate, part.steps, rule)
 
     def line(label: str, part: list[int], price, once: bool) -> None:
         """Adds a line for the shares at these positions (once: a charge billed once for their pages, divided

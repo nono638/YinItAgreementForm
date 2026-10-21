@@ -319,4 +319,12 @@ def test_about_links_the_website_and_credits_the_word_tables_model(qt):
     d = AboutDialog()
     assert any(WEBSITE in l.text() for l in d.findChildren(QLabel))
     assert any("EmbeddingGemma" in name and lic == "Apache-2.0" for name, lic, _ in COMPONENTS)
+    assert any("without warranty of any kind, express or implied" in l.text() for l in d.findChildren(QLabel))
+    # all of it shows: Qt opens a window at most 2/3 of the screen tall (533 px of the 800 offscreen), which cut
+    # the last line once the disclaimer was added
+    d.show()
+    qt.QApplication.processEvents()
+    for label in d.findChildren(QLabel):
+        if label.wordWrap():
+            assert label.height() >= label.heightForWidth(label.width()), label.text()[:40]
     d.deleteLater()
