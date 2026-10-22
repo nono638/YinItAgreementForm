@@ -421,6 +421,9 @@ def test_who_transcribed_what_lists_each_reporters_pages_of_the_trial(window, tm
                                      ["6/4/2026", me], ["6/4/2026", "DS"], ["6/4/2026", me]]
     assert sum(int(r[3]) for r in rows) == 10
     assert window.takes_info.text() == "These 2 days: Pat 6 pp. · DS 4 pp."
+    window._fold_card(window.takes_card, True)  # (folded: the totals on its line)
+    assert window.takes_card.summary.text() == "These 2 days: Pat 6 pp. · DS 4 pp."
+    window._fold_card(window.takes_card, False)
     for name, filt in (("w.xlsx", "Excel workbook (*.xlsx)"), ("w.csv", "CSV file (*.csv)")):
         monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName",
                             lambda *a, n=name, f=filt: (str(tmp_path / n), f))

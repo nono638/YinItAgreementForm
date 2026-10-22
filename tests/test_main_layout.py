@@ -9,14 +9,18 @@ from helpers import pat_settings
 
 
 @pytest.fixture
-def window(make_window, tmp_path):
-    """A window styled as the app styles it at start."""
-    from PySide6.QtWidgets import QApplication
+def window(make_window, tmp_path, monkeypatch, qt):
+    """A window styled as the app styles it at start, making agreements and invoices; message boxes and the
+    questions before Generate answered at once."""
+    from minute_filler.gui.dialogs import ClarifyDialog
     from minute_filler.gui.theme import apply_theme
-    apply_theme(QApplication.instance(), "light")
+    monkeypatch.setattr(qt.QMessageBox, "exec", lambda self: 0)
+    monkeypatch.setattr(ClarifyDialog, "exec", lambda self: qt.QDialog.Accepted)
+    apply_theme(qt.QApplication.instance(), "light")
     s = pat_settings()
     s.use_ai = s.open_after = False
-    s.output_dir = str(tmp_path / "out")
+    s.output_dir, s.records_dir = str(tmp_path / "out"), str(tmp_path / "records")
+    s.outputs = ["agreement", "invoice"]
     return make_window(s)
 
 
@@ -51,3 +55,19 @@ def test_a_badge_is_a_pill_only_for_a_value_to_look_at(window):
     base = next(line for line in QSS.splitlines() if line.startswith("QLabel#badge {"))
     assert "border: 1px solid transparent" in base and "font-weight" not in base
     assert 'QLabel#badge[src="regex"]' not in QSS  # (a source's colour is the loud pill's only)
+
+
+def test_a_folded_who_pays_what_shows_its_warning(window, qt, tmp_path):
+    """Nothing to bill because something needs fixing (three speeds on the same pages): folded, Who pays what's
+    line starts with the ⚠ its card shows, as the other cards' lines do."""
+    from test_sweep_270 import A, B, C, counsel, one_day, poe, smith
+    job = one_day(window, qt, tmp_path, [counsel(), smith(), poe()])
+    job.speeds = {A: "Daily", B: "Immediate", C: "Regular"}
+    window._update_status()
+    assert "⚠" in window.pays.text()
+    window._fold_card(window.cards["pays"], True)
+    assert window.cards["pays"].summary.text().startswith("⚠ Nothing to bill yet")
+    job.speeds = {A: "Daily", B: "Daily", C: "Daily"}
+    window._update_status()
+    window._card_summaries()
+    assert window.cards["pays"].summary.text().startswith("3 invoices: ")

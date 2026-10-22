@@ -115,8 +115,7 @@ ORDER_COLS = ["Day", "Attorney", "Pages ordered", "Speed", "Printed page numbers
               "Your pages billed"]
 ORDER_SPEED = ORDER_COLS.index("Speed")  # (a box to choose it in, see _speed_box)
 TAKE_COLS = ["Day", "Reporter", "Printed pages", "Pages", "Witnesses"]  # the Who transcribed what card
-TAKES_NOTE = ("For the full record of each take (kept and added to day after day), tick Run sheet and Generate: "
-              "the trial's run sheet, an Excel workbook.")
+TAKES_NOTE = "Every take in full, kept day after day: tick Run sheet and Generate (the trial's run sheet, in Excel)."
 
 
 def take_cells(row) -> list[str]:
@@ -2112,8 +2111,12 @@ class MainWindow(QMainWindow):
             lines["attorneys"] = (bool(atts) and not ticked, [text if atts else "No attorneys yet"])
         if "pays" in folded:
             names = [(f.atty.firm or f.atty.name) if f.atty else "(no one ticked)" for f in self._pay_firms]
-            lines["pays"] = (False, [f"{plural(len(names), 'invoice')}: {', '.join(names)}" if names else
-                                     "Nothing to bill yet"])
+            # (nothing to bill because of something to fix, as the card says: its ⚠ on the folded line too)
+            lines["pays"] = (not names and "⚠" in self.pays.text(),
+                             [f"{plural(len(names), 'invoice')}: {', '.join(names)}" if names else
+                              "Nothing to bill yet"])
+        if "takes" in folded:
+            lines["takes"] = (False, [self.takes_info.text() or "No takes yet"])
         if "orders" in folded:
             t = self.orders
             rows = [" ".join(t.item(r, c).text() for c in (0,) if t.item(r, c)) + ": " +
