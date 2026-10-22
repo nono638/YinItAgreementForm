@@ -232,16 +232,18 @@ a field more than one way, a button beside it says how many (<i>2 more ▾</i>) 
 """),
     T("check-status", CHECK, "What still needs a look", "status warning missing check review required top right ⚠ problems",
       """
-<p>The status at the top right of the window counts what the job on screen still needs, such as
-<i>⚠ 1 missing, 2 to check, 1 to review</i>:</p>
+<p>The status at the top right of the window counts what the job on screen still needs and names the first, such
+as <i>⚠ 1 missing, 2 to check: Index Number is missing ›</i>:</p>
 <ul>
 <li><b>missing</b>: a required field is blank;</li>
-<li><b>to check</b>: the job's own checks: nobody ticked, a speed to choose, Whose pages… or Excerpts… to
-decide;</li>
+<li><b>to check</b>: the job's own checks (nobody ticked, two rows that may be one firm, a speed to choose,
+Whose pages… or Excerpts… to decide) and the warnings under the fields (a page count to check, a date on a weekend
+or a court holiday);</li>
 <li><b>to review</b>: guesses (amber fields).</li>
 </ul>
 <p>Its tooltip lists them, and a click goes to the first one: the field gets the cursor, or the button to press
-lights up. The job list shows the same with a ⚠ on the job (<a href="topic:batch-job-list">more</a>).</p>
+lights up. The <b>Before you generate</b> box at the top of the form lists them all, each a link to its place. The
+job list shows the same with a ⚠ on the job (<a href="topic:batch-job-list">more</a>).</p>
 """),
     T("check-pages", CHECK, "The page count (Est. number of pages)",
       "pages count number of pages word index min-u-script estimate typed amber warning concordance",

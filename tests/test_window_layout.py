@@ -183,7 +183,7 @@ def test_the_type_of_proceeding_is_in_the_case_card(window):
 def test_the_status_counts_the_jobs_checks_and_a_click_goes_to_the_first(window, tmp_path):
     read_transcript(window, tmp_path)  # (a transcript lists who appeared, not who ordered: nobody is ticked)
     assert window.cur.no_attorney_chosen()
-    assert window.status.text() == "⚠  1 to check" and window.status.property("state") == "warn"
+    assert window.status.text() == "⚠  1 to check: No attorney is ticked ›" and window.status.property("state") == "warn"
     assert "⚠ no attorney is ticked" in window.status.toolTip()
     window._fold_card(window.cards["attorneys"], True)
     window.status.clicked.emit()

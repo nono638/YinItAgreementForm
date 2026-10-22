@@ -64,7 +64,8 @@ import time
 from calendar import monthrange
 from copy import deepcopy
 from datetime import MAXYEAR, MINYEAR, date, timedelta
-from dataclasses import replace
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEvent, QPoint, QRect, QSignalBlocker, QSize, QStringListModel, Qt, QThreadPool, QTimer
@@ -513,6 +514,25 @@ def _billed_by_copy(copy) -> list[str]:
 def _entry_text(a: Attorney) -> str:
     """An attorney row in a few words, for a question: "Smith Law Group (Dana Smith)", "Mr. Smith"."""
     return f"{a.firm} ({a.name})" if a.firm and a.name else a.firm or a.name
+
+
+@dataclass(frozen=True)
+class Problem:
+    """One thing the job on screen needs looked at before Generate (MainWindow._problems): kind "missing" (a
+    required field blank), "check" (the job's own checks, as the job list's tooltip says them, and the warnings in
+    the cards) or "review" (the guessed fields, in one line); text, what it is; short, a few words of it for the
+    status pill; go, what a click on it does (it goes to the place and lights it up; None: nowhere to go)."""
+    kind: str
+    text: str
+    short: str = ""
+    go: Callable[[], None] | None = None
+
+
+def _short(text: str, width: int = 40) -> str:
+    """A problem in a few words for the status pill: its first line, without a "⚠", cut at a word."""
+    text = text.strip().lstrip("⚠").strip().split("\n")[0]
+    text = text[:1].upper() + text[1:]
+    return text if len(text) <= width else text[:width].rsplit(" ", 1)[0].rstrip(",:;") + "…"
 
 
 def _kind_word(doc: Doc) -> str:
@@ -1201,6 +1221,7 @@ class MainWindow(QMainWindow):
         self.status = ClickLabel("")
         self.status.setObjectName("status")
         self.status.clicked.connect(self._go_to_problem)
+        self.status.setAttribute(Qt.WA_Hover)  # (its :hover look says it can be clicked)
         head.addWidget(self.status)
         # a newer version is out (_show_update): up here, where it is seen, until it is installed
         self.update_btn = QPushButton()
@@ -1410,6 +1431,22 @@ class MainWindow(QMainWindow):
             lay.addWidget(holder)
             self._pairs.append((g, wa, wb))
             return cols[0], cols[1]
+
+        # Before you generate: what the job still needs, each a link to where it is fixed (_show_todo; after
+        # GOV.UK's error summary: one list at the top of the page, each item going to its place)
+        self.todo = QFrame()
+        self.todo.setObjectName("todo")
+        self.todo.setProperty("help_topic", "check-status")
+        todo_lay = QVBoxLayout(self.todo)
+        todo_lay.setContentsMargins(14, 8, 14, 8)
+        self.todo_text = QLabel("")
+        self.todo_text.setTextFormat(Qt.RichText)
+        self.todo_text.setWordWrap(True)
+        self.todo_text.linkActivated.connect(self._todo_clicked)
+        todo_lay.addWidget(self.todo_text)
+        self.todo.setVisible(False)
+        self._todo: list[Problem] = []  # (the problems listed, in the links' order)
+        rl.addWidget(self.todo)
 
         # While nothing is loaded: the jobs made lately, to open one again, and how to begin (_show_start)
         self.start_card, sl = card("Recent jobs")
@@ -4333,26 +4370,31 @@ class MainWindow(QMainWindow):
     def _job_status(self):
         """The status pill for the job on screen: reading (documents still being read, whatever the job on
         screen says: a single file read while a folder is still coming in), asking the AI, what needs a look
-        ("⚠ 1 missing, 2 to check, 1 to review": required fields blank, the job's own checks as the job list's ⚠
-        has them, guessed fields), or ready. Its tooltip lists them; a click goes to the first (_go_to_problem)."""
+        ("⚠  1 missing, 2 to check: Index Number is missing ›": required fields blank, the job's own checks as the
+        job list's ⚠ has them and the warnings in the cards, guessed fields: _problems, the first named), or
+        ready. Its tooltip lists them; a click goes to the first (_go_to_problem)."""
         busy = self.ai_pending > 0
         self.busy.setVisible(busy or self.work > 0)
         self.status.set_clickable(False)
         if self.work > 0:
             if self.status.property("state") != "busy":  # ("Reading 2 of 5: ..." is kept as it is)
                 self._set_status("Reading…", "busy")
+            self._show_todo([])
             return
         if not self.cur.docs:
             self._set_status(IDLE_STATUS, "")
             self.status.setToolTip("")
+            self._show_todo([])
             return
         self._sync_from_ui(commit=False)  # (a name being typed in the attorney table stays open)
+        problems = self._problems()
+        self._show_todo(problems)
         missing = [FIELD_LABELS[k] for k in self.case.missing_required()]
-        checks = self._job_checks()
+        checks = [p.text for p in problems if p.kind == "check"]
         review = [FIELD_LABELS.get(k, k) for k, r in self.rows.items() if r.edit.property("review")]
         if busy:
             self._set_status(f"Asking {self.s.ollama_model}…  (you can keep editing)", "busy")
-        elif missing or checks or review:
+        elif problems:
             parts = []
             if missing:
                 parts.append(f"{len(missing)} missing")
@@ -4362,10 +4404,9 @@ class MainWindow(QMainWindow):
                 parts.append(f"{len(review)} to review")
             lines = ([f"Missing: {', '.join(missing)}"] if missing else []) + [f"⚠ {c}" for c in checks] + (
                 [f"Guesses to look at (highlighted): {', '.join(review)}"] if review else [])
-            if missing or checks:
-                text = "⚠  " + ", ".join(parts)
-            else:
-                text = "Ready to fill  ·  " + ", ".join(parts)
+            lead = "⚠  " if missing or checks else "Ready to fill  ·  "
+            # (the first one named, and an arrow: the pill is to be clicked, the user, 2026-10-22)
+            text = f"{lead}{', '.join(parts)}: {problems[0].short} ›"
             # the yin-yang only cracks when something required is missing
             self._set_status(text, "warn", "stumped" if missing else "done")
             self.status.setToolTip("\n".join(lines) + "\n\nClick to go to the first one.")
@@ -4381,44 +4422,127 @@ class MainWindow(QMainWindow):
         missing = {f"{FIELD_LABELS[k]} is missing" for k in self.case.missing_required()}
         return [i for i in self.cur.issues(self._outputs()) if i not in missing]
 
-    def _go_to_problem(self) -> None:
-        """A click on the status pill: to the first thing that needs a look, in this order (not Generate's, which
-        asks about the index numbers first) - a required field blank, nobody ticked, a speed to choose, index
-        numbers that don't match, Whose pages… or Excerpts…, no pages to bill, no transcript for the run sheet, then
-        a guessed field. Its card is unfolded and scrolled to (or the Outputs box unfolded); a field gets the cursor,
-        and it, or the note or button to look at, lights up for a moment (_flash)."""
+    def _problems(self) -> list[Problem]:
+        """Everything the job on screen needs looked at before Generate, each with where it is fixed, in this
+        order (not Generate's, which asks about the index numbers first): the required fields blank; nobody
+        ticked, two rows that may be one firm, a speed to choose, index numbers that don't match, Whose pages… or
+        Excerpts… or Parties, another day of the case nobody is ticked on (no invoice for the case: it goes to that
+        day), no pages to bill, no transcript for the run sheet (the job's checks, _job_checks, and the firm
+        question and the case's other days, which none lists); the page count to check and a date on a weekend or a court holiday
+        (the warnings under those fields); any other check (nowhere to go); then the guessed fields, in one line.
+        The status pill names the first and goes to it; the Before you generate list shows them all."""
         job, case = self.cur, self.case
-        if job.is_empty() or self.work > 0:
-            return
-        self._commit_att_details()  # (the pill takes no focus: an attorney detail being typed is kept first)
-        outputs = self._outputs()
-        issues = job.issues(outputs)
-        missing = case.missing_required()
-        if missing:
-            return self._go_to(self.rows[missing[0]].edit, "case" if missing[0] in CASE_KEYS else "details")
-        if job.no_attorney_chosen():
-            if self.att.rowCount():
-                self.att.setCurrentCell(0, 1)
-            return self._go_to(self.att, "attorneys")
-        if job.speed_question():
-            return self._go_to(self.delivery, "details")
-        if job.index_number_asks():
-            return self._flash(self.index_note)
-        hold = job.invoice_hold() if "invoice" in outputs else ""
-        if hold:
-            self._fold_outputs(False)
-            return self._flash(self.inv_whose if hold.startswith("Whose pages") else
-                               self.inv_parties if job.unnamed_problem() else self.inv_who)
+        if job.is_empty():
+            return []
         from ..invoice import NO_INVOICE
         from ..runsheet import NO_RUNSHEET
-        if NO_INVOICE in issues:
-            return self._go_to(self.rows["est_pages"].edit, "details")
-        if NO_RUNSHEET in issues and "runsheet" in self.output_boxes:
+        outputs = self._outputs()
+
+        def field(key: str) -> Callable[[], None]:
+            return lambda: self._go_to(self.rows[key].edit, "case" if key in CASE_KEYS else "details")
+
+        def attorneys() -> None:
+            if self.att.rowCount():
+                self.att.setCurrentCell(0, 1)
+            self._go_to(self.att, "attorneys")
+
+        hold = job.invoice_hold() if "invoice" in outputs else ""
+
+        def held() -> None:
             self._fold_outputs(False)
-            return self._flash(self.output_boxes["runsheet"])
+            self._flash(self.inv_whose if hold.startswith("Whose pages") else
+                        self.inv_parties if job.unnamed_problem() else self.inv_who)
+
+        def runsheet() -> None:
+            self._fold_outputs(False)
+            self._flash(self.output_boxes["runsheet"])
+
+        ask = job.speed_question()
+        found: list[tuple[int, Problem]] = []  # (its place in the order, the problem)
+        for text in self._job_checks():
+            if text == "no attorney is ticked":
+                rank, go = 0, attorneys
+            elif ask and text.startswith(f"{ask}: choose the speed"):
+                rank, go = 2, lambda: self._go_to(self.delivery, "details")
+            elif text.startswith("the documents' index numbers don't match"):
+                rank, go = 3, lambda: self._flash(self.index_note)
+            elif hold and text == hold:
+                rank, go = 4, held
+            elif text == NO_INVOICE:
+                rank, go = 5, field("est_pages")
+            elif text == NO_RUNSHEET and "runsheet" in self.output_boxes:
+                rank, go = 6, runsheet
+            else:
+                rank, go = 9, None
+            found.append((rank, Problem("check", text, _short(text), go)))
+        if self._firm_q is not None:
+            _, (a, b) = self._firm_q
+            text = f"Are these one firm: {_entry_text(a)} and {_entry_text(b)}?"
+            found.append((1, Problem("check", text, "Are these one firm?",
+                                     lambda: self._go_to(self.firm_same, "attorneys"))))
+        if "invoice" in outputs and self.cur in self.jobs:  # another day of the case nobody is ticked on
+            from ..batch import group_problem
+            group = self._invoice_group()
+            stuck = group_problem(group) if job.ticked_keys() else ""  # (this day's own: "no attorney is ticked")
+            empty = next((j for j in group if not j.ticked_keys()), None)
+            if stuck and empty is not None:
+                def other_day(day: Job = empty) -> None:
+                    self._select_job(day)
+                    attorneys()
+                found.append((4, Problem("check", f"No invoice for the case yet: {stuck}",
+                                         "No invoice for the case yet", other_day)))
+        if self.pages_warn.text().strip():
+            found.append((7, Problem("check", self.pages_warn.text().strip(), "Check the page count",
+                                     field("est_pages"))))
+        for key, note in self.date_notes.items():
+            if note.text().startswith("⚠"):
+                found.append((8, Problem("check", note.text(), _short(note.text()), field(key))))
+        out = [Problem("missing", f"{FIELD_LABELS[k]} is missing", f"{FIELD_LABELS[k]} is missing", field(k))
+               for k in case.missing_required()]
+        out += [p for _, p in sorted(found, key=lambda x: x[0])]  # (stable: the job's own order within a rank)
         review = [r for r in self.rows.values() if r.edit.property("review")]
         if review:
-            return self._go_to(review[0].edit, "case" if review[0].key in CASE_KEYS else "details")
+            names = [FIELD_LABELS.get(r.key, r.key) for r in review]
+            text = (f"{names[0]} is a guess: check it" if len(names) == 1 else
+                    f"{len(names)} guesses to look at: {', '.join(names)}")
+            out.append(Problem("review", text, names[0], field(review[0].key)))
+        return out
+
+    def _go_to_problem(self) -> None:
+        """A click on the status pill: to the first thing that needs a look (_problems, in its order). Its card is
+        unfolded and scrolled to (or the Outputs box unfolded); a field gets the cursor, and it, or the note or
+        button to look at, lights up for a moment (_flash)."""
+        if self.cur.is_empty() or self.work > 0:
+            return
+        self._commit_att_details()  # (the pill takes no focus: an attorney detail being typed is kept first)
+        first = next((p for p in self._problems() if p.go is not None), None)
+        if first is not None:
+            first.go()
+
+    def _show_todo(self, problems: list[Problem]) -> None:
+        """The Before you generate box at the top of the form: each thing to look at (_problems) as a link to where
+        it is fixed (a click goes there and lights it up, as the status pill's does for the first; one with nowhere
+        to go is plain text). Hidden when there is nothing, while documents are read and before any is (the user,
+        2026-10-22, after GOV.UK's error summary: one list at the top, each item going to its place)."""
+        self._todo = problems
+        self.todo.setVisible(bool(problems))
+        if not problems:
+            return
+        lines = []
+        for i, p in enumerate(problems):
+            text = html.escape(" ".join(p.text.split()).lstrip("⚠ "))
+            lines.append(f"•&nbsp;&nbsp;<a href='{i}'>{text}</a>" if p.go is not None else f"•&nbsp;&nbsp;{text}")
+        self.todo_text.setText("<b>⚠ Before you generate</b><br>" + "<br>".join(lines))
+
+    def _todo_clicked(self, href: str) -> None:
+        """A link of the Before you generate box: to that problem's place (_show_todo)."""
+        try:
+            p = self._todo[int(href)]
+        except (ValueError, IndexError):
+            return
+        if p.go is not None and not self.cur.is_empty() and self.work == 0:
+            self._commit_att_details()  # (as the status pill's click: an attorney detail being typed is kept)
+            p.go()
 
     def _go_to(self, w: QWidget, card_key: str = "") -> None:
         """Unfolds the card (by key) holding w, scrolls the form to it and gives it the cursor."""

@@ -122,7 +122,11 @@ QLabel#dropText { font-size: 11pt; font-weight: 600; }
 
 QLabel#status { border-radius: 12px; padding: 4px 12px; color: {muted}; }
 QLabel#status[state="ok"] { background: {ok_bg}; color: {ok}; font-weight: 600; }
-QLabel#status[state="warn"] { background: {warn_bg}; color: {warn}; font-weight: 600; }
+QLabel#status[state="warn"] { background: {warn_bg}; color: {warn}; font-weight: 600; border: 1px solid {review}; }
+QLabel#status[state="warn"]:hover { background: {review_bg}; }
+/* the Before you generate box at the top of the form (MainWindow._show_todo) */
+QFrame#todo { background: {warn_bg}; border: 1px solid {review}; border-radius: 10px; }
+QFrame#todo QLabel { color: {warn}; background: transparent; }
 QLabel#status[state="busy"] { background: {sel}; color: {accent}; font-weight: 600; }
 
 QLabel#badge { border-radius: 8px; padding: 1px 7px; font-size: 8pt; color: {muted}; border: 1px solid transparent; }
