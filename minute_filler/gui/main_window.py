@@ -212,7 +212,8 @@ class JobItem(QTreeWidgetItem):
         tree = self.treeWidget()
         col = tree.sortColumn() if tree is not None else 0
         a, b = self.data(col, JOB_SORT_ROLE), other.data(col, JOB_SORT_ROLE)
-        return super().__lt__(other) if a is None or b is None else a < b
+        # (without a key yet, by its text: QTreeWidgetItem's own < called from here crashes PySide)
+        return self.text(col) < other.text(col) if a is None or b is None else a < b
 
 
 class DocItem(QTreeWidgetItem):
@@ -221,8 +222,8 @@ class DocItem(QTreeWidgetItem):
 
     def __lt__(self, other) -> bool:
         a, b = self.data(0, JOB_SORT_ROLE), other.data(0, JOB_SORT_ROLE)
-        if a is None or b is None:
-            return super().__lt__(other)
+        if a is None or b is None:  # (by its text: see JobItem)
+            return self.text(0) < other.text(0)
         tree = self.treeWidget()
         # (sorted the other way, Qt asks whether other < self: answered so that the order read stays)
         down = tree is not None and tree.header().sortIndicatorOrder() == Qt.DescendingOrder

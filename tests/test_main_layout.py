@@ -376,3 +376,22 @@ def test_a_jobs_documents_stay_in_the_order_read_however_the_list_is_sorted(wind
     for order in (Qt.AscendingOrder, Qt.DescendingOrder):
         window.job_list.sortByColumn(JOB_DATE, order)
         assert [row.child(i).text(0) for i in range(2)] == ["Roe 6-3-2026.pdf", "Pasted text 1"]
+
+
+def test_rows_without_a_sort_key_sort_by_their_text(qt):
+    """A row compared before its keys are set (one added while the list is sorted) sorts by its text: Qt's own
+    comparison, called from the subclass's, crashed the app (PySide: found by the revert proof, 2026-10-22)."""
+    from PySide6.QtCore import Qt
+    from minute_filler.gui.main_window import DocItem, JobItem
+    t = qt.QTreeWidget()
+    t.setColumnCount(2)
+    for x in "bca":
+        JobItem(t, [x, x])
+    t.setSortingEnabled(True)
+    t.sortByColumn(0, Qt.AscendingOrder)
+    assert [t.topLevelItem(i).text(0) for i in range(3)] == ["a", "b", "c"]
+    top = t.topLevelItem(0)
+    for x in "yx":
+        DocItem(top, [x, ""])
+    t.sortByColumn(0, Qt.AscendingOrder)
+    assert [top.child(i).text(0) for i in range(2)] == ["x", "y"]
