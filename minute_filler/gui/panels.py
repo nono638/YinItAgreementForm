@@ -41,7 +41,7 @@ def agreement(win, ag: QFormLayout) -> None:
     win.ag_speed = QLabel("")  # the speed and rate the forms name (MainWindow._form_speed_text)
     win.ag_speed.setObjectName("muted")
     win.ag_speed.setToolTip("The speed and rate per page the minute agreement forms name (the MOFR names the\n"
-                            "speed too): set under Minute agreement form details → Speed. A firm whose speed\n"
+                            "speed too): set under Speed, pages and dates → Speed. A firm whose speed\n"
                             "is set in Who ordered what gets its own, and the MOFR ticks every speed ordered.")
     ag.addRow("Speed:", win.ag_speed)
 

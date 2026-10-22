@@ -1268,7 +1268,7 @@ class FormPolicy(OutputPolicy):
     def problems(job: Job) -> list[str]:
         out = list(job.problems())
         if job.speed_question():  # (the speed they name)
-            out.append(f"{job.speed_question()}: choose the speed (Minute agreement form details)")
+            out.append(f"{job.speed_question()}: choose the speed (Speed, pages and dates)")
         return out
 
 

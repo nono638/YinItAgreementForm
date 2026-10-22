@@ -691,7 +691,7 @@ class SettingsDialog(QDialog):
             " (the slowest offered: the most turnaround days)")
         self.i_agreement_note.setText(
             f"With {ticked} ticked, every agreement form says {pick}{why}. A speed you choose for one job under "
-            "Minute agreement form details comes first; when an e-mail asks for another speed, you are asked which.")
+            "Speed, pages and dates comes first; when an e-mail asks for another speed, you are asked which.")
 
     def _pick_sheet_dir(self):
         """Lets the user choose another rate sheets folder and reloads the sheet list from it."""

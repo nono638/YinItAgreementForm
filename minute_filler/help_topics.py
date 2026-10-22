@@ -111,8 +111,9 @@ then (<a href="topic:make-preview">more</a>).</li>
 becomes one slim row (<i>Drop more here, or Browse…</i>).</li>
 <li><b>The job list</b> (left): each job's case, date, pages and your pages, with ✓ for a job already made and ⚠ for
 one with something to check (<a href="topic:batch-job-list">more</a>).</li>
-<li><b>The form</b> (right): the cards <i>Case</i>, <i>Minute agreement form details</i>, <i>Attorneys</i>,
-<i>Who pays what</i> and <i>Who ordered what</i>. Each folds to one line that sums it up
+<li><b>The form</b> (right): its cards follow the job, top to bottom: <i>Case</i>, <i>Attorneys</i> (tick who
+ordered), <i>Speed, pages and dates</i>, then, when an invoice is to be made, <i>Who ordered what</i> and <i>Who pays
+what</i>, and for a trial <i>Who transcribed what</i>. Each folds to one line that sums it up
 (<a href="topic:start-room">more</a>). While nothing is open, a <b>Recent jobs</b> card at the top of the form lists
 the jobs made lately: click one to open it again. <i>Recent documents ▾</i> on it lists the documents you opened
 lately.</li>
@@ -184,7 +185,7 @@ documents.</p>
 dropped like a document.</p>
 <p>The sender of an e-mail is ticked as ordering (a transcript's attorneys are not: it lists who appeared). A page
 count read from an e-mail is shown, but not billed until you type it in <i>Est. number of pages</i>.</p>
-<p>When an e-mail asks for another speed ("please send a daily copy"), the <i>Minute agreement form details</i> card
+<p>When an e-mail asks for another speed ("please send a daily copy"), the <i>Speed, pages and dates</i> card
 asks which speed to use, and so does Generate. A speed an e-mail mentions is never applied by itself.</p>
 """),
     T("input-photos", INPUT, "Photos, scans and screenshots",
@@ -482,7 +483,7 @@ it.</p>
 price, so the attorney can choose. Tick one to bill that speed alone.</li>
 <li><b>The minute agreement form</b> names one speed at one rate per page: Expedited when you offer it, else the
 slowest offered (Settings → Invoice → <i>Agreement form speed</i> changes the rule). The <i>Speed</i> dropdown
-under <i>Minute agreement form details</i> changes it for one job; ↺ goes back to the rule.</li>
+under <i>Speed, pages and dates</i> changes it for one job; ↺ goes back to the rule.</li>
 <li>A firm whose speed is set in <a href="topic:inv-who-ordered">Who ordered what</a> gets that speed on its own
 agreement and invoice.</li>
 <li>When an e-mail asks for another speed, an amber line asks you to choose (<i>Keep</i> keeps the one shown), and
@@ -578,7 +579,7 @@ alone; <i>Speed? (Generate asks)</i> in amber for a firm sharing pages without o
 </ul>
 <p>Firms that ordered the same pages split the original and the judge's index; each pays its own copies and index.
 A day nobody is ticked on says in amber that no invoice is made for the case until you tick who ordered it.</p>
-<p><b>Edit excerpts…</b>, or a double-click on a row, opens <a href="topic:exc-table">Excerpts…</a> for that day. The
+<p><b>Excerpts…</b>, or a double-click on a row, opens <a href="topic:exc-table">Excerpts…</a> for that day. The
 <b>?</b> beside the card explains the rows.</p>
 """),
     T("inv-several-days", INVOICE, "Several days of one case: one invoice, one agreement",
@@ -1001,7 +1002,7 @@ hour the next day, then the next business day: made Friday at 6 PM, dated Monday
       """
 <p>Prices come from rate sheets: small CSV files you can edit in Excel. Open their folder with <b>File → Open rate
 sheets folder</b> (it is <code>%APPDATA%\\YinItAgreementForm\\Rate Sheets</code>, or a folder you choose in
-Settings → Defaults). Pick one from the <i>Rate sheet</i> dropdown under <i>Minute agreement form details</i>.</p>
+Settings → Defaults). Pick one from the <i>Rate sheet</i> dropdown under <i>Speed, pages and dates</i>.</p>
 <p>To add one, for example city rates:</p>
 <ol>
 <li>copy <i>Rate Sheet TEMPLATE.csv</i>;</li>

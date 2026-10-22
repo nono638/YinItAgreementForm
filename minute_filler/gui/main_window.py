@@ -20,14 +20,15 @@ The job list is a tree: a row per job (Case / file, Date, Pages, Yours) and, und
 a row per document; a document with no index number, or with another than its job's, gets a ⚠ there and a note
 under the list (_label_docs, _show_index_notes), and Generate asks first about documents whose index numbers
 don't match (_ask_index_numbers).
-The "Minute agreement form details" card holds the rate sheet (one missing prices, or with a price lower at a faster
+The "Speed, pages and dates" card holds the rate sheet (one missing prices, or with a price lower at a faster
 speed, is warned about: _check_rate_sheet; opened from that warning to be filled in, it is read again each time it is saved: _watch_sheet)
 and the one speed and rate the agreement form names (the Settings rule's,
 Settings.agreement_speed, or the job's own choice; when an e-mail asks for another speed, the user is asked
 which), among the speeds the invoice offers (ticked in the Invoice panel, each at its price). A firm whose speed
 is set in the "Who ordered what" card gets its own; firms that ordered the same pages commit to one (Generate
 asks: _ask_split_speeds).
-Under the attorneys, "Who pays what" shows each firm's invoice in short as things are ticked; it and the Invoice
+The cards follow the job: Case, Attorneys (who ordered), Speed, pages and dates, then Who ordered what and, under
+it, "Who pays what", each firm's invoice in short as things are ticked; it and the Invoice
 panel link to the whole math. The Invoice panel's Peripherals... (the e-mailed copy and the index, for this job
 only) and Customize... set what the current job's invoice shows, Excerpts... which firm ordered which pages of
 each day of the case (its own window, gui/excerpts.py), and Whose pages... whose pages of a transcript of
@@ -205,7 +206,7 @@ ORDERS_HELP = ("Each attorney is billed for the pages written in its row and not
                "the same pages commit to a speed (Generate asks when one isn't set); a firm ordering alone may\n"
                "choose one from its invoice.")
 ATT_DETAIL_COLS = (3, 4, 5, 6, 8)  # the attorney table's columns shown under it for the row selected, not in it
-# the fields of the Case card and of the Minute agreement form details card (a folded card's ⚠: _card_summaries)
+# the fields of the Case card and of the Speed, pages and dates card (a folded card's ⚠: _card_summaries)
 CASE_KEYS = ("court", "county", "part", "index_no", "judge", "dates", "case_name", "proc_other")
 DETAIL_KEYS = ("delivery", "rate", "copies", "est_pages", "delivery_date", "agreement_date")
 # The help topic F1 opens for each part of the window (help_window.help_topic_of: the focused widget's, else the
@@ -238,7 +239,7 @@ def badge_word(source: str) -> str:
 
 SPEEDS_TIP = ("The speeds the invoice offers, each at its own price (the attorney chooses one). One ticked:\n"
               "the invoice bills that speed alone. They are kept for the next job too.\n"
-              "The minute agreement form names one of them (Minute agreement form details → Speed), so they\n"
+              "The minute agreement form names one of them (Speed, pages and dates → Speed), so they\n"
               "can be ticked while Invoice is unticked too. A firm whose speed is set in Who ordered what\n"
               "is billed that speed alone.")
 EST_PAGES_TIP = ("Counted from the transcript PDF: every page, whoever wrote it (without the word index).\n"
@@ -1440,9 +1441,78 @@ class MainWindow(QMainWindow):
         row(fc, "proc_other")
         rl.addWidget(c)
 
-        # Minute agreement form details: the rate sheet, the one speed and one rate the form names (among the
+        # Attorneys card: the table shows who (tick, name, firm, role); the row selected is spelled out under it
+        c, cl = folding("Attorneys: tick who ordered", "attorneys")
+        c.heading.setToolTip(
+            "Each checked attorney gets a minute agreement (and an invoice) of its own: the agreement\n"
+            "shows the pages that attorney ordered, whoever wrote them; the invoice bills your pages of them.")
+        self.att = QTableWidget(0, len(ATT_COLS))
+        self.att.setHorizontalHeaderLabels(ATT_COLS)
+        self.att.verticalHeader().setVisible(False)
+        self.att.setAlternatingRowColors(True)
+        self.att.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.att.setWordWrap(True)
+        hh = self.att.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.Interactive)
+        hh.setStretchLastSection(False)
+        for i, w in enumerate([30, 140, 190, 230, 115, 105, 190, 170, 60]):
+            sized(self.att, "setColumnWidth", i, w, keep=1)
+        for i in ATT_DETAIL_COLS:  # (in the details under the table; the columns stay, as the rows' data)
+            self.att.setColumnHidden(i, True)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.att.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (each firm's tag: _mark_items)
+        sized(self.att, "setMinimumHeight", 150)
+        self.att.itemChanged.connect(self._att_changed)
+        self.att.currentCellChanged.connect(lambda *_: self._show_att_details())
+        cl.addWidget(self.att)
+        self._build_att_details(cl, two_cols, form_in)
+        # two rows that may be one firm or attorney ("Smith Law" and "Smith Law Group"): the user says (Same firm,
+        # Not the same), and the answer is kept for later documents too (batch.firm_questions, Settings.firm_answers),
+        # or with Remember unticked only until the app is closed
+        self.firm_ask_box = QWidget()
+        fq = QHBoxLayout(self.firm_ask_box)
+        fq.setContentsMargins(0, 0, 0, 0)
+        fq.setSpacing(8)
+        self.firm_ask = QLabel("")
+        self.firm_ask.setObjectName("speedAsk")
+        self.firm_ask.setWordWrap(True)
+        fq.addWidget(self.firm_ask, 1)
+        self.firm_same = QPushButton("Same firm")
+        self.firm_same.setToolTip("They are one firm (or one attorney): one row, one invoice, one agreement")
+        self.firm_same.clicked.connect(lambda: self._answer_firm(True))
+        self.firm_apart = QPushButton("Not the same")
+        self.firm_apart.setToolTip("They are two firms (or two attorneys): two rows, each billed on its own")
+        self.firm_apart.clicked.connect(lambda: self._answer_firm(False))
+        fq.addWidget(self.firm_same, 0, Qt.AlignTop)
+        fq.addWidget(self.firm_apart, 0, Qt.AlignTop)
+        self.firm_remember = QCheckBox("Remember")
+        self.firm_remember.setChecked(True)
+        self.firm_remember.setToolTip("Keep the answer for later documents naming these two (Settings → Invoice →\n"
+                                      "Firms you answered lists them, to forget one). Unticked: for now only.")
+        fq.addWidget(self.firm_remember, 0, Qt.AlignTop)
+        self.firm_ask_box.setVisible(False)
+        self._firm_q = None  # (the days asked about, (row, row)) of the question shown
+        cl.addWidget(self.firm_ask_box)
+        br = QHBoxLayout()
+        add = QPushButton("+ Add attorney")
+        add.clicked.connect(self._add_att_row)
+        rem = QPushButton("Remove selected")
+        rem.clicked.connect(self._remove_att_rows)
+        hint = QLabel("Each ticked attorney gets a form of its own. Click a row to see and change all its details "
+                      "below.")
+        hint.setObjectName("muted")
+        hint.setWordWrap(True)
+        br.addWidget(add)
+        br.addWidget(rem)
+        br.addSpacing(12)
+        br.addWidget(hint, 1)
+        cl.addLayout(br)
+        rl.addWidget(c)
+
+        # Speed, pages and dates: the rate sheet, the one speed and one rate the form names (among the
         # speeds the invoice offers, ticked in the Invoice panel), No. of copies, the pages and the dates
-        c, cl = folding("Minute agreement form details", "details")
+        c, cl = folding("Speed, pages and dates", "details")
         colA, colB = two_cols(cl)
         fa, fb = form_in(colA), form_in(colB)
 
@@ -1564,92 +1634,6 @@ class MainWindow(QMainWindow):
         rl.addWidget(c)
         self._fill_sheet_box()
 
-        # Attorneys card: the table shows who (tick, name, firm, role); the row selected is spelled out under it
-        c, cl = folding("Attorneys  —  one form is made for each checked row", "attorneys")
-        c.heading.setToolTip(
-            "Each checked attorney gets a minute agreement (and an invoice) of its own: the agreement\n"
-            "shows the pages that attorney ordered, whoever wrote them; the invoice bills your pages of them.")
-        self.att = QTableWidget(0, len(ATT_COLS))
-        self.att.setHorizontalHeaderLabels(ATT_COLS)
-        self.att.verticalHeader().setVisible(False)
-        self.att.setAlternatingRowColors(True)
-        self.att.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.att.setWordWrap(True)
-        hh = self.att.horizontalHeader()
-        hh.setSectionResizeMode(QHeaderView.Interactive)
-        hh.setStretchLastSection(False)
-        for i, w in enumerate([30, 140, 190, 230, 115, 105, 190, 170, 60]):
-            sized(self.att, "setColumnWidth", i, w, keep=1)
-        for i in ATT_DETAIL_COLS:  # (in the details under the table; the columns stay, as the rows' data)
-            self.att.setColumnHidden(i, True)
-        hh.setSectionResizeMode(1, QHeaderView.Stretch)
-        hh.setSectionResizeMode(2, QHeaderView.Stretch)
-        self.att.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (each firm's tag: _mark_items)
-        sized(self.att, "setMinimumHeight", 150)
-        self.att.itemChanged.connect(self._att_changed)
-        self.att.currentCellChanged.connect(lambda *_: self._show_att_details())
-        cl.addWidget(self.att)
-        self._build_att_details(cl, two_cols, form_in)
-        # two rows that may be one firm or attorney ("Smith Law" and "Smith Law Group"): the user says (Same firm,
-        # Not the same), and the answer is kept for later documents too (batch.firm_questions, Settings.firm_answers),
-        # or with Remember unticked only until the app is closed
-        self.firm_ask_box = QWidget()
-        fq = QHBoxLayout(self.firm_ask_box)
-        fq.setContentsMargins(0, 0, 0, 0)
-        fq.setSpacing(8)
-        self.firm_ask = QLabel("")
-        self.firm_ask.setObjectName("speedAsk")
-        self.firm_ask.setWordWrap(True)
-        fq.addWidget(self.firm_ask, 1)
-        self.firm_same = QPushButton("Same firm")
-        self.firm_same.setToolTip("They are one firm (or one attorney): one row, one invoice, one agreement")
-        self.firm_same.clicked.connect(lambda: self._answer_firm(True))
-        self.firm_apart = QPushButton("Not the same")
-        self.firm_apart.setToolTip("They are two firms (or two attorneys): two rows, each billed on its own")
-        self.firm_apart.clicked.connect(lambda: self._answer_firm(False))
-        fq.addWidget(self.firm_same, 0, Qt.AlignTop)
-        fq.addWidget(self.firm_apart, 0, Qt.AlignTop)
-        self.firm_remember = QCheckBox("Remember")
-        self.firm_remember.setChecked(True)
-        self.firm_remember.setToolTip("Keep the answer for later documents naming these two (Settings → Invoice →\n"
-                                      "Firms you answered lists them, to forget one). Unticked: for now only.")
-        fq.addWidget(self.firm_remember, 0, Qt.AlignTop)
-        self.firm_ask_box.setVisible(False)
-        self._firm_q = None  # (the days asked about, (row, row)) of the question shown
-        cl.addWidget(self.firm_ask_box)
-        br = QHBoxLayout()
-        add = QPushButton("+ Add attorney")
-        add.clicked.connect(self._add_att_row)
-        rem = QPushButton("Remove selected")
-        rem.clicked.connect(self._remove_att_rows)
-        hint = QLabel("Click a row to see and change all its details below; tick the attorneys who get a form.")
-        hint.setObjectName("muted")
-        hint.setWordWrap(True)
-        br.addWidget(add)
-        br.addWidget(rem)
-        br.addSpacing(12)
-        br.addWidget(hint, 1)
-        cl.addLayout(br)
-        rl.addWidget(c)
-
-        # Who pays what: each invoice in short, right under the ticks that change it, kept up to date as
-        # attorneys, speeds, Parties, Peripherals or Excerpts change (shown when an invoice is to be made)
-        self.pays_card, cl = folding("Who pays what (the invoices)", "pays")
-        self.pays_title = self.pays_card.heading
-        self.pays_title.setToolTip(PAYS_TIP.format(**_who_splits(self.s)))
-        self.pays = QLabel("")
-        self.pays.setObjectName("payTable")
-        self.pays.setTextFormat(Qt.RichText)
-        self.pays.setWordWrap(True)
-        self.pays.setTextInteractionFlags(Qt.TextBrowserInteraction)
-        self.pays.setOpenExternalLinks(False)
-        self.pays.linkActivated.connect(self._show_live_math)
-        self.pays.setToolTip(PAYS_TIP.format(**_who_splits(self.s)))
-        cl.addWidget(self.pays)
-        self._pay_firms: list = []  # the invoices the card shows (invoice.firm_invoices), for its math
-        self.pays_card.setVisible(False)
-        rl.addWidget(self.pays_card)
-
         # Who ordered what: every attorney's order of every day the invoice covers, spelled out (shown while
         # Invoice is ticked and the job has a transcript or pages to bill)
         self.orders_card, cl = folding("Who ordered what", "orders")
@@ -1665,7 +1649,7 @@ class MainWindow(QMainWindow):
         self.orders_help.setToolTip(ORDERS_HELP + "\n\nClick for more in the help.")
         self.orders_help.clicked.connect(lambda: self.show_help("inv-who-ordered"))
         top.addWidget(self.orders_help, 0, Qt.AlignTop)
-        self.orders_edit = QPushButton("Edit excerpts…")
+        self.orders_edit = QPushButton("Excerpts…")
         self.orders_edit.clicked.connect(self._edit_orders)
         top.addWidget(self.orders_edit)
         cl.addLayout(top)
@@ -1691,6 +1675,24 @@ class MainWindow(QMainWindow):
         cl.addWidget(self.orders)
         self.orders_card.setVisible(False)
         rl.addWidget(self.orders_card)
+
+        # Who pays what: each invoice in short, right under the ticks that change it, kept up to date as
+        # attorneys, speeds, Parties, Peripherals or Excerpts change (shown when an invoice is to be made)
+        self.pays_card, cl = folding("Who pays what", "pays")
+        self.pays_title = self.pays_card.heading
+        self.pays_title.setToolTip(PAYS_TIP.format(**_who_splits(self.s)))
+        self.pays = QLabel("")
+        self.pays.setObjectName("payTable")
+        self.pays.setTextFormat(Qt.RichText)
+        self.pays.setWordWrap(True)
+        self.pays.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.pays.setOpenExternalLinks(False)
+        self.pays.linkActivated.connect(self._show_live_math)
+        self.pays.setToolTip(PAYS_TIP.format(**_who_splits(self.s)))
+        cl.addWidget(self.pays)
+        self._pay_firms: list = []  # the invoices the card shows (invoice.firm_invoices), for its math
+        self.pays_card.setVisible(False)
+        rl.addWidget(self.pays_card)
 
         # Who transcribed what: each reporter's pages of every day of the trial, from the initials on its pages
         # (the user, 2026-10-21: to review in the window, and save; the run sheet has every take in full)
@@ -3722,7 +3724,7 @@ class MainWindow(QMainWindow):
         self._apply_speed()
 
     def _show_rate_info(self):
-        """The line under the Rate field (Minute agreement form details): the copy rate, the speed's other prices
+        """The line under the Rate field (Speed, pages and dates): the copy rate, the speed's other prices
         and when the rates changed."""
         sheet = self.s.sheet()
         sp = sheet.find(self.delivery.currentData() or "")
@@ -4554,7 +4556,7 @@ class MainWindow(QMainWindow):
             reasons = {"invoice": "An invoice needs pages to bill, and the Pages field says 0."
                        if job.transcript_pages() or job.pages_typed() else
                        "An invoice needs pages to bill, and this job has no transcript PDF: type the pages to bill "
-                       "in Est. number of pages (Minute agreement form details) to make one.",
+                       "in Est. number of pages (Speed, pages and dates) to make one.",
                        "runsheet": "A run sheet needs a transcript PDF (the initials on its pages), and this job "
                                    "has none."}
             why = "\n".join(reasons[o] for o in missing if o in reasons)
@@ -5804,9 +5806,9 @@ class MainWindow(QMainWindow):
         one)'."""
         speed, rate = self.case.get("delivery"), self.case.get("rate")
         if not speed:
-            text = "(none: choose one under Minute agreement form details)"
+            text = "(none: choose one under Speed, pages and dates)"
         elif not rate:
-            text = f"{speed} · no rate (type it under Minute agreement form details)"
+            text = f"{speed} · no rate (type it under Speed, pages and dates)"
         else:
             text = f"{speed} · ${rate.lstrip('$')} a page"
         return f"Each firm's own speed ({text} without one)" if self.cur.ordered_speeds() else text
@@ -6051,7 +6053,7 @@ class MainWindow(QMainWindow):
         t.resizeRowsToContents()
         self._fit_orders_height()
         whose = bool(job.ownership_problem()) and not job.portions_problem()
-        self.orders_edit.setText("⚠ Whose pages…" if whose else "Edit excerpts…")
+        self.orders_edit.setText("⚠ Whose pages…" if whose else "Excerpts…")
         self.orders_edit.setToolTip(
             "Choose whose pages of the day shown are billed (the same as Whose pages… in the Invoice panel)"
             if whose else "Who ordered which pages of each day of the case, as one table (the same as Excerpts… "
@@ -6351,7 +6353,7 @@ class MainWindow(QMainWindow):
             self.output_grid.setColumnStretch(col, 1 if col < per_row else 0)  # the panels share the width
 
     def _place_pairs(self) -> None:
-        """Puts the two columns of the Case and Minute agreement form details cards side by side when the form has
+        """Puts the two columns of the Case and Speed, pages and dates cards side by side when the form has
         room for both, else one above the other, so the form never needs scrolling sideways."""
         scroll = getattr(self, "form_scroll", None)
         if scroll is None:
