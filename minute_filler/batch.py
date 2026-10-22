@@ -1127,7 +1127,7 @@ class Job:
         days = self.invoice_days()
         if not days and not self.ownership_problem():
             return []
-        held = self.invoice_hold()  # (the wording the Invoice panel and Generate all use)
+        held = self.invoice_hold()  # (the wording the Invoice card and Generate all use)
         ticked = [a for a in self.case.invoice_orderers() if a is not None]
         keys = [a.key() for a in ticked]
         names = {a.key(): a.label() for a in ticked}
@@ -1729,7 +1729,7 @@ def _all_pages(case: CaseInfo, job: Job) -> None:
     from a number in a document's words: every page of the transcripts of the job (days, volumes) added up,
     whoever wrote them, without the word index. Each attorney's minute agreement then shows the pages that
     attorney ordered (Job.ordered_pages) and the invoice bills the user's own pages of them (Job.invoice_pages;
-    the Invoice panel's Billed row shows how many), so the user's own count is not offered in the ▾ list:
+    the Invoice card's Billed row shows how many), so the user's own count is not offered in the ▾ list:
     picked, it would be a number typed in, the day's count on every agreement. A number the user typed stays
     (it is then what the user's invoice bills, and the day's pages on the agreements: Job.pages_typed),
     unless it is the pages the invoice bills anyway (Job.own_pages) or the count itself: then it is the count

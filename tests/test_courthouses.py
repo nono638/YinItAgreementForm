@@ -133,13 +133,14 @@ def test_the_window_has_its_box_and_generate_asks_nothing(with_note, make_window
     win = make_window(s)
     assert list(win.output_boxes) == ["agreement", "invoice", "mofr", "runsheet", "note"]
     assert win.output_boxes["note"].text() == "Note" and win.output_boxes["note"].isChecked()
-    assert all(win.output_grid.indexOf(c) >= 0 for c in win._output_cols)  # (every panel laid out)
+    assert all(win.foot.isAncestorOf(b) for b in win.output_boxes.values())  # (every box in the Outputs row)
+    assert "note" not in win.option_panels  # (no options: no panel under Options ▾)
     win.add_files([str(transcript_pdf(tmp_path / "Transcript.pdf"))])
     end = time.time() + 20
     while not (win.cur.docs and not win.runner._live) and time.time() < end:
         QtWidgets.QApplication.processEvents()
         time.sleep(0.01)
     win._refresh_outputs()
-    assert win.output_counts["note"].text() == "Will generate 1 note"
+    assert win.output_counts["note"].toolTip() == "Will generate 1 note"
     win.fill()
     assert shown == ["Saved"] and [p.name for p in win.cur.saved] == ["Note - 712345-2021.txt"]

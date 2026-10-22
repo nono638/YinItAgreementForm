@@ -77,50 +77,30 @@ def test_the_status_and_buttons_are_in_the_menu_bar_without_a_title_row(window):
     assert not [w for w in window.findChildren(QtWidgets.QLabel) if w.objectName() in ("title", "subtitle")]
 
 
-def test_the_dividers_hold_the_form_the_outputs_the_list_and_the_paste_box_and_are_kept(window, make_window):
+def test_the_dividers_hold_the_list_and_the_paste_box_and_are_kept(window, make_window):
+    """The left column beside the form, and the Outputs row under both (one row since 2026-10-22: no divider above
+    it to drag); the divider between the job list and the paste box is kept."""
     split = window.form_scroll.parentWidget()
     assert isinstance(split, QtWidgets.QSplitter) and split.orientation() == Qt.Horizontal
-    assert window.vsplit.widget(0) is split and window.vsplit.widget(1) is window.foot
+    assert not isinstance(window.foot.parentWidget(), QtWidgets.QSplitter)
     assert window.left_split.widget(0).isAncestorOf(window.job_list)
     assert window.left_split.widget(1).isAncestorOf(window.paste)
     window.resize(1400, 900)
     window.show()
     pump()
-    window.vsplit.setSizes([600, 300])
-    kept = window.vsplit.sizes()
+    total = sum(window.left_split.sizes())
+    window.left_split.setSizes([total - 150, 150])
+    kept = window.left_split.sizes()
     window.close()
     saved = Settings.load()
-    assert set(saved.window_splits) == {"outer", "left"}
+    assert set(saved.window_splits) == {"left"}
     again = make_window(saved)
     again.resize(1400, 900)
     again.show()
     pump()
-    # (made, the window was first fitted to the small screen offscreen, which moved the divider: put back, at the
-    # same size, it is where it was)
     again._restore_splits()
-    assert abs(again.vsplit.sizes()[1] - kept[1]) <= 20
+    assert abs(again.left_split.sizes()[1] - kept[1]) <= 20
     again.close()
-
-
-def test_the_outputs_box_folds_to_a_line_of_boxes_that_tick_the_panels(window):
-    window.resize(1366, 768)
-    window.show()
-    pump()
-    form_before = window.vsplit.sizes()[0]
-    window._fold_outputs(True)
-    pump()
-    assert window.outputs_body.isHidden() and not window.outputs_line.isHidden()
-    assert window.vsplit.sizes()[0] > form_before + 150  # (the room goes to the form)
-    assert Settings.load().outputs_folded and window.fold_outputs_action.isChecked()
-    window.mini_outputs["invoice"].setChecked(True)
-    assert window.output_boxes["invoice"].isChecked() and "invoice" in window.s.outputs
-    speeds = ", ".join(n for n, cb in window.inv_speed_boxes.items() if cb.isChecked())
-    assert window.mini_speeds.text() == f"({speeds})"
-    window.output_boxes["invoice"].setChecked(False)
-    assert not window.mini_outputs["invoice"].isChecked() and window.mini_speeds.isHidden()
-    window._fold_outputs(False)
-    assert not window.outputs_body.isHidden() and not Settings.load().outputs_folded
-    window.close()
 
 
 def test_the_drop_zone_is_a_slim_row_once_documents_are_read(window, tmp_path):

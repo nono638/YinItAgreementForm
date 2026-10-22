@@ -347,7 +347,7 @@ def test_a_day_held_for_three_speeds_is_said_not_crashed(window, qt, tmp_path, m
     job.speeds = {A: "Daily", B: "Immediate", C: "Regular"}
     window._update_status()
     assert window.inv_info.text().startswith("⚠ The speeds need checking")
-    assert "the speeds are checked" in window.output_counts["invoice"].text()
+    assert "the speeds are checked" in window.output_counts["invoice"].toolTip()
     shown = answer(monkeypatch, qt, "Yes")
     assert window._without_unchecked_invoice(job, ["agreement", "invoice"]) == ["agreement"]
     assert window._without_unchecked_invoice(job, ["invoice"]) == []

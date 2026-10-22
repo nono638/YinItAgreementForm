@@ -159,8 +159,8 @@ def day_reporters(orders: list[DayOrder]) -> dict:
 
 @dataclass
 class InvoiceOpts:
-    """Choices made for one job's invoices, or for the days of a case on a joint invoice (the Invoice panel of
-    the Outputs box, and its Peripherals..., Customize... and Excerpts... windows). None = as Settings say."""
+    """Choices made for one job's invoices, or for the days of a case on a joint invoice (the window's
+    Invoice card, and its Peripherals..., Customize... and Excerpts... windows). None = as Settings say."""
     pages: int                   # the pages billed (all the days together)
     # ordering parties: each pays an equal share (on one firm's own invoice, see firm_invoices: the most firms
     # that shared any of its pages)
@@ -700,7 +700,7 @@ def indexed_days(opts: InvoiceOpts, s: Settings) -> list[bool]:
 
 
 def index_reason(opts: InvoiceOpts, s: Settings, days: list[int] | None = None) -> str:
-    """Why the invoice's days get an index or not, in a few words, for the Invoice panel and the math:
+    """Why the invoice's days get an index or not, in a few words, for the Invoice card and the math:
     "83 total pages, 50 or more", "40 total pages, under 50", "a day of 60 pages, 50 or more" (Settings: if any
     day reaches the threshold, every day gets one), "1 of 2 days have 50 pages or more", "turned on for this
     job", "turned off for this job", "turned off in Settings → Invoice". days: the days of one firm's invoice

@@ -52,8 +52,8 @@ RATE_SHEETS_OK_KEPT = 20  # how many incomplete rate sheets used anyway are reme
 # it is when one is imported (an incomplete rate sheet used anyway here is warned about on another computer)
 LOCAL = ("window_geometry", "recent_files", "update_checked", "update_version", "update_page", "recap_month",
          "recap_year", "welcomed",
-         "signature_image", "opened_year", "new_year_day", "rate_sheets_ok", "window_splits", "outputs_folded",
-         "outputs_fold_chosen", "folded_cards", "sheet_days_kept")
+         "signature_image", "opened_year", "new_year_day", "rate_sheets_ok", "window_splits", "folded_cards",
+         "sheet_days_kept")
 # What says who the user is: left out of a settings file exported "without my details" (for a colleague), and
 # kept as it is when such a file is imported. The invoice's payment text (who to pay, and how) is left out
 # with them. The folders are among them: their paths name the user's Windows account.
@@ -531,8 +531,9 @@ class Settings:
     mofr_filename_pattern: str = MOFR_FILENAME_PATTERN
 
     # Invoices (they need pages to bill: a transcript's, or a number typed in Est. number of pages)
-    # the speeds ticked under "Speeds offered" in the Invoice panel: the invoice lists them so the attorney can choose
-    # (one alone: a single-speed invoice), and the agreement form names one of them (agreement_speed)
+    # the speeds ticked under "Speeds offered" (the main window's Speed, pages and dates card): the invoice lists
+    # them so the attorney can choose (one alone: a single-speed invoice), and the agreement form names one of them
+    # (agreement_speed)
     invoice_speeds: list = field(default_factory=lambda: ["Regular", "Expedited"])
     invoice_include_email: bool = True  # each party also gets an e-mailed copy (Email column of the rate sheet)
     invoice_include_index: bool = True  # long transcripts get an index (Index column), plus one for the judge
@@ -610,13 +611,9 @@ class Settings:
     theme: str = "system"             # system / light / dark
     show_yin: bool = True
     window_geometry: str = ""
-    # the main window's dividers, by name ("outer": the form above the Outputs box, "left": the job list above
-    # the paste box), each as QSplitter.saveState() in base64; Outputs folded to one line, and whether the user
-    # folded or unfolded it (until then it is folded on a short screen only: MainWindow._auto_fold_outputs); the
-    # cards folded
+    # the main window's divider ("left": the job list above the paste box) as QSplitter.saveState() in base64
+    # (an "outer" one, above the Outputs box when it had panels, is kept but not used); the cards folded
     window_splits: dict = field(default_factory=dict)
-    outputs_folded: bool = False
-    outputs_fold_chosen: bool = False
     folded_cards: list = field(default_factory=list)
     zoom: float = 1.0                 # Ctrl + / Ctrl - zoom (1.0 = 100 %), on top of the Windows display scaling
     recent_files: list = field(default_factory=list)  # documents and folders opened, newest first (Open recent)
@@ -1100,9 +1097,6 @@ class Settings:
         # the colours of 2.8.0 as they came are the new ones; colours the user changed stay theirs
         if version < 15 and s.tracking_rules == rule_rows(rules_280()):
             s.tracking_rules = rule_rows(default_rules())
-        # (2.8.0 saved no outputs_fold_chosen: a box folded then was folded by hand, as it started unfolded)
-        if "outputs_fold_chosen" not in data and s.outputs_folded:
-            s.outputs_fold_chosen = True
         if isinstance(data.get("zoom"), int) and not isinstance(data.get("zoom"), bool):
             s.zoom = float(data["zoom"])  # "zoom": 1 typed by hand
         s.zoom = min(1.6, max(0.7, s.zoom)) if s.zoom == s.zoom else 1.0

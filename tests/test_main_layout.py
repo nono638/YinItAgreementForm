@@ -33,10 +33,11 @@ def card_order(win) -> list[str]:
 def test_the_cards_follow_the_job_and_say_what_is_in_them(window):
     """Who ordered first (Attorneys right under the case), then the speed, pages and dates; the invoice's cards
     with what was ordered before what it costs, and the trial's report last."""
-    assert card_order(window) == ["case", "attorneys", "details", "orders", "pays", "takes"]
+    assert card_order(window) == ["case", "attorneys", "details", "invoice", "orders", "pays", "takes"]
     titles = {k: c.heading.text() for k, c in window.cards.items()}
     assert titles == {"case": "Case", "attorneys": "Attorneys: tick who ordered", "details": "Speed, pages and dates",
-                      "orders": "Who ordered what", "pays": "Who pays what", "takes": "Who transcribed what"}
+                      "invoice": "Invoice", "orders": "Who ordered what", "pays": "Who pays what",
+                      "takes": "Who transcribed what"}
     assert window.orders_edit.text() == "Excerpts…"
 
 
@@ -188,3 +189,86 @@ def test_another_day_nobody_is_ticked_on_is_said_on_the_day_shown(window, tmp_pa
     assert "No invoice for the case yet ›" in window.status.text()
     first.go()
     assert window.cur is day1 and window.att.property("flash") is True
+
+
+def test_the_invoice_is_a_card_of_the_form_and_its_speeds_are_by_the_rate_sheet(window, qt, tmp_path):
+    """The invoice's choices for this job (Parties, Excerpts…, Whose pages…, Peripherals…, the prices) are a card
+    of the form, above Who ordered what and Who pays what, which they change; hidden while Invoice is unticked.
+    The speeds it offers are under the rate sheet, by the Speed the agreement names (the user, 2026-10-22: the speed
+    was chosen in places apart). Folded, it sums itself up."""
+    from test_sweep_270 import counsel, one_day, smith
+    card = window.cards["invoice"]
+    assert card.isHidden()  # (nothing loaded)
+    one_day(window, qt, tmp_path, [counsel(), smith()])
+    window._update_status()
+    assert not card.isHidden()
+    for w in (window.inv_parties, window.inv_who, window.inv_whose, window.inv_peripherals, window.inv_info,
+              window.inv_detail):
+        assert card.isAncestorOf(w) and not window.foot.isAncestorOf(w)
+    assert all(window.cards["details"].isAncestorOf(cb) for cb in window.inv_speed_boxes.values())
+    window._fold_card(card, True)
+    assert window.cards["invoice"].summary.text().startswith("Parties 2")
+    window._fold_card(card, False)
+    window.output_boxes["invoice"].setChecked(False)
+    assert card.isHidden() and window.orders_card.isHidden() and window.pays_card.isHidden()
+    window.output_boxes["invoice"].setChecked(True)
+    assert not card.isHidden()
+
+
+def test_the_outputs_box_is_one_row_and_options_open_under_it(window, qt):
+    """What to make, how many files of each, Options ▾ and the Generate buttons, in one row at the bottom (the
+    form gets the room the four panels took); each output's standing choices in Options ▾."""
+    foot = window.foot
+    assert all(foot.isAncestorOf(b) for b in window.output_boxes.values())
+    assert foot.isAncestorOf(window.fill_btn) and foot.isAncestorOf(window.options_btn)
+    window.resize(1400, 900)
+    window.show()
+    qt.QApplication.processEvents()
+    assert foot.height() <= window.fill_btn.height() * 2.5
+    pop = window.options_pop
+    for w in (window.form_choice, window.per_email, window.sign_rep, window.mofr_division, window.rs_existing,
+              window.rs_folder):
+        assert pop.isAncestorOf(w)
+    window._show_output_options()
+    assert pop.isVisible()
+    pop.hide()
+    assert not hasattr(window, "vsplit") and not hasattr(window, "outputs_body")
+
+
+def test_the_attorneys_show_without_scrolling_at_1400_by_900(window, qt, tmp_path):
+    """Who ordered (the attorney table) is the second card and the Outputs box one row: at 1400 x 900 the table is
+    in sight with a day loaded, without scrolling the form (before, the details card and four panels of options
+    pushed it out of sight)."""
+    from test_sweep_270 import counsel, one_day, smith
+    window.resize(1400, 900)
+    window.show()
+    one_day(window, qt, tmp_path, [counsel(), smith()])
+    window._update_status()
+    for _ in range(5):
+        qt.QApplication.processEvents()
+    form = window.form_scroll
+    assert form.verticalScrollBar().value() == 0
+    bottom = window.att.mapTo(form.widget(), window.att.rect().bottomLeft()).y()
+    assert bottom <= form.viewport().height()
+
+
+@pytest.mark.parametrize("zoom", [1.0, 1.4])
+def test_the_outputs_row_fits_the_smallest_window(window, qt, tmp_path, zoom):
+    """At the window's least width (1080 at 100 %, as zoomed), the Outputs row with every output ticked and both
+    Generate buttons of two days of a case is no wider: the buttons go on a row of their own under it, and back at
+    the end of it in a wide window. The page never scrolls sideways for it."""
+    from minute_filler.gui.zoom import z
+    from test_gui_batch import two_days
+    for key in window.output_boxes:
+        window.output_boxes[key].setChecked(True)
+    two_days(window, tmp_path)
+    window.show()
+    window.set_zoom(zoom)
+    for width, below in ((z(1080), True), (z(2400), False)):
+        window.resize(width, 800)
+        for _ in range(5):
+            qt.QApplication.processEvents()
+        window._place_foot()
+        page = window.page_scroll
+        assert page.widget().minimumSizeHint().width() <= page.viewport().width(), width
+        assert (window.foot_row2.indexOf(window.gen_box) >= 0) is below, width

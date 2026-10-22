@@ -171,15 +171,15 @@ def test_going_back_from_the_speed_question_makes_nothing(window, monkeypatch):
 
 def test_the_speeds_offered_are_the_invoices_and_the_card_is_the_forms(window):
     """The card that names the form's speed is "Speed, pages and dates" (it was "Order", then "Minute agreement
-    form details"); the speeds the invoice offers are ticked in the Invoice panel, where they stay usable while
-    Invoice is unticked, as the form names one of them."""
+    form details"), and the speeds the invoice offers are ticked there too, under the rate sheet (the user,
+    2026-10-22: they were in the Invoice panel of the Outputs box, apart from the Speed), usable while Invoice is
+    unticked, as the form names one of them; the Invoice card is hidden then."""
     from PySide6.QtWidgets import QLabel
     titles = [w.text() for w in window.findChildren(QLabel) if w.objectName() == "section"]
     assert "Speed, pages and dates" in titles and "Order" not in titles
-    panel = window._output_cols[list(window.output_boxes).index("invoice")]
-    assert all(panel.isAncestorOf(cb) for cb in window.inv_speed_boxes.values())
+    assert all(window.cards["details"].isAncestorOf(cb) for cb in window.inv_speed_boxes.values())
     window.output_boxes["invoice"].setChecked(False)
-    assert not window.output_opts["invoice"].isEnabled()
+    assert not window.output_opts["invoice"].isEnabled() and window.cards["invoice"].isHidden()
     assert all(cb.isEnabled() for cb in window.inv_speed_boxes.values())
     ticked = [n for n, cb in window.inv_speed_boxes.items() if cb.isChecked()]
     assert ticked == [window.delivery.itemData(i) for i in range(window.delivery.count() - 1)]  # (less Other)

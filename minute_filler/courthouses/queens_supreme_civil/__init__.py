@@ -1,7 +1,7 @@
 """Queens Supreme Court, Civil Term: the courthouse the program was written for, and the only profile so far.
 
 Its outputs are the four the program has always made, listed as Settings and the Records list them; in the
-window the Invoice panel comes second (panel_pos). The bundled rate sheets and the prices used without one are
+window Invoice comes second in the Outputs row (panel_pos), its options a card of the form (card). The bundled rate sheets and the prices used without one are
 here too, not in rates.py: they are this courthouse's (and New York's), not every court's. So are New York's
 court holidays (holidays), the list Settings -> Dates starts with.
 
@@ -63,7 +63,7 @@ COURTHOUSE = Courthouse(
             "invoice", "Invoice", "billing", mark="invoice", color="#16a34a",
             maker="minute_filler.invoice:Invoices", per="attorney", policy="minute_filler.batch:InvoicePolicy",
             words=("invoice", "invoices"), asks=("firms", "parties", "speeds", "attorney"),
-            panel="minute_filler.gui.panels:invoice", panel_pos=1),
+            panel="minute_filler.gui.panels:invoice", card="Invoice", panel_pos=1),
         OutputSpec(  # an Excel workbook, so never previewed; its tooltip too says whether the job can have one
             "runsheet", "Run sheet", "sheet", folder="YinIt Run Sheets",
             maker="minute_filler.runsheet:RunSheets", policy="minute_filler.batch:RunSheetPolicy",

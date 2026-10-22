@@ -109,8 +109,7 @@ def qt(monkeypatch):
     startup ran during the clean-up once waited for a click for good (a test of it sets WelcomeDialog.exec).
     Generate's "Which speed did each firm order?" (firms sharing pages without a speed) is answered with what it
     was filled with, the agreement form's speed: a window test of a split order once waited for it for good (a
-    test of it sets SplitSpeedsDialog.exec). The off-screen screen (800 x 600) counts as tall: the Outputs box isn't
-    folded for it (a test of that sets main_window.SHORT_SCREEN)."""
+    test of it sets SplitSpeedsDialog.exec)."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     fonts = os.path.join(os.environ.get("WINDIR", ""), "Fonts")
     if os.path.isdir(fonts):  # the real fonts, so text is measured as on screen (see the layout tests)
@@ -123,8 +122,6 @@ def qt(monkeypatch):
     monkeypatch.setattr(PreviewDialog, "exec", lambda self: QtWidgets.QDialog.Accepted)
     monkeypatch.setattr(MathDialog, "exec", lambda self: QtWidgets.QDialog.Accepted)
     monkeypatch.setattr(WelcomeDialog, "exec", lambda self: QtWidgets.QDialog.Rejected)
-    from minute_filler.gui import main_window
-    monkeypatch.setattr(main_window, "SHORT_SCREEN", 0)
     return QtWidgets
 
 

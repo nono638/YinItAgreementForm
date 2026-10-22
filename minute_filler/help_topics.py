@@ -126,21 +126,21 @@ lists them, and a click goes to the first one.</li>
 <p>The yin-yang in the drop zone swirls while documents are read, settles when the form is ready and cracks when
 something required is missing. View → <i>Show the yin-yang</i> hides it.</p>
 """),
-    T("start-room", START, "Short of room on a laptop: folding, dividers, zoom and theme",
-      "small screen laptop space fold collapse hide bigger smaller text size font dark mode light theme scaling",
+    T("start-room", START, "Short of room on a laptop: folding, the divider, zoom and theme",
+      "small screen laptop space fold collapse hide bigger smaller text size font dark mode light theme scaling "
+      "divider",
       """
 <ul>
-<li><b>Fold the Outputs box</b> to one line with its ▾ (the boxes to tick and Generate stay), or View →
-<i>Fold the Outputs box</i>. On a screen short for the zoom it is folded for you, until you fold or unfold it
-yourself.</li>
-<li><b>Drag the dividers</b>: the one above the Outputs box, and the one between the job list and the paste box.</li>
+<li>The <b>Outputs box</b> at the bottom is one row, so the form has the room; in a narrow window its Generate
+buttons go on a row of their own under it.</li>
+<li><b>Drag the divider</b> between the job list and the paste box.</li>
 <li><b>Fold a card</b> of the form to one line that sums it up, with a ⚠ when something in it needs a look; click its
 heading. View → <i>Fold all cards</i> and <i>Unfold all cards</i>.</li>
 <li><b>Zoom</b>: Ctrl++ and Ctrl+- (or Ctrl and the mouse wheel), Ctrl+0 for 100%; also View → Zoom in, Zoom out and
 Actual size, and Settings → Options → Zoom. The window also follows Windows' display scaling (125%, 150%).</li>
 <li><b>Theme</b>: View → Theme switches between light, dark and as Windows is.</li>
 </ul>
-<p>The dividers, the folds and the zoom are remembered.</p>
+<p>The divider, the folds and the zoom are remembered.</p>
 """),
     T("start-one-window", START, "One window at a time", "second copy open with twice launch again",
       """
@@ -320,7 +320,7 @@ or <b>Forget all</b>: after Save, the jobs open now are read again and you're as
     T("check-copies", CHECK, "No. of copies", "copies number of copies parties ordering parties count",
       """
 <p><i>No. of copies</i> is the number of ordering parties, as the invoice counts them: the firms ticked, or the
-<i>Parties</i> number of the Invoice panel when you change it. It follows every change of who is ticked, unless you
+<i>Parties</i> number of the Invoice card when you change it. It follows every change of who is ticked, unless you
 typed a number.</p>
 <p>On a day split under <a href="topic:exc-table">Excerpts…</a>, it is the firms that ordered pages.</p>
 """),
@@ -328,20 +328,26 @@ typed a number.</p>
     T("make-outputs", MAKE, "The Outputs box: choosing what to make, and Generate",
       "outputs generate make create produce tick minute agreement invoice mofr run sheet count files button",
       """
-<p>The <b>Outputs</b> box at the bottom of the window has a column for each of <i>Minute agreement</i>,
-<i>Invoice</i>, <i>MOFR</i> and <i>Run sheet</i>. Tick the ones to make. Each column holds that output's own
-options and says how many files it will make as you tick attorneys (<i>Will generate 2 minute agreement
-forms</i>).</p>
+<p>The <b>Outputs</b> box at the bottom of the window is one row: a box for each of <i>Minute agreement</i>,
+<i>Invoice</i>, <i>MOFR</i> and <i>Run sheet</i>. Tick the ones to make. Beside each, how many files Generate makes
+of it as you tick attorneys (<i>(2)</i>; its tooltip says it in words, <i>Will generate 2 minute agreement
+forms</i>, and with several jobs <i>(2 · all 6)</i> counts what Generate all makes too).</p>
 <ul>
-<li><b>Generate</b> (Ctrl+Enter), the big button at the top of the box, makes the job on screen.</li>
-<li><b>Generate all</b> (Ctrl+Shift+Enter) makes every ticked job in the list on the left
-(<a href="topic:batch-generate-all">more</a>).</li>
+<li><b>Options ▾</b> holds each output's settings, kept for every job: which agreement form and how it is signed,
+the MOFR's Civil or Criminal box, what to do when the case has a run sheet already.</li>
+<li>The invoice's choices are this job's own: they are in the <b>Invoice</b> card of the form, above Who ordered what
+(<a href="topic:inv-panel">more</a>).</li>
+<li><b>Generate</b> (Ctrl+Enter), the big button at the right of the row, makes the job on screen. With the days of
+a case loaded it says which day, <i>Generate 6/4/2026 only</i>.</li>
+<li><b>Generate all</b> (Ctrl+Shift+Enter) makes every ticked job in the list on the left, and says how many,
+<i>Generate all 3 days</i> (<a href="topic:batch-generate-all">more</a>).</li>
 </ul>
+<p>Each button's tooltip lists the files it makes (<i>2 minute agreement forms, 2 invoices, 3 PDFs of the
+math</i>).</p>
 <p>Both show a <a href="topic:make-preview">preview</a> first. Your choices are remembered, except <i>Show granular
 detail</i>, which is set for each job. Settings → Options → <i>Make by default</i> says what new jobs start with.
 <i>Run sheet</i> ticks itself when two or more reporters wrote a case's transcripts; click it to decide
 yourself.</p>
-<p>Short of room? Fold the box to one line with its ▾ (<a href="topic:start-room">more</a>).</p>
 """),
     T("make-agreement", MAKE, "The minute agreement form",
       "minute agreement form ucs court reporter private party transaction one per attorney pages ordered per email "
@@ -350,7 +356,7 @@ yourself.</p>
 <p>The UCS <b>Court Reporter Minute Agreement Form</b> is made <b>once for each ticked attorney</b>, with the pages
 that attorney ordered, whoever wrote them: firm A ordering a day of 150 pages and firm B an excerpt of 80 of them
 get agreements for 150 and 80 pages.</p>
-<p>The <i>Minute agreement</i> column of the Outputs box chooses:</p>
+<p>The Outputs box's <i>Options ▾</i>, under <i>Minute agreement</i>, chooses:</p>
 <ul>
 <li><b>Form</b>: the court's own fillable UCS form (the default), a clean <i>re-typeset</i> version of it (with room
 for a long case name, fax and e-mail), or the <i>original 1999 scan</i>;</li>
@@ -372,7 +378,7 @@ page (UCS form page 2)</i> adds the form's second page.</p>
 <p>The MOFR gets the reporter's parts only: county, Civil or Criminal, title, your name and location, index number,
 part, judge, dates, total copies, the type of order and the page count (the pages anyone ordered, whoever wrote
 them). The judge's, counsel's, clerk's and auditor's sections are left blank.</p>
-<p>Choose <b>Civil</b> or <b>Criminal</b> under <i>Case</i> in the MOFR column of the Outputs box (Settings →
+<p>Choose <b>Civil</b> or <b>Criminal</b> under <i>Case</i> in the Outputs box's <i>Options ▾</i>, under MOFR (Settings →
 Options → <i>MOFR case</i> sets the default). On a civil form the printed "PEOPLE V" is covered, so the full caption
 fits.</p>
 <p>The days of a trial made together with Generate all, on one invoice, get one MOFR listing all of them. It ticks
@@ -486,8 +492,8 @@ it.</p>
       "page choose",
       """
 <ul>
-<li><b>The invoice</b> offers every speed ticked under <i>Speeds offered</i> in the Invoice panel, each at its own
-price, so the attorney can choose. Tick one to bill that speed alone.</li>
+<li><b>The invoice</b> offers every speed ticked under <i>Speeds offered</i>, under the rate sheet in <i>Speed,
+pages and dates</i>, each at its own price, so the attorney can choose. Tick one to bill that speed alone.</li>
 <li><b>The minute agreement form</b> names one speed at one rate per page: Expedited when you offer it, else the
 slowest offered (Settings → Invoice → <i>Agreement form speed</i> changes the rule). The <i>Speed</i> dropdown
 under <i>Speed, pages and dates</i> changes it for one job; ↺ goes back to the rule.</li>
@@ -499,12 +505,12 @@ Generate asks too.</li>
 <p>The rate, the delivery box and the <a href="topic:dates-turnaround">estimated delivery date</a> follow the
 speed.</p>
 """),
-    T("inv-panel", INVOICE, "The Invoice panel", "invoice panel parties prices billed includes line options this job",
+    T("inv-panel", INVOICE, "The Invoice card", "Invoice card parties prices billed includes line options this job",
       """
-<p>The <i>Invoice</i> column of the Outputs box shows the prices before you generate, and holds this job's
-options:</p>
+<p>The <b>Invoice</b> card of the form, under <i>Speed, pages and dates</i> and above <i>Who ordered what</i> (shown
+while <i>Invoice</i> is ticked in the Outputs box), shows the prices before you generate, and holds this job's
+choices for its invoice:</p>
 <ul>
-<li><b>Speeds offered</b> (<a href="topic:inv-speeds">more</a>);</li>
 <li><b>Parties</b>: the number of ordering parties, and <b>Excerpts…</b>: who ordered which pages
 (<a href="topic:exc-table">more</a>);</li>
 <li><b>Whose pages…</b>, on a transcript several reporters wrote (<a href="topic:inv-reporters">more</a>);</li>
@@ -513,14 +519,15 @@ options:</p>
 <li>the <b>Prices</b> line, the <b>Billed</b> line ("You wrote 45 of 83 total pages") and the <b>Includes</b> line
 (<i>E-mailed copy, index (83 total pages, 50 or more)</i>), and a link to the math.</li>
 </ul>
-<p>A firm sharing pages without a speed set is priced at the agreement form's speed with a question mark
-(<i>Dana Smith: Expedite? $98.00</i>) until you set it. Your defaults for every invoice are in
+<p>The speeds the invoice offers are ticked under the rate sheet, in <i>Speed, pages and dates</i>
+(<a href="topic:inv-speeds">more</a>). A firm sharing pages without a speed set is priced at the agreement form's
+speed with a question mark (<i>Dana Smith: Expedite? $98.00</i>) until you set it. Your defaults for every invoice are in
 <a href="topic:set-invoice">Settings → Invoice</a>.</p>
 """),
     T("inv-peripherals", INVOICE, "Peripherals…: the e-mailed copy and the index for one job",
       "peripherals emailed copy email index yes no auto this job skip",
       """
-<p><b>Peripherals…</b> in the Invoice panel sets, for this job only:</p>
+<p><b>Peripherals…</b> in the Invoice card sets, for this job only:</p>
 <ul>
 <li><b>the e-mailed copy</b> for each party (some attorneys skip it to save money);</li>
 <li><b>the index</b>: <i>Auto</i> (when the whole transcript has 50 pages or more), <i>Yes, for this job</i> (a short
@@ -547,7 +554,7 @@ each day on its own, or the days together.</li>
       "granular detail customize breakdown itemized page count price per page charges split detailed copy",
       """
 <p>Without granular detail, the invoice lists each speed with its turnaround and the amount due. Tick
-<b>Show granular detail</b> in the Invoice panel (for this job; it starts unticked for every new job) to add what
+<b>Show granular detail</b> in the Invoice card (for this job; it starts unticked for every new job) to add what
 <b>Customize…</b> chooses: the page count, the pages of each day, the price per page, the charges that make up each
 amount and the split between the parties.</p>
 <p>Settings → Invoice → <i>Also save a detailed copy of each invoice</i> saves "… (detailed).pdf" next to each
@@ -629,7 +636,7 @@ invoiced without them, and the undecided days can be invoiced on their own later
 <b>your own pages</b> only: of a 150-page transcript where 65 pages carry your initials, the invoice is for 65. The
 <i>Billed</i> line says "You wrote 65 of 150 total pages". The minute agreements still count every page an attorney
 ordered.</p>
-<p><b>Whose pages…</b> (Invoice panel) has a box for <i>My pages</i>, each other reporter's pages ("DS's pages") and
+<p><b>Whose pages…</b> (Invoice card) has a box for <i>My pages</i>, each other reporter's pages ("DS's pages") and
 <i>The whole transcript</i>. Each other reporter you tick gets invoices of their own for their pages: in their name,
 with their address and how to pay them (Settings → Run sheet → <i>Invoices for</i>, or <b>Details…</b>), numbered
 apart from yours (DS-2026-0001). They are theirs, so Records leaves them out of your totals and lists them only
@@ -668,7 +675,7 @@ invoice with your text; <b>Restore defaults</b> brings back the first ones.</p>
 follows, a table for each set of those pages: what each firm on them pays a page of each charge and in all, as its
 invoice bills it, and the firms together (<i>Alex B. Counsel · Daily · Original $3.25 · Copy $1.25 · E-mailed copy
 $1.25 · $5.75 a page</i>).</p>
-<p>It is the first tab of the preview, and behind the links under Who pays what and in the Invoice panel. With
+<p>It is the first tab of the preview, and behind the links under Who pays what and in the Invoice card. With
 previews off it comes in a window after saving: <b>Copy all</b>, <b>Save as PDF…</b> (for an attorney who asks) or
 <b>Don't show this anymore</b> (Settings → Options → <i>Show the math of each invoice</i> turns it back on).</p>
 <p><b>Generate saves it</b> as PDFs next to the invoices: each firm's own ("… - the math.pdf", to send that
@@ -706,7 +713,7 @@ half a cent a page ($6,612.50 there, $6,610.00 here, for 1,000 pages).</p>
       "excerpt part of the transcript some pages runs page range split run remove run partial order firm ordered "
       "only",
       """
-<p>When one firm ordered the whole trial and others only some pages, open <b>Excerpts…</b> (Invoice panel, next to
+<p>When one firm ordered the whole trial and others only some pages, open <b>Excerpts…</b> (Invoice card, next to
 <i>Parties</i>). It is one table for every day of the case on that invoice:</p>
 <ul>
 <li>each row is a <b>run of pages</b> of a day, typed in the transcript's own printed page numbers
@@ -1192,7 +1199,7 @@ aren't the first letters of your name.</li>
 paper is removed, so the form's line shows through. <i>Remove</i> takes it off; without one, your name is typed
 instead.</p>
 <p><i>Sign the court reporter line on every form</i> (Settings → My info), or <i>Sign as court reporter</i> in the
-Minute agreement column of the Outputs box, puts it on the court reporter line.</p>
+Outputs box's <i>Options ▾</i> (under Minute agreement), puts it on the court reporter line.</p>
 """),
     T("set-defaults", SETTINGS, "Settings → Defaults", "defaults court county copies rate sheet sheets folder turnaround "
       "days immediate daily expedited regular",

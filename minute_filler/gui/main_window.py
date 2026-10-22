@@ -1,16 +1,20 @@
-"""Main window: drop zone, job list and paste box on the left, the current job's editable fields on the right,
-and the Outputs box at the bottom: the Generate buttons and a panel per output with its options (greyed out
-while the output is unticked) and how many files Generate makes of it, kept up to date (_show_counts). The
-panels are the courthouse's outputs (courthouses.panel_order), their options laid out by gui/panels.py.
+"""Main window: drop zone, job list and paste box on the left, the current job's cards on the right, in the order
+the job is done (the user, 2026-10-22: Case, Attorneys, Speed, pages and dates, Invoice, Who ordered what, Who
+pays what, Who transcribed what), and the Outputs box at the bottom, one row: a box per output with how many
+files Generate makes of it (_show_counts), Options ▾ for the outputs' standing choices (a box under it,
+_show_output_options) and the Generate buttons, which say what they make (_generate_labels) and go on a row of
+their own when the window is narrow (_place_foot). The outputs are the courthouse's (courthouses.panel_order),
+their options laid out by gui/panels.py: the invoice's, this job's own, in a card of the form (OutputSpec.card).
 Room for the form on a small screen: the status and the Records, New job and Settings buttons sit at the right of
-the menu bar; dividers above the Outputs box and above the paste box can be dragged; the Outputs box folds to a
-line of small boxes (_fold_outputs) and each card to a line that sums it up (card, _fold_card); the drop zone is
-one slim row once documents are read (DropZone.set_slim), as the whole window takes them (dropEvent). The status
-counts what needs a look, the job's own checks too, and a click goes to the first (_job_status, _go_to_problem).
+the menu bar; the divider above the paste box can be dragged; each card folds to a line that sums it up (card,
+_fold_card); the drop zone is one slim row once documents are read (DropZone.set_slim), as the whole window takes
+them (dropEvent). The status names the first thing that needs a look, the job's own checks and the warnings in
+the cards too, and a click goes there (_problems, _job_status, _go_to_problem); a Before you generate box at the
+top of the form lists them all, each a link to its place (_show_todo).
 The attorney table shows who; the row selected is spelled out under it (_build_att_details). While nothing is
 loaded, the jobs made lately are listed to open again (_show_start); fields complete from the records
 (_fill_completions); New job can be undone for a few seconds (_undo_clear); the Records button counts the
-invoices of a status (Settings.records_count: _count_records). View zooms, picks the theme and folds. F1 opens the
+invoices of a status (Settings.records_count: _count_records). View zooms, picks the theme and folds the cards. F1 opens the
 manual at the topic of the part of the window in use (show_help, gui/help_window.py).
 The dates follow the day (workdays.py, Settings -> Dates): a form made on a weekend or a court holiday is dated the
 next business day (and one made after the evening hour, when Settings says so, the day after), and the delivery
@@ -21,15 +25,13 @@ a row per document; a document with no index number, or with another than its jo
 under the list (_label_docs, _show_index_notes), and Generate asks first about documents whose index numbers
 don't match (_ask_index_numbers).
 The "Speed, pages and dates" card holds the rate sheet (one missing prices, or with a price lower at a faster
-speed, is warned about: _check_rate_sheet; opened from that warning to be filled in, it is read again each time it is saved: _watch_sheet)
-and the one speed and rate the agreement form names (the Settings rule's,
-Settings.agreement_speed, or the job's own choice; when an e-mail asks for another speed, the user is asked
-which), among the speeds the invoice offers (ticked in the Invoice panel, each at its price). A firm whose speed
+speed, is warned about: _check_rate_sheet; opened from that warning to be filled in, it is read again each time it
+is saved: _watch_sheet), the speeds the invoice offers (Speeds offered, each at its price) and the one speed and
+rate the agreement form names among them (the Settings rule's, Settings.agreement_speed, or the job's own choice;
+when an e-mail asks for another speed, the user is asked which). A firm whose speed
 is set in the "Who ordered what" card gets its own; firms that ordered the same pages commit to one (Generate
 asks: _ask_split_speeds).
-The cards follow the job: Case, Attorneys (who ordered), Speed, pages and dates, then Who ordered what and, under
-it, "Who pays what", each firm's invoice in short as things are ticked; it and the Invoice
-panel link to the whole math. The Invoice panel's Peripherals... (the e-mailed copy and the index, for this job
+"Who pays what" sums up each firm's invoice as things are ticked; it and the Invoice card link to the whole math. The Invoice card's Peripherals... (the e-mailed copy and the index, for this job
 only) and Customize... set what the current job's invoice shows, Excerpts... which firm ordered which pages of
 each day of the case (its own window, gui/excerpts.py), and Whose pages... whose pages of a transcript of
 several reporters are billed (the user's own, by default; other reporters' on invoices in their name); with
@@ -164,7 +166,7 @@ def save_takes(rows, path: Path, csv_file: bool = False) -> Path:
     path = path.with_suffix(".xlsx")
     wb.save(path)
     return path
-# The Invoice panel's Speeds offered while firms' speeds are chosen in Who ordered what (_speeds_locked)
+# Speeds offered (under the rate sheet) while firms' speeds are chosen in Who ordered what (_speeds_locked)
 SPEEDS_LOCKED_TIP = ("Speeds are chosen for the firms in Who ordered what: these boxes only list speeds for a firm "
                      "that chooses from its invoice.")
 SPEEDS_LOCKED_ASK = ("You already chose speeds in Who ordered what.\n\nAre you sure you want to change the speeds "
@@ -210,9 +212,10 @@ ATT_DETAIL_COLS = (3, 4, 5, 6, 8)  # the attorney table's columns shown under it
 CASE_KEYS = ("court", "county", "part", "index_no", "judge", "dates", "case_name", "proc_other")
 DETAIL_KEYS = ("delivery", "rate", "copies", "est_pages", "delivery_date", "agreement_date")
 # The help topic F1 opens for each part of the window (help_window.help_topic_of: the focused widget's, else the
-# nearest parent's): the cards, a few fields, the Outputs box's panels, the job list and the drop zone.
+# nearest parent's): the cards, a few fields, the Outputs box and its Options ▾ panels, the job list and the drop zone.
 CARD_TOPICS = {"case": "check-badges", "details": "inv-speeds", "attorneys": "check-attorneys",
-               "pays": "inv-who-pays", "orders": "inv-who-ordered", "takes": "run-who-transcribed"}
+               "pays": "inv-who-pays", "orders": "inv-who-ordered", "takes": "run-who-transcribed",
+               "invoice": "inv-panel"}
 FIELD_TOPICS = {"index_no": "check-index", "est_pages": "check-pages", "copies": "check-copies",
                 "delivery_date": "dates-turnaround", "agreement_date": "dates-business-days"}
 OUTPUT_TOPICS = {"agreement": "make-agreement", "invoice": "inv-panel", "mofr": "make-mofr",
@@ -249,14 +252,14 @@ EST_PAGES_TIP = ("Counted from the transcript PDF: every page, whoever wrote it 
                  "and a warning under it says so.\n"
                  "Each attorney's minute agreement shows the pages that attorney ordered (the whole day,\n"
                  "or its excerpt under Excerpts…); the MOFR the pages anyone ordered. Your invoice bills\n"
-                 "only your own pages of them (Invoice panel: Billed).\n"
+                 "only your own pages of them (Invoice card: Billed).\n"
                  "A number you type is yours: your invoice bills it, and it is the day's pages on every\n"
                  "agreement (an excerpt counts its pages of it). Typed below the PDF's count, Generate asks\n"
                  "about the index when the two would decide it differently. No transcript (a caption page\n"
                  "only)? Type the pages here and the invoice bills them (a number read from an e-mail isn't\n"
                  "billed).")
 AGREEMENT_SPEED_TIP = ("The speed written on the minute agreement forms (and the MOFR), at its rate per page, out\n"
-                       "of the speeds offered (ticked in the Invoice panel). Settings → Invoice picks it (first\n"
+                       "of the speeds offered (ticked above it). Settings → Invoice picks it (first\n"
                        "choice Expedited, else the slowest offered); choose another here for this job (↺ goes\n"
                        "back to the Settings rule). A firm whose speed is set in Who ordered what gets its own\n"
                        "speed on its form, and the MOFR ticks every speed ordered.\n"
@@ -297,8 +300,8 @@ def _own_words(firms, s) -> str:
            if label in have and (label != "Index" or s.invoice_index_shared == "each")]
     return _and(own) or "copy"
 
-WARN_WIDTH = 72  # the longest line of a warning in the Invoice panel (characters; see MainWindow._warn)
-# the longest line of the Invoice panel's Billed and Includes lines (characters): they are broken into lines
+WARN_WIDTH = 72  # the longest line of a warning in the Invoice card (characters; see MainWindow._warn)
+# the longest line of the Invoice card's Billed and Includes lines (characters): they are broken into lines
 # here, not word-wrapped by the label, as a word-wrapped label in a row the form shows later (Billed) was given
 # the height of one line less than it needed, its last line cut off
 LINE_WIDTH = 40
@@ -312,13 +315,12 @@ def _lines(text: str, width: int = LINE_WIDTH) -> str:
     return "\n".join(textwrap.fill(line, width) or line for line in text.split("\n"))
 
 def _count_text(key: str, counts: dict | None, everyone: dict | None = None, held: str = "") -> str:
-    """The line under an output's heading: "Will generate 2 minute agreement forms", "Will generate 3 invoices
-    (and 3 detailed copies)", "Will fill in 1 run sheet", "Will generate no invoice" ("No invoice until Whose
-    pages… is chosen", "... until the speeds are checked": held, why the job's invoice waits, Job.invoice_hold;
-    see _show_counts). With several jobs, what Generate all makes, on a line of its own ("Generate all: 6 (+6
-    detailed)"): at the end of the first line it made the panels wider than their other rows, and the Outputs box
-    went from four panels a row to three. Digits, not words: "two minute agreement forms" reads as
-    "two-minute". counts, everyone: batch.output_counts of the job
+    """The tooltip of the count beside an output's box (_count_short): "Will generate 2 minute agreement forms",
+    "Will generate 3 invoices (and 3 detailed copies)", "Will fill in 1 run sheet", "Will generate no invoice" ("No
+    invoice until Whose pages… is chosen", "... until the speeds are checked": held, why the job's invoice waits,
+    Job.invoice_hold; see _show_counts). With several jobs, what Generate all makes, on a line of its own
+    ("Generate all: 6 (+6 detailed)"). Digits, not words: "two minute agreement forms" reads as "two-minute".
+    counts, everyone: batch.output_counts of the job
     shown (None: an empty job, only Generate all's line) and of every job ticked. The words are the output's
     (courthouses.OutputSpec.count_words); a run sheet (group "sheet") is filled in."""
     spec = courthouses.output(key)
@@ -337,6 +339,17 @@ def _count_text(key: str, counts: dict | None, everyone: dict | None = None, hel
         extra = everyone.get("detailed", 0) if key == "invoice" else 0
         lines.append(f"Generate all: {everyone.get(key, 0)}" + (f" (+{extra} detailed)" if extra else ""))
     return "\n".join(lines)
+
+
+def _count_short(key: str, counts: dict | None, everyone: dict | None = None, held: str = "") -> str:
+    """The count beside an output's box in the Outputs row: how many files Generate makes of it for the job shown
+    ("(2)"), and with several jobs what Generate all makes ("(2 · all 6)"); a ⚠ first when the job's own is held
+    ("⚠ (0)"). Its tooltip says it in words (_count_text). counts, everyone: as _count_text's."""
+    parts = [str(counts.get(key, 0))] if counts is not None else []
+    if everyone is not None:
+        parts.append(f"all {everyone.get(key, 0)}")
+    text = f"({' · '.join(parts)})" if parts else ""
+    return f"⚠ {text}" if held and counts is not None and not counts.get(key, 0) else text
 
 
 def _files_words(counts: dict | None) -> str:
@@ -378,7 +391,7 @@ def _not_previewed(outputs, several: bool = False) -> str:
 
 
 def _price_lines(firms, form_speed: str = "", asked=frozenset()) -> tuple[str, bool]:
-    """The Invoice panel's prices, two speeds a line so the panel stays narrow enough for a small window:
+    """The Invoice card's prices, two speeds a line so the panel stays narrow enough for a small window:
     "Regular $63.00 · Expedite $76.00 each" when every attorney pays the same, else a line per invoice, named
     by Attorney.label ("Alex B. Counsel: Regular $815.50 · Expedite $977.00"), and whether it is so. With
     several speeds, the one the minute agreement form names (form_speed) is marked: "Expedite (form) $76.00".
@@ -752,10 +765,6 @@ class FieldRow(QWidget):
 # The status while nothing is loaded: plain text, not a pill (it looked like a button: the user, 2026-10-13)
 IDLE_STATUS = "Drop a document to begin…"
 COMPACT_BELOW = 960  # before the window is shown: window height (px at 100 % zoom) under which the drop zone is small
-# A screen less tall than this (px at 100 % zoom, after Windows scaling, without the taskbar) folds the Outputs box
-# until the user folds or unfolds it themselves: on a laptop of 1366 x 768 at 150 % (about 480 px) the form got a
-# few lines (_auto_fold_outputs)
-SHORT_SCREEN = 760
 DROP_TEXT = "Drop documents here"
 DROP_MORE_TEXT = "Drop more here, or"  # (the slim drop zone, Browse... beside it: the column is narrow)
 
@@ -1194,7 +1203,7 @@ class MainWindow(QMainWindow):
     def _build(self):
         """Builds the window: the status and the Records, New job and Settings buttons at the right of the menu
         bar, the left column (drop zone, job list, paste box), the scrolling form on the right with its cards, the
-        Outputs box (with the Generate buttons) under a divider, the menu and the shortcuts."""
+        Outputs box (a row, with the Generate buttons) under them, the menu and the shortcuts."""
         central = QWidget()
         central.setObjectName("central")
         # On a small screen (or a large zoom) the whole window scrolls, rather than the Outputs box and the
@@ -1250,13 +1259,10 @@ class MainWindow(QMainWindow):
         self.busy.setVisible(False)
         root.addWidget(self.busy)
 
-        # the form (and the left column) above the Outputs box, a divider between them to drag
-        self.vsplit = QSplitter(Qt.Vertical)
-        self.vsplit.setChildrenCollapsible(False)
-        root.addWidget(self.vsplit, 1)
+        # the left column and the form, side by side above the Outputs row
         split = QSplitter(Qt.Horizontal)
         split.setChildrenCollapsible(False)
-        self.vsplit.addWidget(split)
+        root.addWidget(split, 1)
 
         # left column
         left = QWidget()
@@ -1352,8 +1358,8 @@ class MainWindow(QMainWindow):
         self.ai_label.setTextFormat(Qt.RichText)
         self.ai_label.linkActivated.connect(self._ai_help)
         ll.addWidget(self.ai_label)
-        # In a short window the column scrolls, rather than its parts being drawn over each other or the
-        # Outputs box being squeezed (the column needs about 620 px in a batch).
+        # In a short window the column scrolls, rather than its parts being drawn over each other (the column needs
+        # about 620 px in a batch).
         self.left_scroll = left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
         left_scroll.setFrameShape(QFrame.NoFrame)
@@ -1479,18 +1485,23 @@ class MainWindow(QMainWindow):
             row(fb, k)
         fc = form_in(cl)
         row(fc, "case_name", multiline=True)
-        pr = QHBoxLayout()
-        pr.setSpacing(12)
+        # the types in one row, or two when the form is narrow (_place_pairs: at 140 % the six were wider than the
+        # form of a 1320-pixel window)
+        self.proc_grid = pr = QGridLayout()
+        pr.setHorizontalSpacing(12)
+        pr.setVerticalSpacing(4)
         self.proc_boxes: dict[str, QCheckBox] = {}
-        for p in PROC_TYPES:
+        for i, p in enumerate(PROC_TYPES):
             cb = QCheckBox(p)
             cb.toggled.connect(self._proc_toggled)
             self.proc_boxes[p] = cb
-            pr.addWidget(cb)
-        pr.addStretch(1)
+            pr.addWidget(cb, 0, i)
+        pr.setColumnStretch(len(PROC_TYPES), 1)
+        self._proc_per_row = len(PROC_TYPES)
         lab = QLabel("Proceeding")
         lab.setObjectName("fieldLabel")
         fc.addRow(lab, pr)
+        self.proc_form = fc  # (its labels' width: the room the types have beside them, _place_pairs)
         row(fc, "proc_other")
         rl.addWidget(c)
 
@@ -1565,7 +1576,7 @@ class MainWindow(QMainWindow):
         rl.addWidget(c)
 
         # Speed, pages and dates: the rate sheet, the one speed and one rate the form names (among the
-        # speeds the invoice offers, ticked in the Invoice panel), No. of copies, the pages and the dates
+        # speeds the invoice offers, ticked in the Invoice card), No. of copies, the pages and the dates
         c, cl = folding("Speed, pages and dates", "details")
         colA, colB = two_cols(cl)
         fa, fb = form_in(colA), form_in(colB)
@@ -1590,6 +1601,20 @@ class MainWindow(QMainWindow):
         lab = QLabel("Rate sheet")
         lab.setObjectName("fieldLabel")
         fa.addRow(lab, sheet_row)
+        # the speeds the invoice offers, each at its price (_fill_invoice_speeds): here, by the rate sheet they come
+        # from and the speed the agreement names (one of them), not in the Outputs box (the user, 2026-10-22:
+        # speeds were chosen in places apart); still kept for every job (Settings.invoice_speeds)
+        speeds = QWidget()
+        speeds.setToolTip(SPEEDS_TIP)
+        self.inv_speeds_grid = QGridLayout(speeds)
+        self.inv_speeds_grid.setContentsMargins(0, 0, 0, 0)
+        self.inv_speeds_grid.setHorizontalSpacing(12)
+        self.inv_speeds_grid.setVerticalSpacing(2)
+        self.inv_speed_boxes: dict[str, QCheckBox] = {}
+        lab = QLabel("Speeds offered")
+        lab.setObjectName("fieldLabel")
+        lab.setToolTip(SPEEDS_TIP)
+        fa.addRow(lab, speeds)
         # the one speed the minute agreement form names, at its one rate per page
         speed_row = QHBoxLayout()
         speed_row.setSpacing(6)
@@ -1688,6 +1713,25 @@ class MainWindow(QMainWindow):
         rl.addWidget(c)
         self._fill_sheet_box()
 
+        # The outputs whose options are this job's own choices each get a card here (OutputSpec.card: the
+        # invoice's), after the speed and pages they bill and above who ordered what and who pays what, which they
+        # change (the user, 2026-10-22: in the Outputs box they were apart from those cards). Hidden while the
+        # output is unticked (_refresh_outputs).
+        self.output_cards: dict[str, QFrame] = {}
+        self.output_opts: dict[str, QWidget] = {}  # each output's options, greyed out while it is unticked
+        for spec in courthouses.panel_order():
+            if spec.card and spec.panel:
+                c, cl = folding(spec.card, spec.key)
+                body = QWidget()
+                bl = QVBoxLayout(body)
+                bl.setContentsMargins(0, 0, 0, 0)
+                resolve(spec.panel)(self, form_in(bl))
+                cl.addWidget(body)
+                self.output_cards[spec.key] = c
+                self.output_opts[spec.key] = body
+                c.setVisible(False)
+                rl.addWidget(c)
+
         # Who ordered what: every attorney's order of every day the invoice covers, spelled out (shown while
         # Invoice is ticked and the job has a transcript or pages to bill)
         self.orders_card, cl = folding("Who ordered what", "orders")
@@ -1780,96 +1824,51 @@ class MainWindow(QMainWindow):
         rl.addWidget(self.takes_card)
         rl.addStretch(1)
 
-        # footer: the Outputs box - the Generate buttons by its title, then a column per output with its own options;
-        # folded, a line of small boxes instead of the panels (_fold_outputs)
+        # footer: the Outputs box, one row (the user, 2026-10-22: the form needs the room it took) - a box per output
+        # to tick, how many files Generate makes of it after it (_show_counts), Options ▾ for the outputs' standing
+        # choices (the agreement form and signing, the MOFR's Civil or Criminal, a run sheet already there: a box
+        # that opens under it, _show_output_options), then the Generate buttons, at the right, where a task ends.
+        # The invoice's own choices are this job's: its card in the form (OutputSpec.card, built above).
         self.foot = foot = QFrame()
         foot.setObjectName("card")
         foot.setProperty("help_topic", "make-outputs")
         fv = QVBoxLayout(foot)
-        fv.setContentsMargins(16, 10, 16, 10)
+        fv.setContentsMargins(16, 8, 16, 8)
         fv.setSpacing(6)
-        top = QHBoxLayout()
-        self.outputs_fold = QToolButton()
-        self.outputs_fold.setObjectName("fold")
-        self.outputs_fold.setArrowType(Qt.DownArrow)
-        self.outputs_fold.setToolTip("Fold the Outputs box to one line (more room for the form); click again to "
-                                     "unfold it")
-        self.outputs_fold.clicked.connect(lambda: self._fold_outputs_by_hand(not self.s.outputs_folded))
-        top.addWidget(self.outputs_fold)
-        title = ClickLabel("Outputs")
+        self.foot_row = fl = QHBoxLayout()  # (the Generate buttons end it, or a second row when it's narrow)
+        fl.setSpacing(14)
+        fv.addLayout(fl)
+        self.foot_row2 = QHBoxLayout()
+        self.foot_row2.addStretch(1)
+        fv.addLayout(self.foot_row2)
+        title = QLabel("Make")
         title.setObjectName("section")
-        title.set_clickable(True)
-        title.clicked.connect(lambda: self._fold_outputs_by_hand(not self.s.outputs_folded))
-        top.addWidget(title)
-        # folded: a small box per output, ticked as its panel's is (_sync_mini_outputs), the invoice's speeds after it
-        self.outputs_line = QWidget()
-        ol = QHBoxLayout(self.outputs_line)
-        ol.setContentsMargins(12, 0, 0, 0)
-        ol.setSpacing(14)
-        self.mini_outputs: dict[str, QCheckBox] = {}
-        self.mini_speeds = QLabel("")
-        self.mini_speeds.setObjectName("muted")
-        self.outputs_line_layout = ol
-        self.outputs_line.setVisible(False)
-        top.addWidget(self.outputs_line)
-        top.addStretch(1)
-        self.fill_btn = QPushButton("Generate")
-        self.fill_btn.setObjectName("generate")  # (the theme makes it stand out: the one thing to click at the end)
-        self.fill_btn.clicked.connect(self.fill)
-        top.addWidget(self.fill_btn)
-        self.fill_all_btn = QPushButton("Generate all")
-        self.fill_all_btn.setObjectName("generate")
-        self.fill_all_btn.clicked.connect(self.fill_all_jobs)
-        top.addWidget(self.fill_all_btn)
-        fv.addLayout(top)
-        self.outputs_body = QWidget()  # (hidden while the box is folded)
-        self.output_grid = QGridLayout(self.outputs_body)  # a panel per output, in a row or the last two stacked
-        self.output_grid.setContentsMargins(0, 0, 0, 0)    # (_place_output_cols)
-        self.output_grid.setHorizontalSpacing(10)
-        self.output_grid.setVerticalSpacing(10)
-        fv.addWidget(self.outputs_body)
-        self._output_cols: list[QWidget] = []
-        self._cols_per_row = 0
+        fl.addWidget(title)
         self.output_boxes: dict[str, QCheckBox] = {}
-        self.output_opts: dict[str, QWidget] = {}  # each output's options, greyed out while it is unticked
         self.output_counts: dict[str, QLabel] = {}  # how many files Generate makes of each (_show_counts)
+        self.option_panels: dict[str, QFrame] = {}  # the panels of Options ▾, by output (gui/panels.py adds to them)
+        self.options_pop = QFrame(self, Qt.Popup)
+        self.options_pop.setObjectName("optionsPopup")
+        pop = QHBoxLayout(self.options_pop)
+        pop.setContentsMargins(10, 10, 10, 10)
+        pop.setSpacing(10)
 
-        def panel(spec) -> QFormLayout:
-            """A bordered panel headed by the output's make-box (its label and tooltip: courthouses.OutputSpec),
-            with a line and the count of what Generate makes of it under it (_show_counts); returns the form for
-            its options (label: value rows), which gui/panels.py fills."""
-            key = spec.key
+        def options_panel(spec) -> QFormLayout:
+            """A panel of Options ▾ headed by the output's name, with its options under a line (label: value rows,
+            which gui/panels.py fills), greyed out while the output is unticked (output_opts)."""
             holder = QFrame()
             holder.setObjectName("outputPanel")
-            holder.setProperty("help_topic", OUTPUT_TOPICS.get(key, "make-outputs"))
+            holder.setProperty("help_topic", OUTPUT_TOPICS.get(spec.key, "make-outputs"))
             col = QVBoxLayout(holder)
             col.setContentsMargins(12, 8, 12, 10)
             col.setSpacing(6)
-            cb = QCheckBox(spec.label)
-            cb.setObjectName("outputHead")
-            cb.setChecked(key in self.s.outputs)
-            cb.setToolTip(spec.tip)
-            cb.toggled.connect(lambda _=False, k=key: self._outputs_changed(k))
-            self.output_boxes[key] = cb
-            col.addWidget(cb)
-            mini = QCheckBox(spec.label)
-            mini.setToolTip(spec.tip)
-            mini.setChecked(cb.isChecked())
-            mini.toggled.connect(lambda on, k=key: self.output_boxes[k].setChecked(on))
-            self.mini_outputs[key] = mini
-            self.outputs_line_layout.addWidget(mini)
-            if key == "invoice":
-                self.outputs_line_layout.addWidget(self.mini_speeds)
+            head = QLabel(spec.label)
+            head.setObjectName("outputTitle")
+            col.addWidget(head)
             rule = QFrame()
             rule.setObjectName("outputRule")
             rule.setFixedHeight(1)
             col.addWidget(rule)
-            count = QLabel("")
-            count.setObjectName("outputCount")
-            count.setToolTip("What Generate makes of it for this job, as things are ticked now")
-            count.setVisible(False)
-            col.addWidget(count)
-            self.output_counts[key] = count
             body = QWidget()
             form = QFormLayout(body)
             form.setContentsMargins(0, 0, 0, 0)
@@ -1879,21 +1878,56 @@ class MainWindow(QMainWindow):
             form.setFieldGrowthPolicy(QFormLayout.FieldsStayAtSizeHint)
             col.addWidget(body)
             col.addStretch(1)
-            self.output_opts[key] = body
-            self._output_cols.append(holder)
+            self.output_opts[spec.key] = body
+            self.option_panels[spec.key] = holder
+            pop.addWidget(holder)
             return form
 
-        for spec in courthouses.panel_order():  # each output's panel, with its options (gui/panels.py)
-            form = panel(spec)
-            if spec.panel:
-                resolve(spec.panel)(self, form)
-        self._outputs_built = True  # (_refresh_outputs and _place_output_cols wait for every panel)
-        if "invoice" in self.output_boxes:
-            self._fill_invoice_speeds()
-        self._place_output_cols()
-        self.vsplit.addWidget(foot)
-        self.vsplit.setStretchFactor(0, 1)
-        self.vsplit.setStretchFactor(1, 0)
+        for spec in courthouses.panel_order():
+            key = spec.key
+            cb = QCheckBox(spec.label)
+            cb.setObjectName("outputHead")
+            cb.setChecked(key in self.s.outputs)
+            cb.setToolTip(spec.tip)
+            cb.toggled.connect(lambda _=False, k=key: self._outputs_changed(k))
+            self.output_boxes[key] = cb
+            count = QLabel("")
+            count.setObjectName("outputCount")
+            count.setVisible(False)
+            self.output_counts[key] = count
+            pair = QHBoxLayout()
+            pair.setSpacing(4)
+            pair.addWidget(cb)
+            pair.addWidget(count)
+            fl.addLayout(pair)
+            if spec.panel and not spec.card:  # (one with a card has its options there)
+                resolve(spec.panel)(self, options_panel(spec))
+        self.options_btn = QToolButton()
+        self.options_btn.setText("Options ▾")
+        self.options_btn.setObjectName("quick")
+        self.options_btn.setToolTip("Each output's settings, kept for every job: which agreement form and how it is\n"
+                                    "signed, the MOFR's Civil or Criminal box, what to do when the case has a run\n"
+                                    "sheet already")
+        self.options_btn.clicked.connect(self._show_output_options)
+        self.options_btn.setVisible(bool(self.option_panels))
+        fl.addWidget(self.options_btn)
+        fl.addStretch(1)
+        self.gen_box = QWidget()  # the Generate buttons, at the end of the row or under it (_place_foot)
+        gb = QHBoxLayout(self.gen_box)
+        gb.setContentsMargins(0, 0, 0, 0)
+        gb.setSpacing(10)
+        self.fill_btn = QPushButton("Generate")
+        self.fill_btn.setObjectName("generate")  # (the theme makes it stand out: the one thing to click at the end)
+        self.fill_btn.clicked.connect(self.fill)
+        gb.addWidget(self.fill_btn)
+        self.fill_all_btn = QPushButton("Generate all")
+        self.fill_all_btn.setObjectName("generate")
+        self.fill_all_btn.clicked.connect(self.fill_all_jobs)
+        gb.addWidget(self.fill_all_btn)
+        fl.addWidget(self.gen_box)
+        self._outputs_built = True  # (_refresh_outputs waits for every output's widgets)
+        self._fill_invoice_speeds()
+        root.addWidget(foot)
         self._restore_splits()
         self._refresh_jobs()
 
@@ -1923,7 +1957,6 @@ class MainWindow(QMainWindow):
         for key, fr in self.cards.items():
             if key in self.s.folded_cards:
                 self._fold_card(fr, True, save=False)
-        self._fold_outputs(self.s.outputs_folded, save=False)
         QShortcut(QKeySequence.Paste, self, activated=self._paste_shortcut)
         QShortcut(QKeySequence("Ctrl+N"), self, activated=self.new_job)
         QShortcut(QKeySequence("Ctrl+O"), self, activated=self.browse)
@@ -1972,10 +2005,6 @@ class MainWindow(QMainWindow):
             act.setChecked(key == (self.s.theme if self.s.theme in ("light", "dark") else "system"))
             self.theme_actions.addAction(act)
         m.addSeparator()
-        self.fold_outputs_action = m.addAction("&Fold the Outputs box", lambda: self._fold_outputs_by_hand(
-            self.fold_outputs_action.isChecked()))
-        self.fold_outputs_action.setCheckable(True)
-        self.fold_outputs_action.setChecked(self.s.outputs_folded)
         m.addAction("Fold all &cards", lambda: self._fold_all(True))
         m.addAction("&Unfold all cards", lambda: self._fold_all(False))
         m.addSeparator()
@@ -1996,25 +2025,16 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------- folding, dividers, drops
     def _restore_splits(self) -> None:
-        """The dividers where the user left them (Settings.window_splits). The left column's, restored, is kept
-        for the first job too (_place_left_split places it only when one job becomes a batch or back)."""
-        for name, sp in (("outer", self.vsplit), ("left", self.left_split)):
-            state = self.s.window_splits.get(name)
-            if state and sp.restoreState(QByteArray.fromBase64(state.encode())) and name == "left":
-                self._left_mode = "single"
+        """The divider between the job list and the paste box where the user left it (Settings.window_splits
+        "left"), kept for the first job too (_place_left_split places it only when one job becomes a batch or back).
+        (An "outer" one, above the Outputs box when it had panels, is left alone.)"""
+        state = self.s.window_splits.get("left")
+        if state and self.left_split.restoreState(QByteArray.fromBase64(state.encode())):
+            self._left_mode = "single"
 
     def _save_splits(self) -> None:
-        """Remembers where the dividers are (closeEvent): the Outputs box's as it is unfolded."""
-        if self.s.outputs_folded and getattr(self, "_unfolded", None):
-            with QSignalBlocker(self.vsplit):
-                now = self.vsplit.sizes()
-                self.vsplit.setSizes(self._unfolded)
-                outer = self.vsplit.saveState()
-                self.vsplit.setSizes(now)
-        else:
-            outer = self.vsplit.saveState()
-        self.s.window_splits = {"outer": bytes(outer.toBase64()).decode(),
-                                "left": bytes(self.left_split.saveState().toBase64()).decode()}
+        """Remembers where the divider between the job list and the paste box is (closeEvent)."""
+        self.s.window_splits = {"left": bytes(self.left_split.saveState().toBase64()).decode()}
 
     def _place_left_split(self, multi: bool) -> None:
         """The divider between the job list and the paste box, when one job becomes a batch or back: one job
@@ -2038,74 +2058,20 @@ class MainWindow(QMainWindow):
             top = z(110) + (self.index_note.sizeHint().height() if not self.index_note.isHidden() else 0)
             self.left_split.setSizes([top, max(total - top, z(120))])
 
-    def _fold_outputs(self, folded: bool, save: bool = True) -> None:
-        """Folds the Outputs box to one line (its title, a small box per output and the Generate buttons) or
-        unfolds it, as the divider had it before. Kept for the next time (Settings.outputs_folded)."""
-        if folded and not self.outputs_body.isHidden() and self.vsplit.sizes()[1] > 0:
-            self._unfolded = self.vsplit.sizes()  # (to put back on unfolding)
-        self.outputs_body.setVisible(not folded)
-        self.outputs_line.setVisible(folded)
-        self.outputs_fold.setArrowType(Qt.RightArrow if folded else Qt.DownArrow)
-        self.outputs_fold.setToolTip("Unfold the Outputs box (each output's options)" if folded else
-                                     "Fold the Outputs box to one line (more room for the form)")
-        self._sync_mini_outputs()
-        if folded:
-            self.foot.layout().activate()
-            h = self.foot.sizeHint().height()
-            self.foot.setMaximumHeight(h)
-            total = sum(self.vsplit.sizes())
-            if total > 0:  # (the room it leaves goes to the form)
-                self.vsplit.setSizes([max(total - h, 1), h])
-        else:
-            self.foot.setMaximumHeight(16777215)  # (QWIDGETSIZE_MAX)
-            self.foot.layout().activate()
-            sizes = getattr(self, "_unfolded", None)
-            total = sum(self.vsplit.sizes())
-            if sizes and total > 0:
-                self.vsplit.setSizes(sizes)
-            elif total > 0:
-                h = self.foot.sizeHint().height()
-                self.vsplit.setSizes([max(total - h, 1), h])
-        if hasattr(self, "fold_outputs_action"):
-            self.fold_outputs_action.setChecked(folded)
-        if self.s.outputs_folded != folded:
-            self.s.outputs_folded = folded
-            if save:
-                self._save_settings()
-
-    def _fold_outputs_by_hand(self, folded: bool) -> None:
-        """The user folded or unfolded the Outputs box (its arrow, its title, View → Fold the Outputs box): kept
-        as they left it from now on, whatever the screen (Settings.outputs_fold_chosen; _auto_fold_outputs)."""
-        self.s.outputs_fold_chosen = True
-        self._fold_outputs(folded, save=False)
-        self._save_settings()
-
-    def _auto_fold_outputs(self) -> None:
-        """Until the user folds or unfolds the Outputs box themselves (Settings.outputs_fold_chosen), it is folded
-        on a short screen and unfolded on a taller one (SHORT_SCREEN, at the window's zoom). Decided when the app
-        shows the window (not when it comes back from minimized) and when the zoom changes; not saved as a choice."""
-        avail = self._avail()
-        if self.s.outputs_fold_chosen or avail is None:
-            return
-        short = avail.height() < z(SHORT_SCREEN)
-        if short != self.s.outputs_folded:
-            self._fold_outputs(short, save=False)
-
-    def _sync_mini_outputs(self) -> None:
-        """The folded Outputs box's small boxes ticked (and greyed) as the panels' are, and the speeds the invoice
-        offers after Invoice ("(Regular, Expedite)")."""
-        if not getattr(self, "_outputs_built", False):
-            return
-        for key, mini in self.mini_outputs.items():
-            big = self.output_boxes[key]
-            with QSignalBlocker(mini):
-                mini.setChecked(big.isChecked())
-            mini.setEnabled(big.isEnabled())
-        if "invoice" in self.output_boxes:
-            speeds = [name for name, cb in getattr(self, "inv_speed_boxes", {}).items() if cb.isChecked()]
-            on = self.output_boxes["invoice"].isChecked() and bool(speeds)
-            self.mini_speeds.setText(f"({', '.join(speeds)})" if on else "")
-            self.mini_speeds.setVisible(on)
+    def _show_output_options(self) -> None:
+        """Options ▾ of the Outputs row: the outputs' standing choices (the agreement form and signing, the MOFR's
+        Civil or Criminal box, a run sheet already there), in a box under the button (above it when the screen has
+        no room below: the row is at the bottom of the window), closed by a click anywhere else."""
+        pop, btn = self.options_pop, self.options_btn
+        pop.adjustSize()
+        size = pop.sizeHint()
+        below = btn.mapToGlobal(QPoint(0, btn.height()))
+        screen = (btn.screen() or QApplication.primaryScreen()).availableGeometry()
+        y = below.y() if below.y() + size.height() <= screen.bottom() else \
+            btn.mapToGlobal(QPoint(0, 0)).y() - size.height()
+        x = min(below.x(), screen.right() - size.width())
+        pop.move(max(screen.left(), x), max(screen.top(), y))
+        pop.show()
 
     def _fold_card(self, fr: QFrame, folded: bool, save: bool = True) -> None:
         """Folds a card to its heading and a line that sums it up (_card_summaries), or unfolds it. The card stays
@@ -2166,6 +2132,11 @@ class MainWindow(QMainWindow):
                               "Nothing to bill yet"])
         if "takes" in folded:
             lines["takes"] = (False, [self.takes_info.text() or "No takes yet"])
+        if "invoice" in folded and hasattr(self, "inv_info"):  # (the Invoice card: OutputSpec.card)
+            billed = self.inv_pages_info.text() if self.inv_form.isRowVisible(self.inv_pages_row) else ""
+            warn = any(w.text().startswith("⚠") for w in (self.inv_info, self.inv_who, self.inv_whose))
+            lines["invoice"] = (warn, [f"Parties {self.inv_parties.value()}", " ".join(billed.split()),
+                                       self.inv_info.text().split("\n")[0].lstrip("⚠ ")])
         if "orders" in folded:
             t = self.orders
             rows = [" ".join(t.item(r, c).text() for c in (0,) if t.item(r, c)) + ": " +
@@ -3224,7 +3195,7 @@ class MainWindow(QMainWindow):
 
     def _job_ticked(self, item: QTreeWidgetItem, column: int = 0):
         """A job's tick changed: Generate all includes or leaves out that job (and the days it bills together,
-        shown in the Invoice panel and the Who ordered what card, change with it)."""
+        shown in the Invoice card and the Who ordered what card, change with it)."""
         job = self._job_of(item)
         if column != 0 or item.parent() is not None or job is None or len(self.jobs) < 2:
             return
@@ -3747,7 +3718,7 @@ class MainWindow(QMainWindow):
                             f"{q.counted:,}.\n\nJudged on the transcript, {whom} {gets} an index ({q.pdf_why}); "
                             f"judged on the pages you typed, {it} none ({q.typed_why}).\n\nInclude an index (and the "
                             f"judge's) {'on this invoice' if whom == 'the invoice' else 'for ' + whom}?")
-                box.setInformativeText("Your answer is kept for this job: Peripherals… in the Invoice panel "
+                box.setInformativeText("Your answer is kept for this job: Peripherals… in the Invoice card "
                                        "changes it.")
                 yes = box.addButton("Yes, an index", QMessageBox.YesRole)
                 no = box.addButton("No index", QMessageBox.NoRole)
@@ -4449,12 +4420,10 @@ class MainWindow(QMainWindow):
         hold = job.invoice_hold() if "invoice" in outputs else ""
 
         def held() -> None:
-            self._fold_outputs(False)
-            self._flash(self.inv_whose if hold.startswith("Whose pages") else
-                        self.inv_parties if job.unnamed_problem() else self.inv_who)
+            self._go_to(self.inv_whose if hold.startswith("Whose pages") else
+                        self.inv_parties if job.unnamed_problem() else self.inv_who, "invoice")
 
         def runsheet() -> None:
-            self._fold_outputs(False)
             self._flash(self.output_boxes["runsheet"])
 
         ask = job.speed_question()
@@ -4510,8 +4479,8 @@ class MainWindow(QMainWindow):
 
     def _go_to_problem(self) -> None:
         """A click on the status pill: to the first thing that needs a look (_problems, in its order). Its card is
-        unfolded and scrolled to (or the Outputs box unfolded); a field gets the cursor, and it, or the note or
-        button to look at, lights up for a moment (_flash)."""
+        unfolded and scrolled to; a field gets the cursor, and it, or the note or button to look at, lights up for a
+        moment (_flash)."""
         if self.cur.is_empty() or self.work > 0:
             return
         self._commit_att_details()  # (the pill takes no focus: an attorney detail being typed is kept first)
@@ -4964,17 +4933,17 @@ class MainWindow(QMainWindow):
             else "The speeds need checking"
         if job.portions_problem():
             why = (f"{job.portions_check()}.\n\nNo invoice is made for this day until you check it: open "
-                   "Excerpts… in the Invoice panel and tick who ordered which pages, or choose \"Remove this "
+                   "Excerpts… in the Invoice card and tick who ordered which pages, or choose \"Remove this "
                    "day's excerpts\".")
         elif job.unnamed_problem():  # parties not named, on pages ordered at different speeds
             why = (f"{job.unnamed_problem()}.\n\nNo invoice is made for this day until every party is named or "
-                   "Parties is changed (the Parties box in the Invoice panel is lit up).")
+                   "Parties is changed (the Parties box in the Invoice card is lit up).")
         elif not job.ownership_problem():  # more speeds on the same pages than are billed for now
             why = (f"{job.invoice_hold()}.\n\nNo invoice is made for this day until you change a firm's speed "
                    "(Who ordered what, or Excerpts… for a run of pages).")
         else:
             why = (f"{job.ownership_problem()[0].upper()}{job.ownership_problem()[1:]}.\n\nNo invoice is made "
-                   "for this job until you choose whose pages to bill (Whose pages… in the Invoice panel).")
+                   "for this job until you choose whose pages to bill (Whose pages… in the Invoice card).")
         if not others:
             QMessageBox.warning(self, title, why)
             self._show_parties_problem(job)
@@ -4992,7 +4961,9 @@ class MainWindow(QMainWindow):
         different speeds (Job.unnamed_problem): the Parties box lights up for a few seconds, the job shown, so
         the reporter sees what to change (the user, 2026-10-21). Nothing for another problem, or a job not shown."""
         if job is self.cur and job.unnamed_problem():
-            self._fold_outputs(False)
+            fr = self.cards.get("invoice")
+            if fr is not None and fr.body.isHidden():
+                self._fold_card(fr, False)
             self._flash(self.inv_parties, 4000)
 
     def _sheets_free(self, targets: list[str], button: str) -> bool:
@@ -5197,7 +5168,7 @@ class MainWindow(QMainWindow):
             box.setWindowTitle("Not every day is decided")
             box.setText("Some days still need your choice before they can be invoiced:\n\n"
                         + "\n".join(lines[:8]) + ("\n…" if len(lines) > 8 else "")
-                        + "\n\nGo back and make the choices (Whose pages… or Excerpts… in the Invoice panel, a "
+                        + "\n\nGo back and make the choices (Whose pages… or Excerpts… in the Invoice card, a "
                         "firm's speed in Who ordered what, or tick who ordered a day in its attorney table), or go "
                         "on anyway: the days listed get no "
                         "invoice now, and the other days of their case are invoiced without them, unless the case "
@@ -5799,15 +5770,18 @@ class MainWindow(QMainWindow):
         self._refresh_job_labels()
 
     def _refresh_outputs(self):
-        """Greys out the options of the outputs not ticked. For the current job: the tooltips and warnings of
-        the invoice (it needs pages to bill: a transcript, or pages typed) and the run sheet (it needs a
-        transcript), the minute agreement's speed, the Invoice panel's parties and prices, the Who pays what
-        and Who ordered what cards and, when open, the Excerpts window (_follow_excerpts)."""
+        """Greys out the options of the outputs not ticked, and hides the card of one (the Invoice card) while it
+        is unticked or nothing is loaded. For the current job: the tooltips and warnings of the invoice (it needs
+        pages to bill: a transcript, or pages typed) and the run sheet (it needs a transcript), the minute
+        agreement's speed, the Invoice card's parties and prices, the Who pays what and Who ordered what cards and,
+        when open, the Excerpts window (_follow_excerpts)."""
         if not getattr(self, "_outputs_built", False):  # still building the window
             return
         for key, body in self.output_opts.items():
             body.setEnabled(self.output_boxes[key].isChecked())
         job = self.cur
+        for key, fr in self.output_cards.items():
+            fr.setVisible(self.output_boxes[key].isChecked() and not job.is_empty())
         pages = job.invoice_pages()
         if "invoice" in self.output_boxes:
             self.output_boxes["invoice"].setToolTip(
@@ -5829,14 +5803,12 @@ class MainWindow(QMainWindow):
         self._show_counts()
         self._show_orders()
         self._show_takes()
-        self._place_output_cols()  # the prices may need more room than the panels have
         self._update_header_buttons()
-        self._sync_mini_outputs()
         self._follow_excerpts()
         self._card_summaries()  # (a folded card's line: the speed and its price may have changed)
 
     def _show_invoice_prices(self) -> tuple[list | None, int]:
-        """The Invoice panel's parties, Includes line (Peripherals…) and prices for the current job. When Generate
+        """The Invoice card's parties, Includes line (Peripherals…) and prices for the current job. When Generate
         all bills it with other days of its case, the first line says so and the prices are the joint invoice's.
         When the attorneys don't all pay the same (they ordered different days or pages), a line per attorney. A
         firm of a split order whose speed Generate still asks is priced at the form's speed, with a "?"
@@ -5938,7 +5910,7 @@ class MainWindow(QMainWindow):
         return firms, len(group)
 
     def _warn(self, text: str) -> None:
-        """A warning in the Invoice panel's Prices row, its long lines broken (a file name too): a label is as
+        """A warning in the Invoice card's Prices row, its long lines broken (a file name too): a label is as
         wide as its longest line, and a long one made the panel, and the window, wider than the screen."""
         self.inv_info.setText("\n".join(textwrap.fill(line, WARN_WIDTH) for line in text.split("\n")))
 
@@ -5964,7 +5936,7 @@ class MainWindow(QMainWindow):
         them, what it pays at each speed and what that comes to a page, or its one speed and amount when every
         invoice bills one; invoice_math.who_pays), under the speed and rate the minute agreement forms name (each
         firm's own, when some have one: _pay_html). Shown while Invoice is ticked and the job has pages to bill
-        (or whose pages to bill is to be chosen); when no invoice can be priced yet, the Invoice panel's
+        (or whose pages to bill is to be chosen); when no invoice can be priced yet, the Invoice card's
         warning says why. firms: what _show_invoice_prices priced (nothing is priced twice)."""
         import html
         from ..invoice_math import page_rates, who_pays
@@ -5972,7 +5944,7 @@ class MainWindow(QMainWindow):
         on = self._ticked("invoice") and bool(job.invoice_pages() or job.ownership_problem())
         self.pays_card.setVisible(on)
         self._pay_firms = list(firms or []) if on else []
-        self.inv_form.setRowVisible(self.inv_math, bool(self._pay_firms))  # (the Invoice panel's link to the math)
+        self.inv_form.setRowVisible(self.inv_math, bool(self._pay_firms))  # (the Invoice card's link to the math)
         if not on:
             return
         tip = PAYS_TIP.format(**_who_splits(self.s))  # (as Settings say now)
@@ -6013,7 +5985,9 @@ class MainWindow(QMainWindow):
                 else "the speeds are checked"
         for key, label in self.output_counts.items():
             on = key in outputs and (shown or everyone is not None)
-            label.setText(_count_text(key, counts, everyone, held if key == "invoice" else "") if on else "")
+            why = held if key == "invoice" else ""
+            label.setText(_count_short(key, counts, everyone, why) if on else "")
+            label.setToolTip(_count_text(key, counts, everyone, why) if on else "")
             label.setVisible(on)
 
     def _generate_labels(self, everyone: dict | None = None) -> None:
@@ -6046,9 +6020,10 @@ class MainWindow(QMainWindow):
         what = _files_words(everyone)
         self.fill_all_btn.setToolTip((f"Makes {what}" if what else "Makes nothing yet") +
                                      f", for {scope} (Ctrl+Shift+Enter)")
+        self._place_foot()  # (longer or shorter names: the row may hold them now, or no longer)
 
     def _show_live_math(self, _link: str = "") -> None:
-        """The links of the Who pays what card and the Invoice panel: the whole math of the invoices the card
+        """The links of the Who pays what card and the Invoice card: the whole math of the invoices the card
         shows, as things stand (preview.MathDialog)."""
         if not self._pay_firms:
             return
@@ -6075,7 +6050,7 @@ class MainWindow(QMainWindow):
         self.pages_warn.setVisible(bool(warning))
 
     def _show_whose_pages(self, job: Job, group: list[Job] | None = None) -> str:
-        """The Invoice panel's Billed row, shown for a transcript of several reporters: "You wrote 65 of 153 total
+        """The Invoice card's Billed row, shown for a transcript of several reporters: "You wrote 65 of 153 total
         pages" (the whole transcripts' own pages, the word index left out; "Billing 153 of 153 total pages (chosen
         under Whose pages…)" when Whose pages... chose others, "The Pages field: 40 of 153 total pages" when typed),
         and the Whose pages... button. group: the days Generate all bills on one invoice with the job
@@ -6221,9 +6196,9 @@ class MainWindow(QMainWindow):
         whose = bool(job.ownership_problem()) and not job.portions_problem()
         self.orders_edit.setText("⚠ Whose pages…" if whose else "Excerpts…")
         self.orders_edit.setToolTip(
-            "Choose whose pages of the day shown are billed (the same as Whose pages… in the Invoice panel)"
+            "Choose whose pages of the day shown are billed (the same as Whose pages… in the Invoice card)"
             if whose else "Who ordered which pages of each day of the case, as one table (the same as Excerpts… "
-                          "in the Invoice panel)")
+                          "in the Invoice card)")
         days = len(group)
         if stuck:
             where = f"⚠ No invoice for these {days} days of the case yet: {stuck}."
@@ -6493,35 +6468,10 @@ class MainWindow(QMainWindow):
             for day in self._invoice_group(job):  # as it is now: a read may have ended meanwhile
                 day.invoice_show = items
 
-    def _place_output_cols(self):
-        """Lays the Outputs panels out all in a row or, when the window is too narrow for that, with the last two
-        (the short ones: MOFR and run sheet) one above the other in the last column. Panels side by side are as
-        tall as each other."""
-        if not getattr(self, "_outputs_built", False):  # still building the window
-            return
-        cols = self._output_cols
-        widths = [c.sizeHint().width() for c in cols]
-        room = self.width() - 36 - 32 - 8 - z(10)  # the window's and the box's margins (and a scroll bar)
-        per_row = len(cols) if len(cols) < 3 or sum(widths) + 10 * (len(cols) - 1) <= room else len(cols) - 1
-        if per_row == self._cols_per_row:
-            return
-        self._cols_per_row = per_row
-        for c in cols:
-            self.output_grid.removeWidget(c)
-        if per_row == len(cols):
-            for i, c in enumerate(cols):
-                self.output_grid.addWidget(c, 0, i)
-        else:
-            for i, c in enumerate(cols[:-2]):
-                self.output_grid.addWidget(c, 0, i, 2, 1)
-            self.output_grid.addWidget(cols[-2], 0, per_row - 1)
-            self.output_grid.addWidget(cols[-1], 1, per_row - 1)
-        for col in range(len(cols) + 1):
-            self.output_grid.setColumnStretch(col, 1 if col < per_row else 0)  # the panels share the width
-
     def _place_pairs(self) -> None:
         """Puts the two columns of the Case and Speed, pages and dates cards side by side when the form has
-        room for both, else one above the other, so the form never needs scrolling sideways."""
+        room for both, else one above the other, and the types of proceeding in one row or two, so the form never
+        needs scrolling sideways."""
         scroll = getattr(self, "form_scroll", None)
         if scroll is None:
             return
@@ -6536,6 +6486,40 @@ class MainWindow(QMainWindow):
             g.addWidget(wb, 0, 1) if side else g.addWidget(wb, 1, 0)
             g.setColumnStretch(0, 1)
             g.setColumnStretch(1, 1 if side else 0)
+        # the types of proceeding: in one row when they fit beside their label, else in rows of three
+        boxes = list(self.proc_boxes.values())
+        need = sum(b.sizeHint().width() for b in boxes) + 12 * (len(boxes) - 1)
+        labels = [self.proc_form.itemAt(i, QFormLayout.LabelRole) for i in range(self.proc_form.rowCount())]
+        label_w = max((x.widget().sizeHint().width() for x in labels if x is not None and x.widget()), default=0)
+        per_row = len(boxes) if need <= room - label_w - z(12) else (len(boxes) + 1) // 2
+        if per_row != self._proc_per_row:
+            self._proc_per_row = per_row
+            for b in boxes:
+                self.proc_grid.removeWidget(b)
+            for i, b in enumerate(boxes):
+                self.proc_grid.addWidget(b, i // per_row, i % per_row)
+            for col in range(len(boxes) + 1):
+                self.proc_grid.setColumnStretch(col, 1 if col == per_row else 0)
+        self._place_foot()
+
+    def _place_foot(self) -> None:
+        """The Generate buttons at the end of the Outputs row when it has room for them, else on a row of their own
+        under it, at the right (a narrow window, a zoom, or the long names of "Generate 6/4/2026 only" and
+        "Generate all 3 days" with every output ticked): the page never scrolls sideways for the row."""
+        if not getattr(self, "_outputs_built", False):
+            return
+        row, box = self.foot_row, self.gen_box
+        in_row = row.indexOf(box) >= 0
+        mine = box.minimumSizeHint().width() + row.spacing()
+        rest = row.minimumSize().width() - (mine if in_row else 0)
+        room = self.page_scroll.viewport().width() - 36 - 32  # (the window's margins and the row's)
+        fits = rest + mine <= room
+        if fits and not in_row:
+            self.foot_row2.removeWidget(box)
+            row.addWidget(box)
+        elif not fits and in_row:
+            row.removeWidget(box)
+            self.foot_row2.addWidget(box)
 
     def _size_drop(self):
         """The drop zone is one slim row once documents are loaded (the whole window takes more of them), and
@@ -6565,9 +6549,8 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self, self._size_drop)
 
     def resizeEvent(self, e):
-        """The Outputs columns follow the window's width, and the drop zone its height."""
+        """The cards' two columns follow the window's width, and the drop zone its height."""
         super().resizeEvent(e)
-        self._place_output_cols()
         self._place_pairs()
         if hasattr(self, "drop"):
             self._size_drop()
@@ -6578,16 +6561,12 @@ class MainWindow(QMainWindow):
         super().showEvent(e)
         self._place_pairs()
         self._size_drop_later()
-        # the dividers once the window is laid out (measured earlier, they would be placed in proportion to
-        # sizes that aren't the window's): the left column's, and a folded Outputs box's height
+        # the divider once the window is laid out (measured earlier, it would be placed in proportion to sizes
+        # that aren't the window's)
         QTimer.singleShot(0, self, lambda: self._place_left_split(len(self.jobs) > 1))
-        if not e.spontaneous():  # (shown by the app, not brought back from minimized: a box unfolded since stays so)
-            self._auto_fold_outputs()  # (a short screen: until the user chooses)
-        if self.s.outputs_folded:
-            QTimer.singleShot(0, self, lambda: self._fold_outputs(True, save=False))
 
     def _fill_invoice_speeds(self):
-        """The Invoice panel's Speeds offered: a box per speed of the current rate sheet with its price
+        """Speeds offered, under the rate sheet: a box per speed of the current rate sheet with its price
         ("Regular  $4.30/pg"), cheapest first as on the invoice, two a row, ticked for the speeds invoices offer
         (Settings.invoice_speeds)."""
         from ..rates import speed_key
@@ -6602,7 +6581,7 @@ class MainWindow(QMainWindow):
         except Exception:  # a broken rate sheet must not break the window
             speeds = []
         names = [sp.name for sp in speeds]
-        per_row = 2  # (more in a row would make the Invoice panel, and the Outputs box, too wide)
+        per_row = 2  # (more in a row would make the card's left column too wide for its two columns side by side)
         for i, sp in enumerate(speeds):  # cheapest first: the order of the Speed box and of the invoice
             name = sp.name
             cb = QCheckBox(f"{name}  ${sp.original}/pg" if sp.original else name)
@@ -6614,8 +6593,6 @@ class MainWindow(QMainWindow):
             self.inv_speeds_grid.addWidget(cb, i // per_row, i % per_row)
         if not names:
             self.inv_speeds_grid.addWidget(QLabel("(none on the rate sheet)"), 0, 0)
-        # (the Invoice panel's prices list each speed offered: the panels may fit in a row now, or no longer)
-        self._place_output_cols()
         self._show_speeds_lock()
 
     def _speeds_locked(self) -> bool:
@@ -6850,8 +6827,6 @@ class MainWindow(QMainWindow):
         apply_theme(self.app, self.s.theme)
         zooming.reapply()
         self.drop.rezoom()
-        self._cols_per_row = 0  # lay the Outputs panels out again: they are wider or narrower now
-        self._place_output_cols()
         self._place_pairs()
         QTimer.singleShot(0, self._place_pairs)  # again once the new sizes are laid out
         self._fit_minimum()
@@ -6859,9 +6834,6 @@ class MainWindow(QMainWindow):
         # the Who ordered what table is as tall as its rows, which are taller or shorter now
         self._show_orders()
         QTimer.singleShot(0, self, self._show_orders)  # again once the new sizes are laid out
-        self._auto_fold_outputs()  # (the screen is shorter or taller at this zoom)
-        if self.s.outputs_folded:  # (its one line is taller or shorter now)
-            QTimer.singleShot(0, self, lambda: self._fold_outputs(True, save=False))
         self._set_opt("zoom", f)
         self._toast(f"Zoom {round(f * 100)} %")
 

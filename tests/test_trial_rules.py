@@ -137,7 +137,7 @@ def test_the_window_says_so_and_lights_up_the_parties_box(window, qt, tmp_path, 
     job.parties = 3
     window._update_status()
     assert window.inv_info.text().startswith("⚠ Parties says 3, but 2 firms are named")
-    assert "Parties is checked" in window.output_counts["invoice"].text()
+    assert "Parties is checked" in window.output_counts["invoice"].toolTip()
     asked = []
     monkeypatch.setattr(qt.QMessageBox, "question", lambda parent, title, text, *a: (
         asked.append((title, text)), qt.QMessageBox.No)[1])

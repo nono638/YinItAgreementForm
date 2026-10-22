@@ -4,8 +4,8 @@ counts Not paid when its colour can't come up (Ready to send with Paid alone), a
 made in another reporter's name; a transcript sent before it is paid has a colour of its own (Sent, not paid,
 purple); with each price a page rounded to the cent, an even split's small print says what each pays and the
 Excerpts window's prices are rounded as the invoice's are; the CSV copies keep text Excel would take for a formula
-as text; and on a short screen the Outputs box starts folded until the user folds or unfolds it. All names and
-numbers are made up."""
+as text. (On a short screen the Outputs box started folded until the user folded or unfolded it: since
+2026-10-22 it is one row.) All names and numbers are made up."""
 import csv
 import os
 import time
@@ -315,11 +315,13 @@ def test_the_colours_of_280_get_sent_not_paid_and_changed_ones_stay():
         == rule_rows(rules_280())
 
 
-def test_a_box_folded_by_hand_in_280_stays_folded():
-    assert Settings.from_dict({"settings_version": 14, "outputs_folded": True}).outputs_fold_chosen
-    assert not Settings.from_dict({"settings_version": 14, "outputs_folded": False}).outputs_fold_chosen
-    assert not Settings.from_dict({"outputs_folded": True, "outputs_fold_chosen": False}).outputs_fold_chosen
-    assert {"outputs_fold_chosen", "sheet_days_kept"} <= set(LOCAL)
+def test_a_settings_file_that_folded_the_outputs_box_still_loads():
+    """2.8.1 to 2.10 could fold the Outputs box (outputs_folded, outputs_fold_chosen, the divider above it):
+    it is one row since, and a file saying so loads as any other (the keys are left out)."""
+    s = Settings.from_dict({"settings_version": 15, "outputs_folded": True, "outputs_fold_chosen": True,
+                            "window_splits": {"outer": "AAA=", "left": "BBB="}, "zoom": 1.2})
+    assert s.zoom == 1.2 and not hasattr(s, "outputs_folded") and s.window_splits["left"] == "BBB="
+    assert "sheet_days_kept" in LOCAL and "outputs_fold_chosen" not in LOCAL
 
 
 # ------------------------------------------------------------------ Records: the colours and the count
@@ -431,63 +433,6 @@ def test_the_status_while_nothing_is_loaded_is_plain_text(make_window):
     assert all("background" in rules[f'QLabel#status[state="{st}"]'] for st in ("ok", "warn", "busy"))
 
 
-# ------------------------------------------------------------------ the Outputs box on a short screen
-def test_a_short_screen_folds_the_outputs_box_until_the_user_chooses(make_window, monkeypatch):
-    from minute_filler.gui import main_window
-    monkeypatch.setattr(main_window, "SHORT_SCREEN", 100_000)  # (every screen is short)
-    s = pat_settings(initials="pr")
-    s.use_ai = False
-    win = make_window(s)
-    win.show()
-    pump()
-    assert s.outputs_folded and win.outputs_body.isHidden() and not s.outputs_fold_chosen
-    win._fold_outputs_by_hand(False)  # (its arrow, its title, View → Fold the Outputs box)
-    assert not win.outputs_body.isHidden() and s.outputs_fold_chosen and Settings.load().outputs_fold_chosen
-    win.hide()
-    win.show()
-    pump()
-    assert not win.outputs_body.isHidden()  # (as the user left it)
-    win.close()
-
-
-def test_the_arrow_the_title_and_the_view_menu_count_as_the_users_choice(make_window, monkeypatch):
-    from minute_filler.gui import main_window
-    monkeypatch.setattr(main_window, "SHORT_SCREEN", 100_000)
-    s = pat_settings(initials="pr")
-    s.use_ai = False
-    win = make_window(s)
-    win.show()
-    pump()
-    for click in (win.outputs_fold.click, win.fold_outputs_action.trigger):
-        s.outputs_fold_chosen = False
-        folded = s.outputs_folded
-        click()
-        assert s.outputs_fold_chosen and s.outputs_folded != folded
-    win.close()
-
-
-def test_unfolded_by_the_app_it_stays_so_back_from_minimized(make_window, monkeypatch, qt):
-    """Unfolded to show a problem (_go_to_problem: Whose pages…, the run sheet box), the box isn't folded again when
-    the window comes back from minimized; a zoom decides again (the room changed)."""
-    from PySide6.QtCore import Qt
-    from minute_filler.gui import main_window
-    monkeypatch.setattr(main_window, "SHORT_SCREEN", 100_000)
-    s = pat_settings(initials="pr")
-    s.use_ai = False
-    win = make_window(s)
-    win.show()
-    pump()
-    win._fold_outputs(False)  # (what _go_to_problem does)
-    win.setWindowState(Qt.WindowMinimized)
-    pump(0.1)
-    win.setWindowState(Qt.WindowNoState)
-    pump(0.3)
-    assert not win.outputs_body.isHidden() and not s.outputs_fold_chosen
-    win.set_zoom(1.1)
-    assert win.outputs_body.isHidden()
-    win.close()
-
-
 def test_the_built_program_gives_windows_its_own_icon_and_nothing_breaks_without_it(make_window, monkeypatch):
     """_exe_icon_for_windows: run from source it does nothing; frozen, a window Windows can't take the icon for (off
     screen here) changes nothing and raises nothing."""
@@ -499,20 +444,3 @@ def test_the_built_program_gives_windows_its_own_icon_and_nothing_breaks_without
     main._exe_icon_for_windows(win)
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     main._exe_icon_for_windows(win)
-
-
-def test_a_tall_screen_unfolds_a_box_the_app_folded(make_window):
-    s = pat_settings(initials="pr")
-    s.use_ai = False
-    s.outputs_folded = True  # (folded on a short screen, never chosen: SHORT_SCREEN is 0 in the tests)
-    win = make_window(s)
-    win.show()
-    pump()
-    assert not win.outputs_body.isHidden() and not s.outputs_folded
-    win.close()
-    s.outputs_folded = s.outputs_fold_chosen = True  # (folded by hand: stays so)
-    win = make_window(s)
-    win.show()
-    pump()
-    assert win.outputs_body.isHidden()
-    win.close()

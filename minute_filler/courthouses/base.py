@@ -67,11 +67,13 @@ class OutputSpec:
     like batch.OutputPolicy (why a job can't have it, the problems that stop it); "" = that class itself:
     every job can have it.
 
-    In the window: tip, the tooltip of its box in the Outputs box ("" = none, or one the window sets itself);
-    words, how the line under its heading counts its files (("minute agreement form", "minute agreement forms");
+    In the window: tip, the tooltip of its box in the Outputs row ("" = none, or one the window sets itself);
+    words, how the count beside it names its files (("minute agreement form", "minute agreement forms");
     () = its label); asks, the questions Generate asks before making it (of ASKS); panel, "module:name" of the
-    function that adds its options to its panel (panel(window, form): see gui/panels.py; "" = no options);
-    panel_pos, its place among the panels (the window's order is not the listed one)."""
+    function that adds its options to a form (panel(window, form): see gui/panels.py; "" = no options); card, the
+    title of a card of the window's form holding them, when they are each job's own choices (the invoice's:
+    "Invoice"; "" = standing choices, in the Outputs row's Options ▾); panel_pos, its place in the Outputs row
+    and in Options ▾ (the window's order is not the listed one)."""
     key: str
     label: str
     group: str
@@ -85,6 +87,7 @@ class OutputSpec:
     words: tuple[str, str] | tuple = ()
     asks: tuple[str, ...] = ()
     panel: str = ""
+    card: str = ""
     panel_pos: int = 99
 
     def __post_init__(self):

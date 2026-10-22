@@ -310,8 +310,9 @@ def test_the_math_names_a_typed_page_count_as_the_pages_field(tmp_path, s):
     assert firm.opts.total_pages == 120 and about(firm) == "Index: 120 total pages, 50 or more."
 
 
-def test_a_held_transcript_with_a_long_name_does_not_widen_the_invoice_panel(window, tmp_path, qt):
-    # the reason names the file: shown in full it made the Invoice panel (and the window) wider than the screen
+def test_a_held_transcript_with_a_long_name_does_not_widen_the_invoice_card(window, tmp_path, qt):
+    # the reason names the file: shown in full it made the Invoice panel (and the window) wider than the screen;
+    # in the Invoice card it would make the form scroll sideways
     name = "Jane Roe v. X.Y. Holding Corporation 712345-2021 Trial Transcript Volume 3 June 3 2026 Dana.pdf"
     window.resize(1320, 860)
     window.show()
@@ -321,10 +322,10 @@ def test_a_held_transcript_with_a_long_name_does_not_widen_the_invoice_panel(win
     for _ in range(5):
         qt.QApplication.processEvents()
     assert window.cur.ownership_problem() and name in window.cur.ownership_problem()
-    page, panel = window.page_scroll, window._output_cols[1]  # (the Invoice panel)
+    page, form, card = window.page_scroll, window.form_scroll, window.cards["invoice"]
     assert page.widget().minimumSizeHint().width() <= page.viewport().width()
-    assert window.inv_info.minimumSizeHint().width() <= panel.width()
-    assert panel.sizeHint().width() <= window.width() // 3  # (the panels are laid out by their sizeHint)
+    assert form.widget().minimumSizeHint().width() <= form.viewport().width()
+    assert window.inv_info.minimumSizeHint().width() <= card.width()
     assert window.inv_info.text() == "⚠ Choose whose pages to bill (Whose pages…)"
     assert name in window.inv_info.toolTip()
     # any other warning naming the file is broken into lines no longer than the prices'

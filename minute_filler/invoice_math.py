@@ -1,5 +1,5 @@
 """The math of the invoices just made, spelled out (Settings -> Options: "Show the math of each invoice"), or of
-those about to be made (the main window's "Who pays what" and the Invoice panel open it before there are numbers).
+those about to be made (the main window's "Who pays what" and the Invoice card open it before there are numbers).
 
 Most invoices show only each speed's amount; when someone later asks how an amount was reached, this is the
 answer. explain() lays it out as tables (HTML, for the window that shows it, gui.preview.MathView, and for
@@ -348,7 +348,7 @@ def heading(f: FirmInvoice, number: str) -> str:
 
 def about(f: FirmInvoice) -> str:
     """What the heading doesn't say: the pages the user wrote of the whole transcript, when other reporters
-    wrote some ("You wrote 45 of 83 total pages.", as the Invoice panel's Billed line says it; "DS wrote ..." on
+    wrote some ("You wrote 45 of 83 total pages.", as the Invoice card's Billed line says it; "DS wrote ..." on
     an invoice in another reporter's name; "The Pages field: 40 of 83 total pages." when that number was typed,
     as it need not be the pages the user wrote), and whether there is an index and why ("Index: 83 total pages,
     50 or more."). "" when there is neither."""

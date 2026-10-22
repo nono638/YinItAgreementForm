@@ -293,7 +293,7 @@ class SettingsDialog(QDialog):
         speeds.addStretch(1)
         f.addRow("Speeds offered", speeds)
         hint = QLabel("The attorney chooses one. With one ticked the invoice bills that speed alone. "
-                      "The same boxes are in the main window's Invoice panel.")
+                      "The same boxes are under the rate sheet in the main window (Speed, pages and dates).")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         f.addRow("", hint)
@@ -676,7 +676,7 @@ class SettingsDialog(QDialog):
 
     def _show_agreement_speed(self, _=None):
         """The line under Agreement form speed: which speed the form gets with the speeds ticked now (those a
-        rate sheet names otherwise, ticked in the Invoice panel, have no box here but count too: Save keeps them)."""
+        rate sheet names otherwise, ticked under Speeds offered, have no box here but count too: Save keeps them)."""
         from copy import copy
         from ..rates import speed_key
         trial = copy(self.s)
@@ -1152,7 +1152,7 @@ class SettingsDialog(QDialog):
         s.outputs = [k for k, cb in self.o_outputs.items() if cb.isChecked()]
         s.mofr_division = self.o_division.currentData()
         s.mofr_filename_pattern = self.o_mofr_pattern.text().strip() or s.mofr_filename_pattern
-        # speeds named otherwise on a rate sheet (ticked in the Invoice panel) have no box here: they stay
+        # speeds named otherwise on a rate sheet (ticked under Speeds offered) have no box here: they stay
         from ..rates import speed_key
         keep = [x for x in s.invoice_speeds if speed_key(x) not in {speed_key(n) for n in SPEEDS}]
         s.invoice_speeds = keep + [k for k, cb in self.i_speeds.items() if cb.isChecked()]

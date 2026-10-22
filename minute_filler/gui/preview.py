@@ -18,7 +18,7 @@ else made to fit. Other files (the Excel run sheet) are handed to their own prog
 
 MathDialog spells out the math of the invoices Generate just made, when previews are off (invoice_math.explain):
 a glance and OK. It can also copy it or save it as a PDF, and its "Don't show this anymore" turns it off
-(Settings -> Options turns it back on). The main window's "Who pays what" and its Invoice panel open it too
+(Settings -> Options turns it back on). The main window's "Who pays what" and its Invoice card open it too
 (live=True), on the invoices as they would be made now, with no numbers yet. Wherever the math is shown it is a
 MathView: tables in either layout, "By invoice" or "Firms side by side", with a switch between them that is
 remembered (Settings.math_layout), and under it MathSaves: which of the math Generate saves as PDFs with the
@@ -582,7 +582,7 @@ class MathDialog(QDialog):
     user, 2026-10-21); "Don't show this anymore" sets
     Settings.show_math off at once (and saves the settings). Under the math, which of it Generate saves with the
     invoices (MathSaves) and, after a Generate, what it saved this time (`saved`, the PDFs). `live`: the
-    invoices not made yet, as the main window's Who pays what card and the Invoice panel's link show them (no
+    invoices not made yet, as the main window's Who pays what card and the Invoice card's link show them (no
     numbers yet, and nothing to turn off)."""
 
     def __init__(self, made: list, s: Settings, parent=None, folder: Path | None = None, live: bool = False,

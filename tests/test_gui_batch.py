@@ -289,7 +289,10 @@ def test_the_big_drop_picture_when_there_is_room(window):
     QtWidgets.QApplication.processEvents()
     window.resizeEvent(QtGui.QResizeEvent(window.size(), window.size()))
     assert not window.drop.compact
-    window.resize(1400, 720)  # a short one: the small picture
+    # a short one: the small picture (shorter than the window's least height since the Outputs box is one row: at
+    # 720 the column has room for the big one)
+    window.setMinimumSize(480, 360)
+    window.resize(1400, 420)
     QtWidgets.QApplication.processEvents()
     window.resizeEvent(QtGui.QResizeEvent(window.size(), window.size()))
     assert window.drop.compact
@@ -780,23 +783,24 @@ def test_a_preview_whose_records_cant_be_opened_leaves_the_window_usable(window,
 # ------------------------------------------------------------------ the Outputs box, 2026-10-08
 
 def test_each_output_says_how_many_files_generate_makes(window, tmp_path):
-    """Under each ticked output's heading, how many files Generate makes of it, kept up to date as attorneys are
-    ticked ("Will generate 2 minute agreement forms"; digits, as "two minute" reads as "two-minute"); hidden while
-    the output is unticked; the invoice's detailed copies too."""
+    """Beside each ticked output's box, how many files Generate makes of it, kept up to date as attorneys are
+    ticked ("(2)", and in its tooltip "Will generate 2 minute agreement forms"; digits, as "two minute" reads as
+    "two-minute"); hidden while the output is unticked; the invoice's detailed copies too."""
     for key in ("agreement", "mofr"):
         window.output_boxes[key].setChecked(True)
     one_day_two_attorneys(window, tmp_path)
-    count = window.output_counts
-    assert count["agreement"].text() == "Will generate 2 minute agreement forms"
-    assert count["invoice"].text() == "Will generate 2 invoices" and count["mofr"].text() == "Will generate 1 MOFR"
+    count = window.output_counts  # (beside each box in the Outputs row "(2)", its tooltip in words)
+    assert count["agreement"].text() == "(2)"
+    assert count["agreement"].toolTip() == "Will generate 2 minute agreement forms"
+    assert count["invoice"].toolTip() == "Will generate 2 invoices" and count["mofr"].toolTip() == "Will generate 1 MOFR"
     window.att.item(1, 0).setCheckState(QtCore.Qt.Unchecked)  # Dana Smith unticked: at once
-    assert count["agreement"].text() == "Will generate 1 minute agreement form"
-    assert count["invoice"].text() == "Will generate 1 invoice"
+    assert count["agreement"].toolTip() == "Will generate 1 minute agreement form"
+    assert count["invoice"].toolTip() == "Will generate 1 invoice" and count["invoice"].text() == "(1)"
     window.output_boxes["mofr"].setChecked(False)
     assert count["mofr"].isHidden() and not count["agreement"].isHidden()
     window.s.invoice_detailed_copy = True
     window._refresh_outputs()
-    assert count["invoice"].text() == "Will generate 1 invoice (and 1 detailed copy)"
+    assert count["invoice"].toolTip() == "Will generate 1 invoice (and 1 detailed copy)"
 
 
 def test_with_several_jobs_the_counts_say_what_generate_all_makes(window, tmp_path):
@@ -809,8 +813,8 @@ def test_with_several_jobs_the_counts_say_what_generate_all_makes(window, tmp_pa
         job.case.attorneys = [counsel()]
     window._show_case()
     window._refresh_outputs()
-    assert window.output_counts["agreement"].text() == "Will generate 1 minute agreement form\nGenerate all: 1"
-    assert window.output_counts["invoice"].text() == "Will generate 1 invoice\nGenerate all: 1"
+    assert window.output_counts["agreement"].toolTip() == "Will generate 1 minute agreement form\nGenerate all: 1"
+    assert window.output_counts["invoice"].toolTip() == "Will generate 1 invoice\nGenerate all: 1"
 
 
 def test_the_invoice_panel_links_to_the_math(window, tmp_path, monkeypatch):
@@ -870,7 +874,7 @@ def test_generate_counts_a_day_invoiced_already_as_it_bills_it_again(window, tmp
     one_day_two_attorneys(window, tmp_path)
     window.cur.invoiced = True  # (as Generate leaves it)
     window._update_status()
-    assert window.output_counts["invoice"].text() == "Will generate 2 invoices"
+    assert window.output_counts["invoice"].toolTip() == "Will generate 2 invoices"
     assert output_counts([window.cur], ["invoice"], window.s)["invoice"] == 0  # (Generate all's count)
 
 
@@ -886,25 +890,6 @@ def test_a_keystroke_counts_the_jobs_of_generate_all_once(window, tmp_path, monk
     assert calls.count(2) == 1
     files = sum(real(window.jobs, window._outputs(), window.s).values())
     assert window.fill_all_btn.text().endswith(f"  ({plural(files, 'file')})")
-
-
-def test_with_two_days_the_outputs_box_keeps_four_panels_a_row(window, tmp_path, qt):
-    """What Generate all makes goes on a line of its own under each count: at the end of the line it made the
-    panels wider, and at the window's first size (1320 wide) the Outputs box went from four panels a row to three
-    when MOFR was ticked. Measured with the app's style sheet, as on screen."""
-    from minute_filler.gui.theme import apply_theme
-    apply_theme(qt.QApplication.instance(), "light")
-    for key in ("agreement", "invoice", "mofr"):
-        window.output_boxes[key].setChecked(True)
-    two_days(window, tmp_path)
-    window.resize(1320, 860)
-    window.show()
-    for _ in range(5):
-        QtWidgets.QApplication.processEvents()
-    window._cols_per_row = 0
-    window._place_output_cols()
-    assert window.output_counts["mofr"].text().startswith("Will generate 1 MOFR\nGenerate all: ")
-    assert window._cols_per_row == 4
 
 
 def test_who_pays_what_names_only_what_each_firm_pays_for_its_own(window, tmp_path):
@@ -937,7 +922,7 @@ def test_an_empty_job_still_shows_what_generate_all_makes(window, tmp_path):
     remerge(job, window.s)
     window._refresh_jobs()
     window._show_job()
-    assert job.is_empty() and window.output_counts["agreement"].text() == "Generate all: 1"
+    assert job.is_empty() and window.output_counts["agreement"].toolTip() == "Generate all: 1"
     assert not window.output_counts["agreement"].isHidden()
 
 
@@ -948,7 +933,7 @@ def test_a_held_invoice_says_what_it_waits_for(window, tmp_path, monkeypatch):
     one_day_two_attorneys(window, tmp_path)
     monkeypatch.setattr(Job, "ownership_problem", lambda self: "the transcript has pages of two reporters")
     window._update_status()
-    assert window.output_counts["invoice"].text() == "No invoice until Whose pages… is chosen"
+    assert window.output_counts["invoice"].toolTip() == "No invoice until Whose pages… is chosen"
 
 
 def test_the_includes_line_breaks_after_a_comma_not_before_a_last_word(window):

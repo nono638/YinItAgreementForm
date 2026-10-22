@@ -41,6 +41,9 @@ QLabel#fieldLabel { color: {muted}; }
 QCheckBox#outputHead { font-weight: 700; color: {card_title}; }
 QFrame#outputPanel { background: {drop_bg}; border: 1px solid {border}; border-radius: 8px; }
 QFrame#outputRule { background: {border}; border: none; }
+QLabel#outputTitle { font-weight: 700; color: {card_title}; }
+/* Options ▾ of the Outputs row (MainWindow._show_output_options): a box of its own, over the window */
+QFrame#optionsPopup { background: {card}; border: 1px solid {border}; }
 QCheckBox:disabled, QLabel:disabled, QComboBox:disabled, QSpinBox:disabled { color: {muted}; }
 QLabel#kpiValue { font-size: 17pt; font-weight: 700; }
 QLabel#kpiValue[tone="ok"] { color: {ok}; }
@@ -95,7 +98,7 @@ QToolButton:hover { background: {hover}; border: 1px solid {border}; }
 QToolButton::menu-indicator { image: none; }
 QToolButton#quick { border: 1px solid {input_border}; background: {card}; padding: 2px 8px; font-size: 9pt; }
 QToolButton#quick:hover { background: {sel}; border: 1px solid {accent}; }
-/* a field's other readings ("2 more"), and the fold of a card or of the Outputs box */
+/* a field's other readings ("2 more"), and the fold of a card */
 QToolButton#alts { color: {accent}; border: 1px solid {input_border}; background: {card}; padding: 2px 6px; font-size: 9pt; }
 QToolButton#alts:hover { background: {sel}; border: 1px solid {accent}; }
 QToolButton#fold { color: {card_title}; padding: 0px 4px; font-size: 11pt; font-weight: 700; }
@@ -104,7 +107,7 @@ QLabel#startLink { color: {accent}; padding: 3px 0px; }
 QLabel#startLink:hover { text-decoration: underline; }
 /* where the status pill's click went (MainWindow._flash) */
 *[flash="true"] { border: 2px solid {accent}; border-radius: 6px; }
-/* the dividers above the Outputs box and the paste box: room to grab them, a colour while the mouse is on them */
+/* the divider above the paste box: room to grab it, a colour while the mouse is on it */
 QSplitter::handle:vertical { height: 8px; }
 QSplitter::handle:vertical:hover { background: {border}; }
 
