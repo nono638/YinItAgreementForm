@@ -80,7 +80,7 @@ from PySide6.QtWidgets import (
 from .. import log as logfile
 from ..log import error as log_error, log
 from ..batch import (BATCH_EXT, HELD, MISMATCH_LEAD, NOT_INVOICED, Doc, Job, case_folders, case_reporters, expand_paths,
-                     files_to_make, fill_jobs, firm_questions, group, ident, index_number_text, input_folders,
+                     fill_jobs, firm_questions, group, ident, index_number_text, input_folders,
                      billed_split_rule, job_from_origin, job_origin, join_entries, out_dir_for, read_loaders,
                      remerge, same_case, split_forgotten)
 from ..extract_llm import OllamaExtractor
@@ -336,6 +336,19 @@ def _count_text(key: str, counts: dict | None, everyone: dict | None = None, hel
         extra = everyone.get("detailed", 0) if key == "invoice" else 0
         lines.append(f"Generate all: {everyone.get(key, 0)}" + (f" (+{extra} detailed)" if extra else ""))
     return "\n".join(lines)
+
+
+def _files_words(counts: dict | None) -> str:
+    """What a Generate button makes, in words: "3 files: 2 minute agreement forms, 1 MOFR" (the detailed copies and
+    the PDFs of the math, which no output's line counts, too); "" for nothing. counts: batch.output_counts."""
+    parts = []
+    for key, n in (counts or {}).items():
+        if not n:
+            continue
+        one, many = ("detailed copy", "detailed copies") if key == "detailed" else \
+            ("PDF of the math", "PDFs of the math") if key == "math" else courthouses.output(key).count_words()
+        parts.append(f"{n} {one if n == 1 else many}")
+    return f"{plural(sum(counts.values()), 'file')}: {', '.join(parts)}" if parts else ""
 
 
 def _named(keys) -> str:
@@ -1769,7 +1782,6 @@ class MainWindow(QMainWindow):
         top.addWidget(self.fill_btn)
         self.fill_all_btn = QPushButton("Generate all")
         self.fill_all_btn.setObjectName("generate")
-        self.fill_all_btn.setToolTip("Make the ticked outputs for every ticked job (Ctrl+Shift+Enter)")
         self.fill_all_btn.clicked.connect(self.fill_all_jobs)
         top.addWidget(self.fill_all_btn)
         fv.addLayout(top)
@@ -2979,9 +2991,7 @@ class MainWindow(QMainWindow):
         self.left_split.setMinimumHeight(self.left_split.minimumSizeHint().height())
         self._place_left_split(multi)
         self._size_drop()
-        self._fill_btn_text()
-        self.fill_btn.setToolTip("Make the ticked outputs for the day shown alone: its own agreements, MOFR and "
-                                 "invoice (Ctrl+Enter)" if multi else "Make the ticked outputs (Ctrl+Enter)")
+        self._generate_labels()
         self.fill_btn.setObjectName("" if multi else "generate")  # (Generate all is the one to click then)
         repolish(self.fill_btn)
         self._collapsed &= set(self.jobs)
@@ -3087,8 +3097,8 @@ class MainWindow(QMainWindow):
             text += f"  ·  {saved} saved (✓)"
         self.jobs_label.setText(text)
         # days of a case share a run sheet, invoices too
-        files = sum(counts.values()) if counts is not None else files_to_make(chosen, outputs, self.s)
-        self.fill_all_btn.setText(f"Generate all  ({plural(files, 'file')})")
+        from ..batch import output_counts  # (looked up now, as _show_counts does: a test counts the calls)
+        self._generate_labels(counts if counts is not None else output_counts(chosen, outputs, self.s))
         self.fill_all_btn.setEnabled(bool(chosen) and bool(outputs) and not self.filling)
 
     def _label_docs(self, job: Job, item: QTreeWidgetItem) -> None:
@@ -5797,7 +5807,7 @@ class MainWindow(QMainWindow):
             self.inv_info.setToolTip(
                 f"Generate all bills these {len(group)} days of the case on one invoice for each attorney\n"
                 f"(the days it is ticked on, and the pages it ordered).\n{forms}"
-                f"\"Generate this job\" makes the day shown alone ({job.invoice_pages()} pp.)."
+                f"\"Generate {self._job_date(job)} only\" makes the day shown alone ({job.invoice_pages()} pp.)."
                 + (f"\n\n{ask_tip}" if ask_tip else ""))
         else:
             self.inv_info.setText(f"{opts.pages} pp." + ("\n" if per_firm else " · ") + prices)
@@ -5870,8 +5880,8 @@ class MainWindow(QMainWindow):
         if len(self.jobs) > 1:
             everyone = output_counts([j for j in self.jobs if j.include and not j.is_empty()], outputs, self.s)
         self._all_counts = everyone
-        self._job_files = sum(counts.values()) if counts else 0
-        self._fill_btn_text()
+        self._job_counts = counts
+        self._generate_labels(everyone)
         held = ""
         if shown and "invoice" in outputs and job.invoice_hold():  # (Generate asks first: see invoice_hold)
             held = "Excerpts… is checked" if job.portions_problem() else "Whose pages… is chosen" \
@@ -5882,12 +5892,36 @@ class MainWindow(QMainWindow):
             label.setText(_count_text(key, counts, everyone, held if key == "invoice" else "") if on else "")
             label.setVisible(on)
 
-    def _fill_btn_text(self) -> None:
-        """Generate says how many files it makes for the job shown ("Generate  (3 files)"; "Generate this job  (2
-        files)" in a batch), as Generate all does for the batch; the bare words when it makes none yet."""
-        words = "Generate this job" if len(self.jobs) > 1 else "Generate"
-        n = getattr(self, "_job_files", 0) if not self.cur.is_empty() else 0
+    def _generate_labels(self, everyone: dict | None = None) -> None:
+        """The Generate buttons say what they make (the user, 2026-10-22: in a trial, "Generate this job (14 files)"
+        beside "Generate all (10 files)" was a puzzle): for the days of one case, the day shown and the days
+        ("Generate 6/4/2026 only", "Generate all 3 days"), else the job shown and the jobs ("Generate this job",
+        "Generate all 5 jobs"; "the 2 ticked" when some are unticked), then how many files, and in the tooltip
+        what they are (_files_words). Generate alone for a single job. everyone: batch.output_counts of the jobs
+        Generate all makes (None: its button is left as it is)."""
+        multi = len(self.jobs) > 1
+        counts = getattr(self, "_job_counts", None) if not self.cur.is_empty() else None
+        n = sum(counts.values()) if counts else 0
+        shown = [j for j in self.jobs if not j.is_empty()]
+        one_case = multi and len(_cases(shown)) == 1
+        words = (f"Generate {self._job_date(self.cur) or 'this day'} only" if one_case else
+                 "Generate this job" if multi else "Generate")
         self.fill_btn.setText(f"{words}  ({plural(n, 'file')})" if n else words)
+        what = _files_words(counts)
+        self.fill_btn.setToolTip((f"Makes {what}" if what else "Makes nothing yet") +
+                                 (", for the day shown alone" if one_case else ", for the job shown alone" if multi
+                                  else "") + " (Ctrl+Enter)")
+        if everyone is None or not multi:
+            return
+        chosen = [j for j in shown if j.include]
+        unit = "day" if one_case else "job"
+        scope = (f"all {plural(len(chosen), unit)}" if len(chosen) == len(shown) else
+                 f"the {plural(len(chosen), unit)} ticked")
+        files = sum(everyone.values())
+        self.fill_all_btn.setText(f"Generate {scope}  ({plural(files, 'file')})" if chosen else "Generate all")
+        what = _files_words(everyone)
+        self.fill_all_btn.setToolTip((f"Makes {what}" if what else "Makes nothing yet") +
+                                     f", for {scope} (Ctrl+Shift+Enter)")
 
     def _show_live_math(self, _link: str = "") -> None:
         """The links of the Who pays what card and the Invoice panel: the whole math of the invoices the card
@@ -6073,7 +6107,8 @@ class MainWindow(QMainWindow):
             where = f"Generate all bills these {days} days of the case on one invoice per attorney" + (
                 ", with one minute agreement per attorney and one MOFR for them." if self.s.forms_per_case else ".")
         elif job.invoiced:
-            where = "The day shown, invoiced already: Generate all won't bill it again (Generate this job does)."
+            where = (f"The day shown, invoiced already: Generate all won't bill it again (Generate "
+                     f"{self._job_date(job)} only does).")
         elif len(self.jobs) > 1 and not job.include:
             where = "The day shown, unticked in the job list: Generate all leaves it out."
         elif len(self.jobs) > 1 and not job.invoice_hold():

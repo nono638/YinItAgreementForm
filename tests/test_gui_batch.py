@@ -259,7 +259,7 @@ def test_days_of_a_case_share_one_invoice_and_its_peripherals(window, tmp_path, 
                       str(transcript_pdf(tmp_path / "b.pdf", pages=60, date="June 4, 2026"))])
     wait(window, lambda: len(window.jobs) == 2 and all(j.docs for j in window.jobs))
     assert window.inv_info.text().startswith("Generate all: one invoice for 2 days (90 pp.)\nRegular $")
-    assert "Generate this job" in window.inv_info.toolTip()
+    assert "Generate 6/3/2026 only" in window.inv_info.toolTip()
     assert window.inv_peripherals_info.text() == "E-mailed copy, index\n(a day of 60 pages, 50 or more)"
     # Peripherals… for this job: its other day on the same invoice gets the same choice
     monkeypatch.setattr(dialogs.InvoicePeripheralsDialog, "exec", lambda self: 1)
@@ -640,9 +640,9 @@ def test_who_ordered_shows_the_days_of_the_invoice_and_counts_the_files_again(wi
     window.jobs[1].case.attorneys = [counsel(), smith(checked=False)]
     window._show_case()
     window._update_status()
-    assert window.fill_all_btn.text() == "Generate all  (3 files)"
+    assert window.fill_all_btn.text().endswith("  (3 files)")
     split(window, monkeypatch, [(30, [A])])  # Dana ordered nothing of the first day
-    assert window.fill_all_btn.text() == "Generate all  (2 files)"  # counted again straight away
+    assert window.fill_all_btn.text().endswith("  (2 files)")  # counted again straight away
     assert [r.day.job for r in window.excerpts.runs] == [window.jobs[0]]
     window.job_list.setCurrentItem(window.job_list.topLevelItem(1))
     assert [r.day.job for r in window.excerpts.runs] == [window.jobs[1]]  # it follows the day shown
@@ -677,7 +677,7 @@ def test_a_document_added_while_generate_all_runs_is_billed_next_time(window, tm
     assert sorted(i.pages for i in ledger_for(window.s).invoices()) == [30, 60]  # as the days were
     assert not day1.invoiced and day1.include and day1.invoice_pages() == 55  # its 25 new pages are still to bill
     assert window.jobs[1].invoiced and not window.jobs[1].include
-    assert window.fill_all_btn.text() == "Generate all  (1 file)"
+    assert window.fill_all_btn.text().endswith("  (1 file)")
 
 
 def test_generate_this_job_after_a_problem_does_not_bill_an_attorney_twice(window, tmp_path, monkeypatch):
@@ -836,7 +836,7 @@ def test_the_invoice_panel_rows_and_the_generate_button(window, tmp_path):
     assert window.inv_peripherals.text() == "Peripherals…"
     assert window.fill_btn.objectName() == "generate" and window.fill_all_btn.objectName() == "generate"
     two_days(window, tmp_path)
-    assert window.fill_btn.objectName() == "" and window.fill_btn.text().startswith("Generate this job  (")
+    assert window.fill_btn.objectName() == "" and window.fill_btn.text().startswith("Generate 6/3/2026 only  (")
     from minute_filler.gui.theme import DARK, LIGHT, QSS
     assert "QPushButton#generate {" in QSS and all(k in t for t in (LIGHT, DARK) for k in ("go", "go_hover"))
 
@@ -885,7 +885,7 @@ def test_a_keystroke_counts_the_jobs_of_generate_all_once(window, tmp_path, monk
     window._update_status()
     assert calls.count(2) == 1
     files = sum(real(window.jobs, window._outputs(), window.s).values())
-    assert window.fill_all_btn.text() == f"Generate all  ({plural(files, 'file')})"
+    assert window.fill_all_btn.text().endswith(f"  ({plural(files, 'file')})")
 
 
 def test_with_two_days_the_outputs_box_keeps_four_panels_a_row(window, tmp_path, qt):

@@ -223,11 +223,11 @@ def test_generate_all_counts_and_previews_what_it_makes(trial, s, make_window, m
     for name, box in win.output_boxes.items():
         box.setChecked(name in s.outputs)
     win._refresh_job_labels()
-    assert win.fill_all_btn.text() == "Generate all  (9 files)"
+    assert win.fill_all_btn.text().endswith("  (9 files)")
     s.outputs.append("mofr")
     win.output_boxes["mofr"].setChecked(True)
     win._refresh_job_labels()
-    assert win.fill_all_btn.text() == "Generate all  (10 files)"
+    assert win.fill_all_btn.text().endswith("  (10 files)")
     win.output_boxes["mofr"].setChecked(False)
     shown = []
     real_init = PreviewDialog.__init__

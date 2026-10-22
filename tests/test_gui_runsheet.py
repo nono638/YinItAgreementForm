@@ -170,7 +170,7 @@ def test_ctrl_enter_while_typing_in_the_attorney_table(window, monkeypatch):
 def test_generate_all_counts_one_run_sheet_per_case(window, tmp_path):
     two_days(tmp_path, window)
     window._refresh_job_labels()
-    assert window.fill_all_btn.text() == "Generate all  (1 file)"
+    assert window.fill_all_btn.text().endswith("  (1 file)")
 
 
 def test_batch_message_says_why_the_run_sheet_was_not_saved(window, tmp_path, monkeypatch):

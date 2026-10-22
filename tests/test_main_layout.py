@@ -71,3 +71,30 @@ def test_a_folded_who_pays_what_shows_its_warning(window, qt, tmp_path):
     window._update_status()
     window._card_summaries()
     assert window.cards["pays"].summary.text().startswith("3 invoices: ")
+
+
+def test_the_generate_buttons_say_what_they_make(window, tmp_path):
+    """The days of one case: "Generate 6/3/2026 only" and "Generate all 2 days" (the user, 2026-10-22: in a trial
+    "Generate this job (14 files)" beside "Generate all (10 files)" was a puzzle), the files they make in their
+    tooltips; a day unticked: "the 1 day ticked". Jobs of different cases: "this job" and "all 2 jobs"."""
+    from minute_filler.batch import Job
+    from helpers import ROE, make_case
+    from test_gui_batch import two_days
+    two_days(window, tmp_path)
+    window._update_status()
+    assert window.fill_btn.text().startswith("Generate 6/3/2026 only  (")
+    assert window.fill_all_btn.text().startswith("Generate all 2 days  (")
+    assert window.fill_btn.toolTip().startswith("Makes ") and "minute agreement form" in window.fill_btn.toolTip()
+    assert "for the day shown alone" in window.fill_btn.toolTip()
+    assert window.fill_all_btn.toolTip().endswith("for all 2 days (Ctrl+Shift+Enter)")
+    window.jobs[1].include = False
+    window._update_status()
+    assert window.fill_all_btn.text().startswith("Generate the 1 day ticked  (")
+    other = Job()
+    other.case = make_case({**ROE, "case_name": "Smith v. Jones", "index_no": "700123/2025"})
+    window.jobs[1].include = True
+    window.jobs.append(other)
+    window._generate_labels({"agreement": 3, "mofr": 0, "math": 2})
+    assert window.fill_btn.text().startswith("Generate this job")
+    assert window.fill_all_btn.text() == "Generate all 3 jobs  (5 files)"
+    assert window.fill_all_btn.toolTip().startswith("Makes 5 files: 3 minute agreement forms, 2 PDFs of the math")

@@ -599,7 +599,8 @@ ticked.</p>
 <ul>
 <li>A day once invoiced is not billed again by Generate all, even when you tick it again; new documents for it make
 it billable again.</li>
-<li><i>Generate this job</i> on one day makes that day alone.</li>
+<li><i>Generate 6/4/2026 only</i> (the button names the day shown) makes that day alone; <i>Generate all 4 days</i>
+makes them all. Each button's tooltip lists the files it makes.</li>
 <li>Settings → Invoice → <i>Days of one case</i>: <i>An invoice for each day</i>. Settings → Options →
 <i>Minute agreements and MOFRs: one for the whole case</i>: untick for forms for each day.</li>
 </ul>
