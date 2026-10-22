@@ -51,7 +51,8 @@ def make_order(wanted) -> list[str]:
 
 
 def panel_order() -> list[OutputSpec]:
-    """The outputs in the order of their panels in the window (OutputSpec.panel_pos; a tie: as listed)."""
+    """The outputs in the order of the window's Outputs row and Options ▾ (OutputSpec.panel_pos; a tie: as
+    listed)."""
     return sorted(_current.outputs, key=lambda o: o.panel_pos)
 
 

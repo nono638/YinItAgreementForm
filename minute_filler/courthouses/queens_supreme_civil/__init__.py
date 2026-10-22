@@ -1,9 +1,9 @@
 """Queens Supreme Court, Civil Term: the courthouse the program was written for, and the only profile so far.
 
 Its outputs are the four the program has always made, listed as Settings and the Records list them; in the
-window Invoice comes second in the Outputs row (panel_pos), its options a card of the form (card). The bundled rate sheets and the prices used without one are
-here too, not in rates.py: they are this courthouse's (and New York's), not every court's. So are New York's
-court holidays (holidays), the list Settings -> Dates starts with.
+window Invoice comes second in the Outputs row (panel_pos), its options a card of the form (card). The bundled
+rate sheets and the prices used without one are here too, not in rates.py: they are this courthouse's (and New
+York's), not every court's. So are New York's court holidays (holidays), the list Settings -> Dates starts with.
 
 So is how it bills firms that order the same pages at different speeds (billing.py), one of two ways the user
 picks in Settings: Make-Whole Split, the default (the original is billed once, at the fastest speed ordered, each

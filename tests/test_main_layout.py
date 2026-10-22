@@ -77,7 +77,7 @@ def test_a_folded_who_pays_what_shows_its_warning(window, qt, tmp_path):
 def test_the_generate_buttons_say_what_they_make(window, tmp_path):
     """The days of one case: "Generate 6/3/2026 only" and "Generate all 2 days" (the user, 2026-10-22: in a trial
     "Generate this job (14 files)" beside "Generate all (10 files)" was a puzzle), the files they make in their
-    tooltips; a day unticked: "the 1 day ticked". Jobs of different cases: "this job" and "all 2 jobs"."""
+    tooltips; a day unticked: "the 1 day ticked". A job of another case added: "this job" and "all 3 jobs"."""
     from minute_filler.batch import Job
     from helpers import ROE, make_case
     from test_gui_batch import two_days
@@ -102,6 +102,7 @@ def test_the_generate_buttons_say_what_they_make(window, tmp_path):
 
 
 def att(name="", firm="", party=""):
+    """An attorney row, ticked as ordering."""
     from minute_filler.models import Attorney
     return Attorney(name=name, firm=firm, party=party, checked=True)
 
@@ -136,6 +137,8 @@ def test_the_status_names_the_first_thing_to_check_and_reaches_what_it_missed(wi
 
 
 def test_the_guesses_are_one_line_and_the_pill_says_ready_with_them(window, qt, tmp_path):
+    """Two fields the reader wasn't sure of are one thing to check, "2 guesses to look at: Part No., Judge /
+    Justice", and the pill still says "Ready to fill", with them to review after it."""
     from minute_filler.models import FieldState
     from test_sweep_270 import counsel, one_day
     one_day(window, qt, tmp_path, [counsel()])
@@ -276,8 +279,8 @@ def test_the_outputs_row_fits_the_smallest_window(window, qt, tmp_path, zoom):
 
 def test_the_result_cards_look_like_results_and_the_report_starts_folded(window):
     """Who pays what and Who transcribed what show results to read, not fields to fill: a look of their own (a
-    tint, in both themes); Who transcribed what (a report, its totals on its folded line) starts folded, and so it
-    is for a settings file of before (v16)."""
+    tint, in both themes); Who transcribed what (a report, its totals on its folded line) starts folded, also for
+    a settings file from before v16 (one of v16 keeps it unfolded if the user unfolded it)."""
     from minute_filler.gui.theme import DARK, LIGHT, QSS
     from minute_filler.settings import Settings
     assert window.pays_card.property("result") is True and window.takes_card.property("result") is True
@@ -322,6 +325,7 @@ def days_read_newest_first(window, tmp_path):
 
 
 def shown(window, col=1) -> list[str]:
+    """The job list's rows top to bottom, as the text of one column (1: the Date)."""
     lst = window.job_list
     return [lst.topLevelItem(i).text(col) for i in range(lst.topLevelItemCount())]
 
@@ -350,6 +354,8 @@ def test_the_job_list_is_by_date_oldest_first_and_sorts_by_any_heading(window, t
 
 
 def test_the_day_column_says_the_weekday_and_can_be_hidden(window, tmp_path, make_window):
+    """The Day column says each date's weekday ("Wed" for 10/14/2026) and is narrow; View → Show the day of the
+    week in the job list hides it, and the choice is kept for the next start."""
     from minute_filler.gui.main_window import JOB_DAY
     from minute_filler.settings import Settings
     days_read_newest_first(window, tmp_path)
@@ -364,6 +370,8 @@ def test_the_day_column_says_the_weekday_and_can_be_hidden(window, tmp_path, mak
 
 
 def test_a_jobs_documents_stay_in_the_order_read_however_the_list_is_sorted(window, tmp_path):
+    """A job's documents (the rows under it) stay in the order they were read, the PDF before the pasted text,
+    whichever way the list is sorted by date."""
     from PySide6.QtCore import Qt
     from minute_filler.gui.main_window import JOB_DATE
     from test_job_list import EMAIL, wait

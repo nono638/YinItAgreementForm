@@ -217,7 +217,7 @@ class SettingsDialog(QDialog):
             "one minute agreement per attorney, listing the days it ordered and every page it ordered on them,\n"
             "whoever wrote them (its invoice bills only your pages of them), and one MOFR for all the days.\n"
             "Off: an agreement per attorney and a MOFR for each day, as before.\n"
-            "\"Generate this job\" always makes the forms of the day shown alone.")
+            "\"Generate 6/4/2026 only\" (the day shown) always makes that day's forms alone.")
         self.o_per_case.setChecked(settings.forms_per_case)
         f.addRow("", self.o_per_case)
         self._folders(f, settings)
@@ -1058,11 +1058,11 @@ class SettingsDialog(QDialog):
         tried as well as the app's own (the user, 2026-10-21: they should be the user's to change), what is wrong
         with one as it is typed, and a box to try them on a line of text."""
         self.o_index = QPlainTextEdit("\n".join(settings.index_patterns))
-        self.o_index.setPlaceholderText(r"e.g.  Docket\s*#?\s*(\d{5,7})\s*/\s*(\d{2,4})")
+        self.o_index.setPlaceholderText(r"e.g.  CV-(\d{6})-(\d{2})/QU")
         self.o_index.setToolTip(INDEX_PATTERNS_TIP)
         self.o_index.setFixedHeight(z(64))
         self.o_index_try = QLineEdit()
-        self.o_index_try.setPlaceholderText("Try them on: a line from a document, e.g. Docket # 712345/21")
+        self.o_index_try.setPlaceholderText("Try them on: a line from a document, e.g. Re: Roe v. Poe, CV-012345-25/QU")
         self.o_index_note = QLabel("")
         self.o_index_note.setWordWrap(True)
         self.o_index_note.setObjectName("muted")
@@ -1081,7 +1081,7 @@ class SettingsDialog(QDialog):
 
     def _index_patterns_check(self) -> None:
         """Under the patterns: what is wrong with each that can't be used, else what they find in the text to try
-        them on (with the app's own: 'Finds 712345/2021')."""
+        them on (with the app's own: 'Finds 712345/2021'), else, with nothing to try them on, how many there are."""
         from ..extract_regex import RegexExtractor, index_pattern_problem
         from ..ingest import ingest_text
         lines = self._index_lines()
@@ -1095,8 +1095,8 @@ class SettingsDialog(QDialog):
             note = f"Finds {', '.join(found)}" if found else "Finds no index number in it."
         else:
             note = (f"{len(lines)} pattern{'s' if len(lines) != 1 else ''} of yours, tried as well as the app's "
-                    "own." if lines else "The app's own patterns only (they read 712345/2021, 712345-21, "
-                    "Index No. 712345/21 and the like).")
+                    "own." if lines else "The app's own patterns only (they read 712345/2021, 712345/21, "
+                    "Index No. 712345-21 and the like).")
         self.o_index_note.setText(note)
 
     def accept(self):
@@ -1454,27 +1454,28 @@ class SpeedDialog(QDialog):
 
 INDEX_PATTERNS_TIP = (
     "Your own index number patterns, one per line: regular expressions the app tries as well as its own.\n"
-    "Each finds the number and the year as two groups in parentheses, in that order (or named\n"
-    "(?P<number>...) and (?P<year>...)). Capitals don't matter. A number found by one of yours counts as\n"
-    "surely as one after \"Index No.\".\n\n"
-    "Docket\\s*#?\\s*(\\d{5,7})\\s*/\\s*(\\d{2,4})   finds  Docket # 712345/21\n"
-    "CV-(\\d{6})-(\\d{2})/QU   finds  CV-012345-25/QU")
+    "Each finds the number and the year as two groups in parentheses, in that order, and no others\n"
+    "((?:...) groups without one; or named (?P<number>...) and (?P<year>...)). Capitals don't matter.\n"
+    "A number found by one of yours counts as surely as one after \"Index No.\". One that takes more\n"
+    "than a second on a document is stopped there.\n\n"
+    "CV-(\\d{6})-(\\d{2})/QU   finds  CV-012345-25/QU  (12345/2025)")
 
 
 class SplitSpeedsDialog(QDialog):
     """Asks the speed each firm of a split order ordered at (firms that ordered the same pages commit to one:
     courthouses.speed_upfront), for the firms whose speed isn't set yet (batch.speeds_to_ask): the case's name
-    above its days, then a row per day and firm, with who it ordered the pages with ("(its speed on its other
-    pages)" for a firm asked because it has a speed on some pages only) and a box of the rate sheet's speeds, set to
-    the speed it starts from (the firm's on its other pages of the case, else the agreement form's), matched
-    loosely ("Expedited" is "Expedite"). MainWindow._ask_split_speeds keeps the answers (Job.speeds); "Go back"
-    makes nothing."""
+    above its days, then a row per day and firm (its tag before its name, as in the main window), with who it
+    ordered the pages with ("(its speed on its other pages)" for a firm asked because it has a speed on some pages
+    only) and a box of the rate sheet's speeds, set to the speed it starts from (the firm's on its other pages of
+    the case, else the agreement form's), matched loosely ("Expedited" is "Expedite"). MainWindow._ask_split_speeds
+    keeps the answers (Job.speeds); "Go back" makes nothing."""
 
     def __init__(self, asks: list, speeds: list[tuple[str, str]], button: str = "Generate", parent=None,
                  marks: dict | None = None):
         """asks: batch.SpeedAsk each; speeds: the rate sheet's, (label, name) each, cheapest first; button: the
-        button pressed ("Generate", "Generate all"), named on OK ("Generate all with these speeds"); marks: each
-        firm's mark by its key (batch.trial_marks), its tag before its name."""
+        Generate pressed, in short ("Generate", or "Generate all" for the button that says "Generate all 3 days"),
+        named on OK ("Generate all with these speeds"); marks: each firm's mark by its job and key ({id(job):
+        batch.trial_marks of its trial}: a firm can have another mark in another trial), its tag before its name."""
         from .badges import badge_html
         super().__init__(parent)
         self.setWindowTitle("Which speed did each firm order?")
@@ -1507,9 +1508,10 @@ class SplitSpeedsDialog(QDialog):
                                       a.shared_with or "(its speed on its other pages)")):
                 lab = QLabel(text)
                 lab.setTextFormat(Qt.PlainText)
-                if c == 1 and (marks or {}).get(a.key) is not None:
+                mark = (marks or {}).get(id(a.job), {}).get(a.key)
+                if c == 1 and mark is not None:
                     lab.setTextFormat(Qt.RichText)
-                    lab.setText(badge_html(marks[a.key], text))
+                    lab.setText(badge_html(mark, text))
                 lab.setWordWrap(True)
                 grid.addWidget(lab, r, c)
             cb = QComboBox()

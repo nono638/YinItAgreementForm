@@ -1,9 +1,9 @@
 """The minute agreement form's one speed (2.1): always the Settings rule's (Expedited, else the slowest offered)
 unless the user chose one for the job, never a speed a document mentions: when an e-mail asks for another speed,
-the window asks which (Minute agreement form details' question and Keep, and a box at Generate). Every change of
+the window asks which (a question in "Speed, pages and dates" with Keep, and a box at Generate). Every change of
 what decides it applies it again (speeds ticked, the settings, a new job); the mouse wheel passing over the speed
-box changes nothing. The speeds offered are ticked in the Invoice panel, the form's one speed under Minute
-agreement form details; "Who pays what" shows each firm's invoice in short as things are ticked; an invoice is
+box changes nothing. The speeds offered are ticked under the rate sheet, in "Speed, pages and dates" with the
+form's one speed; "Who pays what" shows each firm's invoice in short as things are ticked; an invoice is
 made from a page count typed in when there is no transcript, its excerpts named by their place in the day. (The
 speed a firm of a split order commits to, on its own form and invoice, is in test_mixed_speeds.py.) The
 documents and names are made up."""

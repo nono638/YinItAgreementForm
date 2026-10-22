@@ -2,8 +2,9 @@
 Job.trial_rule: a later day of the same index number is divided as its first invoiced day was, whatever Settings
 says by then); a Parties number that counts parties not named on pages ordered at different speeds holds the
 invoice (Job.unnamed_problem: the app doesn't choose their speed), the window saying so and lighting up the
-Parties box; and the math sent to one firm shows only what that firm owes (invoice_math.explain's one_firm, in
-the PDFs Generate saves for each invoice and from the math window's Save as PDF...). All names are made up."""
+Parties box; the math sent to one firm shows only what that firm owes (invoice_math.explain's one_firm, in the
+PDFs Generate saves for each invoice and from the math window's Save as PDF...); and the speeds offered asked
+about before they change once Who ordered what has speeds. All names are made up."""
 import json
 from decimal import Decimal
 
@@ -33,6 +34,8 @@ SAME_SPEED_SMITH = [("Immediate", Decimal("1032.00"))]
 
 
 def second_day(index="712345/2021"):
+    """The excerpt example (test_mixed_speeds) as the trial's next day, 6/4/2026; with another index number, a day
+    of another trial."""
     day = excerpt_example()
     day.case.set("dates", "6/4/2026", "user")
     day.case.set("index_no", index, "user")
@@ -90,6 +93,23 @@ def test_the_trials_way_comes_from_invoices_not_in_the_trash(s):
     assert lg.invoice_origins()[0][0] == "712345/2021"  # (oldest first)
 
 
+def test_the_trials_ways_are_read_with_one_query(s, monkeypatch):
+    """Every trial's first invoice is looked up in one reading of the records (Ledger.first_invoices), not with a
+    query through the whole activity for each (Ledger.invoiced_from: 800 trials took 8 s, at every Generate)."""
+    from minute_filler.records import Ledger
+    lg = ledger_for(s)
+    old = json.dumps({"job": {"parties": 2}})  # (an invoice recorded before 2.9.0's rules: its job has none)
+    for n in range(3):
+        lg.log_activity("invoice", index_no=f"71234{n}/2021", ts=f"2026-10-0{n + 1}T10:00:00", origin=old)
+    lg.log_activity("invoice", index_no="799999/2022", ts="2026-10-22T10:00:00",
+                    origin=json.dumps({"job": {"parties": 3}}))
+    assert lg.first_invoices() == {old: "2026-10-01T10:00:00", json.dumps({"job": {"parties": 3}}):
+                                   "2026-10-22T10:00:00"}
+    assert lg.first_invoices()[old] == lg.invoiced_from(old)
+    monkeypatch.setattr(Ledger, "invoiced_from", lambda *a: pytest.fail("a query for each trial"))
+    assert trial_split_rules(lg) == {f"71234{n}/2021": "make_whole" for n in range(3)}  # (and 799999: after them)
+
+
 def test_days_billed_together_take_the_trials_way(s):
     """Two new days of a trial already invoiced, billed on one invoice: both by the trial's way."""
     from minute_filler.batch import invoice_groups
@@ -103,10 +123,44 @@ def test_days_billed_together_take_the_trials_way(s):
     assert [d.split_rule for d in days] == ["make_whole", "make_whole"]
 
 
+def test_generate_alls_preview_bills_a_later_day_as_the_trial_was(s, tmp_path):
+    """The preview of Generate all is made on a copy of the records (Ledger.preview_copy) that knows the invoices
+    made: it bills a later day of a trial (alone, or days together) as the trial was billed, as the save will (it
+    billed them as Settings say: the copy had no invoices)."""
+    fill_jobs([excerpt_example()], s, outputs=["invoice"])
+    s.invoice_split_rule = "same_speed"
+    lg = ledger_for(s)
+    shown = second_day()
+    fill_jobs([shown], s, outputs=["invoice"], ledger=lg.preview_copy(tmp_path / "one"))
+    assert shown.split_rule == "make_whole"
+    days = [second_day(), second_day()]
+    days[1].case.set("dates", "6/5/2026", "user")
+    fill_jobs(days, s, outputs=["invoice"], ledger=lg.preview_copy(tmp_path / "two"))
+    assert [d.split_rule for d in days] == ["make_whole", "make_whole"]
+    assert trial_split_rules(lg.preview_copy(tmp_path / "three")) == trial_split_rules(lg)
+
+
+def test_days_billed_together_take_the_trials_way_from_any_day(s):
+    """The first day's documents didn't give the index number (the days are joined by their caption), the second
+    day's did: Generate all bills both as the trial was billed, as the window prices them (joint_invoice), not as
+    Settings say."""
+    from minute_filler.batch import invoice_groups, joint_invoice
+    fill_jobs([excerpt_example()], s, outputs=["invoice"])
+    s.invoice_split_rule = "same_speed"
+    days = [second_day(""), second_day()]
+    days[1].case.set("dates", "6/5/2026", "user")
+    assert [len(g) for g in invoice_groups(days, s)] == [2]
+    note_trial_rules(days, trial_split_rules(ledger_for(s)))
+    assert joint_invoice(days)[1].split_rule == "make_whole"
+    fill_jobs(days, s, outputs=["invoice"])
+    assert [d.split_rule for d in days] == ["make_whole", "make_whole"]
+
+
 # ------------------------------------------------------------------ parties not named, at different speeds
 
 
 def unnamed_day(parties=3, speeds=("Daily", "Immediate")):
+    """A typed day of two firms named, Counsel & Counsel and Smith Law at these speeds, with Parties as given."""
     job = typed_day()
     job.speeds = dict(zip((A, B), speeds))
     job.parties = parties
@@ -119,7 +173,7 @@ def test_parties_not_named_on_pages_at_different_speeds_hold_the_invoice(s):
     job = unnamed_day()
     assert job.unnamed_problem() == job.invoice_hold() == (
         "Parties says 3, but 2 firms are named and they ordered different speeds, so what the other party pays "
-        "can't be worked out: tick it in the attorney table with its speed, or set Parties to 2")
+        "can't be worked out: tick it in the attorney table and set its speed in Who ordered what, or set Parties to 2")
     assert "the other 2 parties pay" in unnamed_day(4).unnamed_problem()
     assert unnamed_day(2).unnamed_problem() == "" and unnamed_day(0).unnamed_problem() == ""
     assert unnamed_day(3, ("Daily", "Daily")).unnamed_problem() == ""
@@ -132,6 +186,8 @@ def test_parties_not_named_on_pages_at_different_speeds_hold_the_invoice(s):
 
 
 def test_the_window_says_so_and_lights_up_the_parties_box(window, qt, tmp_path, monkeypatch):
+    """Held so, the Invoice card says why and the invoice's count names Parties; Generate asks whether to make
+    the rest without it (No: nothing is made) and lights up the Parties box, as a click on the status pill does."""
     job = one_day(window, qt, tmp_path, [counsel(), smith()])
     job.speeds = {A: "Daily", B: "Immediate"}
     job.parties = 3
@@ -183,6 +239,8 @@ def test_one_firms_math_shows_only_what_that_firm_owes(s):
 
 
 def test_generate_saves_each_firms_own_math_and_everyones(s, tmp_path, monkeypatch):
+    """The math saved for each invoice ("Invoice 2026-0001 - the math.pdf") shows only that firm's; the one for
+    all the invoices ("Invoices ...") shows everyone's, with what they pay together."""
     from minute_filler import invoice_math
     saved = {}
     monkeypatch.setattr(invoice_math, "to_pdf", lambda html, out: saved.setdefault(out.name, html) and out)
@@ -197,14 +255,16 @@ def test_generate_saves_each_firms_own_math_and_everyones(s, tmp_path, monkeypat
 
 
 def test_the_math_window_saves_everyones_or_one_firms(s, qt, tmp_path, monkeypatch):
+    """The math window's Save as PDF… is a menu: everyone's, or one firm's alone, each offered under a name that
+    says whose ("Invoice 2026-0002 - Dana Smith (Smith Law) - the math.pdf")."""
     from minute_filler.gui import preview
     from minute_filler.invoice_math import explain
     made = [(f, f"2026-000{i}") for i, (f, _) in enumerate(made_of(s, excerpt_example()), 1)]
     dlg = preview.MathDialog(made, s, None, tmp_path)
     save = next(b for b in dlg.findChildren(qt.QPushButton) if b.text() == "Save as PDF…")
     acts = [a.text() for a in save.menu().actions()]
-    assert acts == ["Everyone's (2 invoices)…", "Only Alex B. Counsel (Counsel & Counsel)'s (invoice 2026-0001)…",
-                    "Only Dana Smith (Smith Law)'s (invoice 2026-0002)…"]
+    assert acts == ["Everyone's (2 invoices)…", "Only what Alex B. Counsel (Counsel & Counsel) owes (invoice 2026-0001)…",
+                    "Only what Dana Smith (Smith Law) owes (invoice 2026-0002)…"]
     asked, kept = [], []
     monkeypatch.setattr(qt.QFileDialog, "getSaveFileName",
                         lambda parent, title, path, filt: (asked.append(path), (str(tmp_path / "x.pdf"), filt))[1])
@@ -230,8 +290,9 @@ def test_one_invoice_without_shared_speeds_saves_as_before(s, qt, tmp_path):
 
 
 def test_the_speeds_offered_are_soft_locked_once_who_ordered_what_has_speeds(window, qt, tmp_path, monkeypatch):
-    """A speed chosen in Who ordered what greys the Invoice panel's Speeds offered out; a click asks first (the
-    user, 2026-10-21): No puts the box back and changes nothing, Yes changes it and stops asking for this job."""
+    """A speed chosen in Who ordered what greys out the Speeds offered under the rate sheet; a click asks first
+    (the user, 2026-10-21): No puts the box back and changes nothing, Yes changes it and stops asking for this
+    job."""
     job = one_day(window, qt, tmp_path, [counsel(), smith()])
     window._update_status()
     boxes = window.inv_speed_boxes

@@ -26,10 +26,12 @@ user's: their invoice bills it, and the agreements count the day as that many pa
 
 fill_jobs makes the outputs of every job (Generate all). A day once invoiced
 (Job.invoiced) is not billed again until a new document is added to it; when a run stops part way, the
-attorneys already invoiced (Job.invoiced_keys) are not billed again by the next one. A day whose Excerpts...
-rows no longer fit it (Job.portions_problem) gets no invoice until they are checked. The days of a case on one
-invoice also get one minute agreement per attorney and one MOFR for all of them (form_groups, case_forms),
-unless Settings.forms_per_case is off.
+attorneys already invoiced (Job.invoiced_keys) are not billed again by the next one. A day whose invoice is
+held (Job.invoice_hold: Excerpts... rows that no longer fit it, Whose pages... to choose, speeds or Parties to
+check) gets no invoice until the user has checked it. The days of a case on one invoice also get one minute
+agreement per attorney and one MOFR for all of them (form_groups, case_forms), unless Settings.forms_per_case is
+off. A job is billed by the split rule it was billed by before (Job.split_rule), else by the one its trial's
+first invoice was (trial_split_rules, Job.trial_rule), else as Settings say.
 
 What each output needs of a job is its policy's (OutputPolicy and the classes after it, named by the
 courthouse's OutputSpec.policy). Each case's files go into a folder of their own inside Save to when Settings
@@ -272,8 +274,9 @@ class Job:
     # says later (the user, 2026-10-21). "" = not billed yet: as Settings -> Invoice -> Split invoices says.
     split_rule: str = ""
     # The split rule an earlier invoice of this trial (its index number) was billed by, from the records
-    # (trial_split_rules), set by whoever prices it: every day of a trial is billed the same way, whatever Settings
-    # says later (the user, 2026-10-21). Not kept with its records: they say it. "" = no day of it billed yet.
+    # (trial_split_rules), set just before it is priced (note_trial_rules: fill_jobs and the window): every day of
+    # a trial is billed the same way, whatever Settings says later (the user, 2026-10-21). Not kept with its
+    # records: they say it. "" = no day of it billed yet. Its own split_rule, once it has one, comes first.
     trial_rule: str = ""
     runsheet_to: str | None = None  # the run sheet to add to; "" = a new one; None = as Settings say
     # one reporter wrote this case's transcripts: no run sheet for it, though the box is ticked for other cases
@@ -645,9 +648,9 @@ class Job:
 
     def invoice_hold(self) -> str:
         """Why no invoice is made for this job until the user checks something ("" when it can be made):
-        Excerpts... rows that no longer fit, whose pages to bill (Whose pages...), or more speeds on the same
-        pages than the courthouse bills for now (speed_problems), or parties not named on pages ordered at
-        different speeds (unnamed_problem)."""
+        Excerpts... rows that no longer fit, whose pages to bill (Whose pages...), more speeds on the same pages
+        than the courthouse bills for now (speed_problems), or parties not named on pages ordered at different
+        speeds (unnamed_problem). Only the first found is said (hold_kind names which)."""
         if self.portions_problem():
             return self.portions_check()
         why = self.ownership_problem()
@@ -658,11 +661,25 @@ class Job:
             return f"The speeds need checking ({too_many[0]})"
         return self.unnamed_problem()
 
+    def hold_kind(self) -> str:
+        """Which of invoice_hold's reasons holds the invoice, checked in its order, so that what the window
+        says and where it points are about the same one: "portions" (Excerpts...), "ownership" (Whose
+        pages...), "speeds" (speed_problems), "unnamed" (Parties), "" for none."""
+        if self.portions_problem():
+            return "portions"
+        if self.ownership_problem():
+            return "ownership"
+        if self.speed_problems():
+            return "speeds"
+        return "unnamed" if self.unnamed_problem() else ""
+
     def unnamed_problem(self) -> str:
         """A Parties number above the firms ticked, while those firms ordered the day at different speeds ("" when
         not): the parties not named have no speed, so what each firm pays of the one original can't be worked out
         (the user, 2026-10-21: the reporter decides, not the app). "Parties says 3, but 2 firms are named and they
-        ordered different speeds: ...". A day split under Excerpts... counts the firms that ordered, not Parties."""
+        ordered different speeds, so what the other party pays can't be worked out: tick it in the attorney table
+        and set its speed in Who ordered what, or set Parties to 2". A day split under Excerpts... counts the firms that ordered, not
+        Parties, so it never has this problem."""
         if not self.parties or self.valid_portions() is not None:
             return ""
         keys = self.ticked_keys()
@@ -674,8 +691,8 @@ class Job:
         more = self.parties - len(keys)
         who = "the other party pays" if more == 1 else f"the other {more} parties pay"
         return (f"Parties says {self.parties}, but {len(keys)} firms are named and they ordered different speeds, so "
-                f"what {who} can't be worked out: tick {'it' if more == 1 else 'them'} in the attorney table with "
-                f"{'its' if more == 1 else 'their'} speed, or set Parties to {len(keys)}")
+                f"what {who} can't be worked out: tick {'it' if more == 1 else 'them'} in the attorney table and set "
+                f"{'its' if more == 1 else 'their'} speed in Who ordered what, or set Parties to {len(keys)}")
 
     def invoice_pages(self) -> int:
         """The pages to bill: the Pages field when typed in (with a transcript or without one: a caption page
@@ -838,8 +855,9 @@ class Job:
 
     def invoice_opts(self) -> InvoiceOpts:
         """The invoice's pages (of each day), ordering parties (the ticked attorneys unless set), who ordered
-        which pages, the attorneys invoiced already by a run that stopped part way, and the job's own Peripherals
-        and granular detail choices."""
+        which pages, the attorneys invoiced already by a run that stopped part way, the job's own Peripherals
+        and granular detail choices, and the split rule it is priced by (its own, else its trial's; "" = as
+        Settings say)."""
         return InvoiceOpts(self.invoice_pages(), self.parties or max(1, len(self.ticked_keys())),
                            days=self.invoice_days(), email=self.invoice_email, index=self.invoice_index,
                            show=self.invoice_show, detail=self.invoice_detail, orders=self.invoice_orders(),
@@ -884,7 +902,7 @@ class Job:
 
     def billed_keys(self) -> list[str]:
         """The attorneys not to invoice again for this day: those a stopped run invoiced already. Empty once
-        the day is invoiced (Generate this job bills it again when asked)."""
+        the day is invoiced (Generate, for the job shown, bills it again when asked)."""
         return [] if self.invoiced else list(self.invoiced_keys)
 
     def unbill(self) -> None:
@@ -1432,17 +1450,30 @@ def billed_split_rule(origin: str, ledger) -> str:
     return recorded_split_rule(value, ledger.invoiced_from(origin) if value is None else "")
 
 
+class _FirstInvoices:
+    """Ledger.invoiced_from answered from one reading of the records (Ledger.first_invoices), for
+    billed_split_rule asked about every trial at once (trial_split_rules)."""
+
+    def __init__(self, ledger):
+        self.first = ledger.first_invoices()
+
+    def invoiced_from(self, origin: str) -> str:
+        """As Ledger.invoiced_from: when the first invoice was made from this origin, "" for never."""
+        return self.first.get(origin, "") if origin else ""
+
+
 def trial_split_rules(ledger) -> dict[str, str]:
     """The split rule each trial was first billed by, by its index number (index_key): that of its earliest
-    invoice whose rule is known (billed_split_rule; one recorded without its origin, before 2.9.0's rules, by the
-    courthouse's first), for Job.trial_rule. A trial is billed one way, day after day (the user, 2026-10-21).
-    ledger: records.Ledger."""
+    invoice not in the trash whose rule is known (billed_split_rule; one recorded without its origin was billed by
+    the courthouse's first rule when it is older than 2.9.0's second, recorded_split_rule), for Job.trial_rule. A
+    trial is billed one way, day after day (the user, 2026-10-21). ledger: records.Ledger."""
     out: dict[str, str] = {}
+    first = _FirstInvoices(ledger)  # (one query for every trial, not one for each invoice's origin)
     for number, origin, ts in ledger.invoice_origins():
         key = index_key(number)
         if not key or key in out:
             continue
-        rule = billed_split_rule(origin, ledger) if origin else recorded_split_rule(None, ts)
+        rule = billed_split_rule(origin, first) if origin else recorded_split_rule(None, ts)
         if rule:
             out[key] = rule
     return out
@@ -2045,7 +2076,8 @@ def _first_day(job: Job) -> tuple:
 
 def trial_days(job: Job, jobs: list[Job]) -> list[Job]:
     """The days of job's trial among `jobs`: every job of the same case (the same index number, or a matching
-    caption, as invoice_groups joins them), earliest day first; job itself whatever it says."""
+    caption, as invoice_groups joins them), earliest day first. job itself is always among them, even when it has
+    no index number or caption yet to match."""
     i = ident(job.case)
     days = sorted([j for j in jobs if j is job or (i and same_case(i, ident(j.case)))], key=_first_day)
     return days if any(j is job for j in days) else days + [job]
@@ -2063,12 +2095,16 @@ def trial_takes(job: Job, jobs: list[Job], s: Settings) -> list:
 
 def trial_marks(job: Job, jobs: list[Job]) -> dict:
     """The marks of the firms of job's trial (firm_marks: plaintiffs 1, 2, defense A, B, others 001), by
-    Attorney.key(): every job among `jobs` of the same case (the same index number, or a matching caption, as
-    invoice_groups joins them), earliest day first, so a firm keeps its mark whichever day is shown."""
+    Attorney.key(): given over the attorneys of all its days among `jobs` (trial_days), earliest day first, so a
+    firm keeps its mark whichever day is shown."""
     from .firm_marks import mark_of, marks
     attorneys = [a for j in trial_days(job, jobs) for a in j.case.attorneys]
     given = marks(attorneys)
-    return {a.key(): m for a in attorneys if (m := mark_of(a, given)) is not None}
+    out: dict = {}
+    for a in attorneys:  # (the first mark of an entry: one key is one firm, firm_id)
+        if (m := mark_of(a, given)) is not None:
+            out.setdefault(a.key(), m)
+    return out
 
 
 def invoice_groups(jobs: list[Job], s: Settings) -> list[list[Job]]:
@@ -2202,7 +2238,8 @@ def joint_invoice(group: list[Job]) -> tuple[CaseInfo, InvoiceOpts]:
     opts.email, opts.index, opts.show = own("invoice_email"), own("invoice_index"), own("invoice_show")
     opts.detail = any(j.invoice_detail for j in group)  # ticked on any day of the invoice
     # (a day billed already: its rule; else an earlier invoice of the trial's)
-    opts.split_rule = next((j.split_rule for j in group if j.split_rule), "") or         next((j.trial_rule for j in group if j.trial_rule), "")
+    opts.split_rule = (next((j.split_rule for j in group if j.split_rule), "")
+                       or next((j.trial_rule for j in group if j.trial_rule), ""))
     opts.parties = next((j.parties for j in group if j.parties), 0) or max(1, len(case.attorneys))
     # an attorney whose invoice for these days a stopped run made already (on every one of them) isn't billed
     # again; when a day was added since, it is, as its invoice now covers that day too
@@ -2218,10 +2255,13 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
     were typed in (noted in job.error).
     A job already invoiced (Job.invoiced) is not billed again, nor an attorney a stopped run invoiced already
     (Job.invoiced_keys). A job whose invoice is held (Job.invoice_hold: Excerpts... rows to check, whose pages
-    to bill, or speeds to check) gets no invoice, nor the days of a case with a day nobody is ticked on
+    to bill, speeds or Parties to check) gets no invoice, nor the days of a case with a day nobody is ticked on
     (group_problem): their errors say so. Each reporter Whose pages... bills gets their own invoices
-    (joint_invoice_sets). `batch` is the whole batch when only some of its jobs are filled: jobs for several days
-    of one case get the date in their file names. ledger: the records to number and enter the invoices in
+    (joint_invoice_sets). An invoice is priced by the split rule its job was billed by before, else by the one
+    its trial's first invoice was (trial_split_rules, read from `ledger` as the run goes), else as Settings say,
+    and the job keeps it (Job.settle_split_rule) once an invoice of it is made. `batch` is the whole batch when
+    only some of its jobs are filled: jobs for several days of one case get the date in their file names.
+    ledger: the records to number and enter the invoices in
     (default: the user's; the preview's own copy, see Ledger.preview_copy); math: gets (FirmInvoice, number) of
     each invoice made (see generate).
     The days of a case that share an invoice get their agreements and MOFR once for all of them (form_groups,
@@ -2333,7 +2373,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
                 problems.append(f"{NOT_INVOICED} check Excerpts… for {job.case.get('dates') or job.title()}")
             elif unchecked_here and job.ownership_problem():
                 problems.append(f"{NOT_INVOICED} choose under Whose pages… ({job.ownership_problem()})")
-            elif unchecked_here:  # (more speeds on the same pages than are billed for now: speed_problems)
+            elif unchecked_here:  # (speeds to check, speed_problems, or parties not named, unnamed_problem)
                 held = job.invoice_hold()
                 problems.append(f"{NOT_INVOICED} {held[:1].lower()}{held[1:]}")
             job.error = "; ".join(problems)
@@ -2390,6 +2430,11 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
         rules_were = [job.split_rule for job in g]  # (put back when no invoice comes of it)
         try:
             note_trial_rules(g, trial_split_rules(ledger))  # (as an earlier invoice of the trial was billed)
+            # (any day's: a day whose documents didn't give the index number is of the same trial, and the
+            # window prices the days by any day's too, joint_invoice)
+            trial = next((j.trial_rule for j in g if j.trial_rule), "")
+            for job in g:
+                job.trial_rule = job.trial_rule or trial
             for job in g:  # (billed this way now, and so again: Job.split_rule; a day billed already keeps its own)
                 job.split_rule = job.split_rule or next((j.split_rule for j in g if j.split_rule), "")
                 job.settle_split_rule(s)
@@ -2716,15 +2761,16 @@ def output_counts(jobs: list[Job], outputs, s: Settings | None = None, again: bo
     Settings.invoice_joint says) the invoices, one for each attorney ticked on any of its days who ordered pages
     and was not invoiced yet (and the set of each other reporter Whose pages... bills, see joint_invoice_sets).
     Days already invoiced (Job.invoiced), and days whose invoice is held (Excerpts... rows to check, Whose
-    pages... to choose, or speeds to check: Job.invoice_hold), get none. again: a day already invoiced counts as
-    one not invoiced yet, as Generate this job bills it again (Job.billed_keys); Generate all doesn't. "detailed": with
-    Settings.invoice_detailed_copy, the detailed copy of each invoice without the granular detail. "math": the
-    PDFs of the math saved with the invoices (Settings.save_math, as invoice_math.save_math makes them: one per
-    invoice with "each" and "both", and one for all of a reporter's invoices of a group with "all", and with
-    "both" when there are two or more); counted in Generate all's number of files, not shown under an output,
-    as the user asked on 2026-10-09. The days whose agreements and MOFR are made once for all of them
-    (form_groups) count those of case_forms. Any other output each day has its own of (group "doc") counts as
-    Job.file_count says. The window says them under each output (MainWindow._show_counts)."""
+    pages... to choose, speeds or Parties to check: Job.invoice_hold), get none. again: a day already invoiced
+    counts as one not invoiced yet, as Generate (the job shown) bills it again (Job.billed_keys); Generate all
+    doesn't. "detailed": with Settings.invoice_detailed_copy, the detailed copy of each invoice without the
+    granular detail. "math": the PDFs of the math saved with the invoices (Settings.save_math, as
+    invoice_math.save_math makes them: one per invoice with "each" and "both", and one for all of a reporter's
+    invoices of a group with "all", and with "both" when there are two or more); counted in the Generate buttons'
+    number of files, not shown beside an output, as the user asked on 2026-10-09. The days whose agreements and
+    MOFR are made once for all of them (form_groups) count those of case_forms. Any other output each day has its
+    own of (group "doc") counts as Job.file_count says. The window shows them beside each output's box in the
+    Outputs row (MainWindow._show_counts)."""
     s = s or Settings()
     out = {**dict.fromkeys(courthouses.keys(), 0), "detailed": 0, "math": 0}
     forms = trial_forms()

@@ -8,7 +8,8 @@ appearances.py; the rules for telling two entries are one firm or person
 (dedupe_attorneys, same_entry, merge_entry) are also used by merge.py and batch.py.
 find_dates is shared as well (merge.same_value, fill.date_ranges, batch.py, runsheet.py), and so
 are DELIVERY_WORDS and looks_like_transcript (extract_llm.py), so that the rules and
-the AI's answer are read alike.
+the AI's answer are read alike. The user's own index number patterns (Settings -> Options -> Index numbers) are
+checked by index_pattern_problem, which the Settings window shows, and tried by RegexExtractor as well as its own.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ import unicodedata
 from datetime import date, timedelta
 
 from .ingest import Ingested
+from .log import log
 from .models import Attorney, Candidate, Extraction, SRC_PDF, SRC_REGEX, firm_key, join_names, to_int
 from .settings import Profile
 from .takes import CREDENTIALS, body_pages
@@ -366,9 +368,11 @@ def _fix_ocr_digits(m: re.Match) -> str:
 
 
 def norm_index(num, yr) -> str | None:
-    """An index number as 'num/year' ('712345', '24' -> '712345/2024'); None unless the year is 1950-2100."""
+    """An index number as 'num/year' ('712345', '24' -> '712345/2024'); None unless the year is 1950-2100. A
+    two-digit year is of this century up to next year, else of the last ('99' -> 1999; '45' is 1945, so None)."""
     yr = int(yr)
-    yr = yr + 2000 if yr < 100 else yr
+    if yr < 100:
+        yr += 2000 if yr <= date.today().year % 100 + 1 else 1900
     return f"{int(num)}/{yr}" if 1950 <= yr <= 2100 else None
 
 
@@ -383,11 +387,12 @@ def _zip_plus_4(text: str, m: re.Match) -> bool:
     """The number-year pair m matched is a ZIP+4 code: five digits, a dash and four ('10007-2015'), with a state
     right before it ('New York, New York 10007-2015', 'Kew Gardens, N.Y. 11415-2010', ', NY 10001-1234'). A state
     further back on the line proves nothing ('Supreme Court of New York, Queens County, 712345/2021'), nor does
-    a capital word that happens to be a state's code before an index number ('THE MINUTES IN 712345/2021')."""
-    if len(m.group(1)) != 5 or "/" in m.group(0):
+    a capital word that happens to be a state's code before an index number ('THE MINUTES IN 712345/2021').
+    m's groups 1 and 2 are the number and the year (the match may start further back, at a label)."""
+    if len(m.group(1)) != 5 or len(m.group(2)) != 4 or "/" in text[m.end(1):m.start(2)]:
         return False
-    line_start = text.rfind("\n", 0, m.start()) + 1
-    return bool(re.search(_STATE_RE.pattern + r"\s*,?\s*$", text[line_start:m.start()]))
+    line_start = text.rfind("\n", 0, m.start(1)) + 1
+    return bool(re.search(_STATE_RE.pattern + r"\s*,?\s*$", text[line_start:m.start(1)]))
 
 
 # What asks for a delivery speed, as the rules read an e-mail (_order_terms) and as the AI's answer is checked
@@ -403,27 +408,56 @@ DELIVERY_WORDS = {
 _SPEED_CONF = {"Expedited": 0.8, "Daily": 0.75, "Immediate": 0.75, "Regular": 0.7}
 
 
+# How long one of the user's index number patterns may search a document (own_matches): a pattern that would
+# take longer is broken, and it would hold up the reading of every document (and the Settings window's try box)
+OWN_PATTERN_SECONDS = 1.0
+
+
+def _own_compile(pattern: str):
+    """A pattern of the user's compiled with the regex library, which can stop a search (own_matches; re can't,
+    and '(\\d+)+x' on a line of digits takes it minutes), as the Records search does; with re when it is missing.
+    Raises either library's error for a pattern that isn't one."""
+    try:
+        import regex
+    except ImportError:  # (a build without it)
+        return re.compile(pattern, re.I)
+    return regex.compile(pattern, regex.IGNORECASE)
+
+
 def index_pattern_problem(pattern: str) -> str:
     """Why an index number pattern of the user's (Settings.index_patterns) can't be used, "" when it can: it must
-    be a regular expression that finds the number and the year, as two groups in parentheses in that order
-    ('Docket\\s+(\\d+)/(\\d+)'), or named (?P<number>...) and (?P<year>...)."""
+    be a regular expression that finds the number and the year, as two groups in parentheses in that order and no
+    others ('Docket\\s+(\\d+)/(\\d+)'; '(?:...)' only groups), or named (?P<number>...) and (?P<year>...)."""
     try:
-        rx = re.compile(pattern, re.I)
-    except re.error as e:
+        rx = _own_compile(pattern)
+    except Exception as e:  # (re.error, or the regex library's own)
         return f"not a regular expression the app can read ({e})"
-    if {"number", "year"} <= set(rx.groupindex) or rx.groups >= 2:
+    if {"number", "year"} <= set(rx.groupindex) or rx.groups == 2:
         return ""
-    return "it needs two groups in parentheses: the number, then the year"
+    return "it needs two groups in parentheses, the number then the year, and no others (write (?:...) to group " \
+           "without one)"
 
 
-def index_patterns(patterns) -> list[re.Pattern]:
-    """The user's index number patterns that can be used (index_pattern_problem), compiled; the others are left
-    out (the Settings window says why before saving them)."""
-    return [re.compile(p, re.I) for p in patterns or () if isinstance(p, str) and p.strip()
+def index_patterns(patterns) -> list:
+    """The user's index number patterns that can be used (index_pattern_problem), compiled (_own_compile); the
+    others are left out (the Settings window says why before saving them)."""
+    return [_own_compile(p) for p in patterns or () if isinstance(p, str) and p.strip()
             and not index_pattern_problem(p)]
 
 
-def _index_parts(m: re.Match) -> tuple[str, str]:
+def own_matches(rx, text: str) -> list:
+    """What a pattern of the user's (index_patterns) finds in text; nothing when the search takes longer than
+    OWN_PATTERN_SECONDS, which the log says."""
+    if isinstance(rx, re.Pattern):  # (no regex library: no way to stop it)
+        return list(rx.finditer(text))
+    try:
+        return list(rx.finditer(text, timeout=OWN_PATTERN_SECONDS))
+    except TimeoutError:
+        log.warning("an index number pattern of yours was stopped after %s s: %s", OWN_PATTERN_SECONDS, rx.pattern)
+        return []
+
+
+def _index_parts(m) -> tuple[str, str]:
     """(number, year) a pattern of the user's found: its named groups, else its first two."""
     if "number" in m.re.groupindex and "year" in m.re.groupindex:
         return m.group("number") or "", m.group("year") or ""
@@ -541,6 +575,7 @@ class RegexExtractor:
         A caption often stacks them: 'Index No.' ending a line, the number at the end of the next one or the one
         after, past the party's word ('Plaintiff,       712345/21'): 0.9. A lone pair with a two-digit year needs
         a slash ('712345/21', as a court writes it; '12345-21' could be anything): unlabeled_conf less a little.
+        What the user's own patterns find (Settings.index_patterns, own_matches): 0.95, as a labelled one.
         """
         labeled = re.compile(
             r"\b(?:index|ind\.?|docket|file|calendar\s+index)\s*(?:no\.?|number|num\.?|#)?\s*[:.#]?\s*"
@@ -553,11 +588,13 @@ class RegexExtractor:
             r"\b(?:index|docket)\s*(?:no\.?|number|num\.?|#)[ \t]*:?[ \t]*\n(?:[^\n]*\n)?[^\n]*?"
             r"(?<![\d$.,/-])(\d{5,7})[ \t]*(?:[-/]|[ \t]+of[ \t]+)[ \t]*(\d{4}|\d{2})[A-Z]?[ \t]*$", re.I | re.M)
         for m in stacked.finditer(text):
+            if _zip_plus_4(text, m):  # ('Index No.:' ending a line, an address under it)
+                continue
             v = norm_index(m.group(1), m.group(2))
             if v:
                 ex.add("index_no", v, SRC_REGEX, 0.9)
-        for rx in self.own_index:  # (the user's own, Settings -> Options: as sure as a labelled one)
-            for m in rx.finditer(text):
+        for rx in self.own_index:  # (the user's own, Settings -> Options -> Index numbers)
+            for m in own_matches(rx, text):
                 num, yr = (re.sub(r"\D", "", x) for x in _index_parts(m))
                 v = norm_index(num, yr) if num and yr else None
                 if v:

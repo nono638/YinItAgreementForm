@@ -90,7 +90,7 @@ def test_the_whole_transcript_decides_the_index_charged_on_your_pages(sp):
 
 
 def test_why_there_is_an_index_or_not_in_a_few_words():
-    """index_reason, for the Invoice panel and the math, by the rule for several days."""
+    """index_reason, for the Invoice card and the math, by the rule for several days."""
     s = pat_settings()
 
     def why(days, rule="any", index=None, include=True):

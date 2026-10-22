@@ -1,7 +1,7 @@
 """A page count typed below the transcript's own count, when it changes whether there is an index (the user,
 2026-10-08: "if they change read-in data like that, they are doing their own thing and they'd want more granular
 control"): the index is decided on the whole transcript, so 40 typed of an 83-page PDF would get one, while 40
-pages alone would not. Generate and Generate all ask, the Invoice panel's Includes line says they will, and the
+pages alone would not. Generate and Generate all ask, the Invoice card's Includes line says they will, and the
 answer is kept on the typed day (Job.index_on_typed: judged on the number typed, or on the transcript), which
 Peripherals... shows and changes. Not asked when both ways agree, when the count typed is above the PDF's (a
 caption page only), when the day is answered already or has a Yes or No under Peripherals... Under the rule "each"

@@ -1,11 +1,11 @@
 """How a firm's mark (firm_marks.Mark: '1', 'A', '001') looks in the window: a small tag in its side's colour with
-the badge in white (badge_icon, beside the firm's name in a table; badge_html in rich text), and in a table a thin
-stripe of the same colour at the left edge of the name (StripeDelegate, STRIPE_ROLE). Plaintiffs' firms in
-oranges, the defense in blues, the others in grey-greens (the user, 2026-10-21): orange against blue stays apart
-for the commoner colour blindness; the firms of one side are told apart by their badges, their colours only
-helping. No shade behind the name (the user, 2026-10-22): a pale orange there read as the amber of a field to
-check, so the colour is only in the tag and the stripe, and none of the oranges is that amber. The colours are
-the same in both themes (white text on them reads in either)."""
+the badge in white (badge_icon, beside the firm's name in a table or the Excerpts window's column heading;
+badge_html in rich text), and in a table a thin stripe of the same colour at the left edge of the name
+(StripeDelegate, STRIPE_ROLE). Plaintiffs' firms in oranges, the defense in blues, the others in grey-greens (the
+user, 2026-10-21): orange against blue stays apart for the commoner colour blindness; the firms of one side are
+told apart by their badges, their colours only helping. No shade behind the name (the user, 2026-10-22): a pale
+orange there read as the amber of a field to check, so the colour is only in the tag and the stripe, and none of
+the oranges is that amber. The colours are the same in both themes (white text on them reads in either)."""
 from __future__ import annotations
 
 import html
@@ -91,5 +91,6 @@ class StripeDelegate(QStyledItemDelegate):
         painter.fillRect(QRect(option.rect.left(), option.rect.top(), w, option.rect.height()), QColor(color))
 
     def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
+        """As usual, wider by the stripe in a cell with one, so the column fits its text with the stripe."""
         size = super().sizeHint(option, index)
         return size + QSize(stripe_width(option), 0) if index.data(STRIPE_ROLE) else size

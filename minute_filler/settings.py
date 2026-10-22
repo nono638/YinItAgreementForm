@@ -531,9 +531,9 @@ class Settings:
     mofr_filename_pattern: str = MOFR_FILENAME_PATTERN
 
     # Invoices (they need pages to bill: a transcript's, or a number typed in Est. number of pages)
-    # the speeds ticked under "Speeds offered" (the main window's Speed, pages and dates card): the invoice lists
-    # them so the attorney can choose (one alone: a single-speed invoice), and the agreement form names one of them
-    # (agreement_speed)
+    # the speeds ticked under "Speeds offered" (Settings -> Invoice, and under the rate sheet in the main window's
+    # Speed, pages and dates card): the invoice lists them so the attorney can choose (one alone: a single-speed
+    # invoice), and the agreement form names one of them (agreement_speed)
     invoice_speeds: list = field(default_factory=lambda: ["Regular", "Expedited"])
     invoice_include_email: bool = True  # each party also gets an e-mailed copy (Email column of the rate sheet)
     invoice_include_index: bool = True  # long transcripts get an index (Index column), plus one for the judge
@@ -612,7 +612,7 @@ class Settings:
     show_yin: bool = True
     window_geometry: str = ""
     # the main window's divider ("left": the job list above the paste box) as QSplitter.saveState() in base64
-    # (an "outer" one, above the Outputs box when it had panels, is kept but not used); the cards folded (Who
+    # (an "outer" one, above the Outputs box when it had panels, is dropped at the next save); the cards folded (Who
     # transcribed what at first: a report, its totals on its folded line)
     window_splits: dict = field(default_factory=dict)
     folded_cards: list = field(default_factory=lambda: ["takes"])
@@ -1029,7 +1029,8 @@ class Settings:
             s.save_math = "both"
         s.invoice_detail_items = [k for k in s.invoice_detail_items if isinstance(k, str) and k in DETAIL_ITEMS]
         s.excerpt_hidden_speeds = [k for k in s.excerpt_hidden_speeds if isinstance(k, str)]
-        s.index_patterns = [x for x in s.index_patterns if isinstance(x, str) and x.strip()]             if isinstance(s.index_patterns, list) else []
+        s.index_patterns = ([x for x in s.index_patterns if isinstance(x, str) and x.strip()]
+                            if isinstance(s.index_patterns, list) else [])
         # an answer about two firms: [key, key, same, name, name]; a row saved by 2.2.0 ([key, key, same]) gets
         # blank names
         s.firm_answers = [r[:3] + [x if isinstance(x, str) else "" for x in (r[3:5] + ["", ""])[:2]]

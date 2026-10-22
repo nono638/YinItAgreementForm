@@ -1,6 +1,7 @@
 """The main window's room and clarity (the user, 2026-10-11): the status and buttons in the menu bar, a divider
-above the Outputs box and one above the paste box (kept for next time), the Outputs box and the cards folded to a
-line, the drop zone one slim row once documents are read (and files dropped anywhere), the type of proceeding in
+above the paste box (kept for next time; the Outputs box is one row since 2026-10-22, with no divider above it),
+the cards folded to a line, the drop zone one slim row once documents are read (and files dropped anywhere), the
+type of proceeding in
 the Case card; the status counting the job's own checks (a click goes to the first), the badges in plain words,
 "2 more ▾", the attorney table's details under it; a calendar for the dates, fields completing from the records,
 a View menu, Undo for New job (no question), the Generate button's count, the jobs made lately on an empty window,
@@ -98,6 +99,8 @@ def test_the_dividers_hold_the_list_and_the_paste_box_and_are_kept(window, make_
     again.resize(1400, 900)
     again.show()
     pump()
+    # (made, the window was first fitted to the small off-screen screen, which moved the divider: put back at
+    # this size, it is where it was)
     again._restore_splits()
     assert abs(again.left_split.sizes()[1] - kept[1]) <= 20
     again.close()

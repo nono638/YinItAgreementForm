@@ -159,9 +159,6 @@ MODULES: dict[str, dict] = {
     "firm_marks": {
         "tests": ["tests/test_firm_marks.py"],
         "equivalent": [
-            ("if cut == firm:", "if cut >= firm:",
-             "cut is firm with an ending taken off its end, so it is firm or shorter, and a string sorts after "
-             "none of its own beginnings"),
             ("@dataclass(frozen=True)", "@dataclass(frozen=False)",
              "frozen only stops a Mark from being changed and makes it hashable; nothing does either"),
             ("if side_ == PLAINTIFF:", "if side_ >= PLAINTIFF:",
@@ -629,6 +626,7 @@ def run(name: str, module_path: str, tests: list[str], workers: int, work: Path,
 
 
 def main(argv: list[str] | None = None) -> int:
+    """The command line (Usage, at the top of this file); returns the exit code (0, 1 or 2, as it says there)."""
     sys.stdout.reconfigure(errors="replace")  # a line of code may hold a character the console can't show
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("module", help="'invoice_calc', 'gui.main_window' or 'minute_filler/invoice_calc.py'")

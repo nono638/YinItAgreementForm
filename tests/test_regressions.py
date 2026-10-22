@@ -308,7 +308,7 @@ def test_auto_version_bump_asks_github(tmp_path, monkeypatch):
 
 
 def test_settings_ok_keeps_speeds_named_otherwise_on_a_rate_sheet(qt):
-    """A speed of the user's own rate sheet, ticked under Speeds offered in the Invoice panel, has no box in
+    """A speed of the user's own rate sheet, ticked under Speeds offered, has no box in
     Settings → Invoice: saving the Settings must not untick it."""
     from minute_filler.gui.dialogs import SettingsDialog
     s = pat_settings()

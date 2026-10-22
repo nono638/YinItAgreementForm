@@ -96,7 +96,7 @@ e-mail or a screenshot (<a href="topic:input-documents">what it reads</a>).</li>
 <li><b>Tick the attorneys who ordered.</b> A transcript lists everyone who appeared, not who ordered
 (<a href="topic:check-attorneys">more</a>).</li>
 <li><b>Pick the rate sheet and the speeds</b> (<a href="topic:inv-speeds">more</a>).</li>
-<li><b>Check Who pays what</b>, the card under the attorneys (<a href="topic:inv-who-pays">more</a>).</li>
+<li><b>Check Who pays what</b>, the card under Who ordered what (<a href="topic:inv-who-pays">more</a>).</li>
 <li><b>Tick what to make</b> in the Outputs box and click <b>Generate</b> (Ctrl+Enter), or <b>Generate all</b>
 (Ctrl+Shift+Enter) for every ticked job (<a href="topic:make-outputs">more</a>).</li>
 <li><b>Look at the preview</b> and click <b>Save</b>, or <b>Go back</b> to change something: nothing is saved until
@@ -110,11 +110,11 @@ then (<a href="topic:make-preview">more</a>).</li>
 <ul>
 <li><b>The drop zone</b> (top left): drop documents on it, or anywhere in the window. Once a document is read it
 becomes one slim row (<i>Drop more here, or Browse…</i>).</li>
-<li><b>The job list</b> (left): each job's case, date, pages and your pages, with ✓ for a job already made and ⚠ for
+<li><b>The job list</b> (left): each job's case, date and day, pages and your pages, with ✓ for a job already made and ⚠ for
 one with something to check (<a href="topic:batch-job-list">more</a>).</li>
 <li><b>The form</b> (right): its cards follow the job, top to bottom: <i>Case</i>, <i>Attorneys</i> (tick who
-ordered), <i>Speed, pages and dates</i>, then, when an invoice is to be made, <i>Who ordered what</i> and <i>Who pays
-what</i>, and for a trial <i>Who transcribed what</i>. Each folds to one line that sums it up
+ordered), <i>Speed, pages and dates</i>, then, when an invoice is to be made, <i>Invoice</i>, <i>Who ordered what</i>
+and <i>Who pays what</i>, and for a trial <i>Who transcribed what</i>. Each folds to one line that sums it up
 (<a href="topic:start-room">more</a>). While nothing is open, a <b>Recent jobs</b> card at the top of the form lists
 the jobs made lately: click one to open it again. <i>Recent documents ▾</i> on it lists the documents you opened
 lately.</li>
@@ -277,13 +277,16 @@ documents.</p>
 </ul>
 <p>A title page listing several index numbers (cases tried together) is fine: a document with one of them belongs
 with it.</p>
-<p><b>Your own patterns.</b> The app reads index numbers written with a slash or a dash, a two- or four-digit year,
-labelled or not, and under an <i>Index No.</i> label on the line above ("712345/2021", "712345-21", "Index No.
-712345/21"). For another way of writing them, add a pattern of your own in Settings → Options → <b>Index
-numbers</b>, one per line: a regular expression that finds the number and the year as two groups in parentheses,
-in that order. <code>Docket\\s*#?\\s*(\\d{5,7})\\s*/\\s*(\\d{2,4})</code> finds "Docket # 712345/21". Yours are tried as
-well as the app's own, and count as surely as a number after "Index No.". The box under them says what is wrong with
-one as you type it, and what they find in a line you paste to try them on.</p>
+<p><b>Your own patterns.</b> The app reads index numbers written with a slash or a dash and a four-digit year,
+labelled or not ("712345/2021", "712345-2021"); with a two-digit year after a label, or with a slash ("Index No.
+712345-21", "712345/21"); and under an <i>Index No.</i> label on the line above. A two-digit year is of this century
+up to next year, else of the last ("712345/99" is 1999). For another way of writing them, add a pattern of your own
+in Settings → Options → <b>Index numbers</b>, one per line: a regular expression that finds the number and the year
+as two groups in parentheses, in that order, and no other groups (<code>(?:...)</code> groups without one).
+<code>CV-(\\d{6})-(\\d{2})/QU</code> finds "CV-012345-25/QU" (12345/2025). Yours are tried as well as the app's
+own, and count as surely as a number after "Index No."; one that takes more than a second on a document is stopped
+there. The box under them says what is wrong with one as you type it, and what they find in a line you paste to try
+them on.</p>
 """),
     T("check-suggestions", CHECK, "Suggestions as you type",
       "autocomplete autofill complete suggest court part judge attorney firm name typing remember",
@@ -504,6 +507,8 @@ under <i>Speed, pages and dates</i> changes it for one job; ↺ goes back to the
 agreement and invoice.</li>
 <li>When an e-mail asks for another speed, an amber line asks you to choose (<i>Keep</i> keeps the one shown), and
 Generate asks too.</li>
+<li>Once a firm's speed is set in Who ordered what, the <i>Speeds offered</i> boxes are greyed: they only list the
+speeds for a firm that chooses from its invoice, and a click asks before changing them.</li>
 </ul>
 <p>The rate, the delivery box and the <a href="topic:dates-turnaround">estimated delivery date</a> follow the
 speed.</p>
@@ -578,7 +583,7 @@ own (DS-2026-0001).</p>
 """),
     T("inv-who-pays", INVOICE, "Who pays what", "who pays what card each firm share amount per page alone shared",
       """
-<p>The <b>Who pays what</b> card, under the attorneys, sums up each firm's invoice: its pages, how it ordered them
+<p>The <b>Who pays what</b> card, under Who ordered what, sums up each firm's invoice: its pages, how it ordered them
 (<i>70 alone + 50 shared by 2</i>) and what it pays at each speed offered, in all and per page. It follows every tick
 at once: attorneys, speeds, Parties, Peripherals… and Excerpts….</p>
 <p><i>How these amounts are worked out…</i> opens the whole <a href="topic:inv-math">math</a>.</p>
@@ -1086,7 +1091,7 @@ column for one reporter; the <b>By Reporter</b> sheet totals each reporter's tak
     T("run-who-transcribed", RUNSHEET, "Who transcribed what",
       "who transcribed what wrote which pages reporter pages each day trial totals review save copy export",
       """
-<p>The <b>Who transcribed what</b> card, under Who ordered what, lists every take of every day of the trial shown,
+<p>The <b>Who transcribed what</b> card, at the bottom of the form, lists every take of every day of the trial shown,
 read from the initials at the foot of the pages: the day, the reporter, the printed pages, how many, and the
 witnesses who took the stand or stepped down. Above it, what each reporter wrote in all (<i>These 3 days: Pat
 Reporter 144 pp. · DS 76 pp.</i>). It is there whenever a day of the trial has a transcript, whatever outputs are
@@ -1146,14 +1151,15 @@ of its own, left unticked.</li>
 <p>Each job has a row: its case, date, <i>Day</i> (the day of the week), <i>Pages</i> (the transcript's own, without
 the word index) and <i>Yours</i> (the pages you wrote; <b>?</b> until it can tell). Hover over a job for its full
 name, index number and documents.</p>
-<p>The list is <b>by date, oldest first</b>, whatever order the documents were read in, and the earliest day is shown
-first. <b>Click a heading</b> to sort by it (a date as a date, pages as numbers); click it again for the other way.
+<p>The list is <b>by date, oldest first</b>, whatever order the documents were read in, and the job at the top of the
+list is shown first. <b>Click a heading</b> to sort by it (a date as a date, pages as numbers); click it again for the other way.
 Your choice is kept. A job's documents stay in the order they were read. Right-click the headings (or View →
 <i>Show the day of the week in the job list</i>) to hide or show <i>Day</i>.</p>
 <ul>
 <li><b>✓</b> marks a job already made.</li>
 <li><b>⚠</b> marks one that failed or needs a look: something required is missing, nobody is ticked, Whose pages… or
-Excerpts… to choose, index numbers that don't match, more than two speeds on the same pages, or no pages to bill.
+Excerpts… to choose, Parties counting a party no firm named (on pages ordered at different speeds), index numbers
+that don't match, more than two speeds on the same pages, or no pages to bill.
 Hover over it to see what.</li>
 </ul>
 <p>Click a job to check it. A job of several documents lists them under it (<a href="topic:input-several">more</a>).
@@ -1222,7 +1228,7 @@ sheet has no Days column (<a href="topic:dates-turnaround">more</a>).</li>
 """),
     T("set-options", SETTINGS, "Settings → Options", "options preferences flatten open pdf preview title case yin yang "
       "form make by default mofr case instructions page batches folders save to file name theme zoom records search "
-      "recaps invoice math new versions update",
+      "recaps invoice math new versions update index numbers patterns",
       """
 <ul>
 <li><i>Write "per email" in the attorney signature spot</i>, <i>Flatten the PDF (fields no longer editable)</i>,
@@ -1238,6 +1244,7 @@ it's already there</i>, and a folder for each kind of file (<a href="topic:make-
 <li><b>File name</b> and <b>MOFR file name</b> (<a href="topic:make-file-names">more</a>).</li>
 <li><b>Theme</b> and <b>Zoom</b> (<a href="topic:start-room">more</a>).</li>
 <li><b>Records search</b>: <i>Fuzzy search matches numbers loosely too</i> (<a href="topic:rec-search">more</a>).</li>
+<li><b>Index numbers</b>: patterns of your own (<a href="topic:check-index">more</a>).</li>
 <li><b>Recaps</b>: <i>Show a recap of last month (and last year) when Records is first opened</i>.</li>
 <li><b>Invoice math</b>: <i>Show the math of each invoice</i> (<a href="topic:inv-math">more</a>).</li>
 <li><b>New versions</b>: <i>Look for a newer version once a day</i>.</li>

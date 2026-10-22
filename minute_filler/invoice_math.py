@@ -30,14 +30,16 @@ the same work, a last section, "All the firms together", adds up what they pay a
 up, which shows what rounding each one up to the cent added (or what rounding each price a page added or took
 off). Before it, when firms ordered the same pages at different speeds, "Who pays what a page" (split_pages)
 has a table for each set of those pages: what each firm named on them pays a page of each charge, as its own
-invoice bills it, and the firms together. who_pays() is the short version the main window keeps up to date as
-things are ticked: a row per firm, its pages, how it ordered them and what it pays at each speed; page_rates()
-goes under it.
+invoice bills it, and the firms together (in the math of one firm's invoice, sent to that firm, "What this firm
+pays a page": its own row alone, explain's one_firm). who_pays() is the short version the main window keeps up
+to date as things are ticked: a row per firm, its pages, how it ordered them and what it pays at each speed;
+page_rates() goes under it.
 
 A firm that committed to a speed (an ordered quote, invoice_calc.quote_ordered) has its speed headed "Daily
 (ordered)" (speed_name), and the "firms" layout puts such firms in one table, "As ordered", each at its own
 speed. On pages ordered together at different speeds the original (and the judge's index) is billed once and
-divided by the split rule (chosen in Settings; a job keeps the one it was first invoiced by), and its row says
+divided by the split rule (chosen in Settings; a job keeps the one it was first invoiced by, and the later days
+of a trial the one its first invoice was), and its row says
 how this firm's part was reached, in that rule's own words and steps (_how_once, Make-Whole Split: "Billed once,
 at Immediate ($7.60 a page). This firm ordered Daily, so it pays as if both firms had ordered Daily: $6.50 ÷ 2 =
 $3.25 a page."); a charge whose pages were
@@ -724,7 +726,8 @@ class SplitSection:
 
 @dataclass
 class _OwnSection(SplitSection):
-    """A SplitSection with one firm's row (SplitSection.own): the label of the whole, no firms together."""
+    """A SplitSection with one firm's row (SplitSection.own). Its label is the whole section's (whole: every firm
+    on the pages named), and _split_plain and _split_tables leave out its firms together."""
     whole: str = ""
 
     @property
@@ -853,8 +856,9 @@ def explain(made: list[tuple[FirmInvoice, str]], layout: str = "invoice",
     not made yet. layout: "invoice" (a table for each invoice and speed) or "firms" (a table for each set of
     firms and speed, a column per firm); the plain text is the same for both. Pages ordered together at different
     speeds get a section of their own after the invoices, what each firm on them pays a page (split_pages).
-    one_firm: the math of one invoice, to send that firm, shows only what that firm owes (the user, 2026-10-21):
-    of those pages, its own row alone (SplitSection.own), not the other firms' nor the firms together."""
+    one_firm: the math of one invoice (the first of `made`), to send that firm, shows only what that firm owes
+    (the user, 2026-10-21): of those pages, its own row alone under OWN_HEADING (SplitSection.own), not the other
+    firms' nor the firms together."""
     if one_firm:
         made = made[:1]
     parts = _by_firms(made) if layout == "firms" else _by_invoice(made)
@@ -919,9 +923,11 @@ def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", lay
     Settings.save_math says (settings.MATH_SAVES), in Settings.math_layout: "each", a PDF next to each invoice,
     named after it ("Invoice 2026-0012 - Jane Roe v. X.Y. Holding Corporation - Alex B. Counsel - the math.pdf"),
     to send the firm that asks, showing only what that firm owes (explain's one_firm); "all", one for all of them
-    (everyone's amounts) next to the first ("Invoices 2026-0012 to 2026-0013 -
-    Jane Roe v. X.Y. Holding Corporation - the math.pdf"), to look back at the whole job; "both" (but one invoice
-    alone gets only its own: the other would say the same); "off", none. Invoices made in another reporter's name
+    (everyone's amounts) next to the first ("Invoices 2026-0012 to 2026-0013 - Jane Roe v. X.Y. Holding
+    Corporation - the math.pdf"), to look back at the whole job; "both" (but one invoice alone gets only its own:
+    everyone's would add only the other firms' rows, and the firms together, on pages ordered together at
+    different speeds);
+    "off", none. Invoices made in another reporter's name
     (Whose pages...) get "all of them" apart from the user's ("Invoices DS-2026-0001 to DS-2026-0002 - ..."):
     their math is theirs. Never over a file already there (pdfout.unique_path). Each is saved on its own: one
     that can't be (a full disk, a folder that went away) is logged, and the others are still saved. Returns the

@@ -245,7 +245,8 @@ def test_f1_opens_the_topic_of_the_field_with_the_focus(window):
     window.show()
     window.activateWindow()
     window.rows["est_pages"].edit.setFocus()
-    f1 = next(s for s in window.findChildren(QShortcut) if s.key().toString() == "F1")
+    # (the main window's: Options ▾ has an F1 of its own, for while its box is open)
+    f1 = next(s for s in window.findChildren(QShortcut) if s.key().toString() == "F1" and s.parent() is window)
     f1.activated.emit()
     win = window._help_window
     assert win.isVisible() and not win.isModal()

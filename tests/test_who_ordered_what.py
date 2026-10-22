@@ -182,6 +182,8 @@ def test_a_job_of_several_days_shares_by_the_parties_and_lists_the_others(tmp_pa
 
 
 def test_a_held_day_is_worded_as_the_invoice_panel_words_it(tmp_path, s):
+    """A day whose invoice is held (every page another reporter's) says why in the hold's own words
+    (Job.invoice_hold), after a ⚠, on each of its lines."""
     job = job_of(tmp_path, s, pages=8, initials=["ds"] * 8)
     assert {l.note for l in job.order_lines()} == {"⚠ " + job.invoice_hold()}
 

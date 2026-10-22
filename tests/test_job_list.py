@@ -47,6 +47,7 @@ def wait(win, until, seconds=30):
 
 
 def cells(item) -> list[str]:
+    """A row's text in every column: Case / file, Date, Day, Pages, Yours."""
     return [item.text(c) for c in range(len(JOB_COLS))]
 
 

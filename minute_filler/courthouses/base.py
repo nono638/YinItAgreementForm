@@ -70,10 +70,11 @@ class OutputSpec:
     In the window: tip, the tooltip of its box in the Outputs row ("" = none, or one the window sets itself);
     words, how the count beside it names its files (("minute agreement form", "minute agreement forms");
     () = its label); asks, the questions Generate asks before making it (of ASKS); panel, "module:name" of the
-    function that adds its options to a form (panel(window, form): see gui/panels.py; "" = no options); card, the
-    title of a card of the window's form holding them, when they are each job's own choices (the invoice's:
-    "Invoice"; "" = standing choices, in the Outputs row's Options ▾); panel_pos, its place in the Outputs row
-    and in Options ▾ (the window's order is not the listed one)."""
+    function that adds its options to a form (panel(window, form): see gui/panels.py; "" = no options); card,
+    when its options are each job's own choices, the title of the card of the window's form they go in (the
+    invoice's: "Invoice"), else "" for standing choices, kept for every job, in the Outputs row's Options ▾ (the
+    window and gui/panels.py expect only the invoice to have a card); panel_pos, its place in the Outputs row and
+    in Options ▾ (the window's order is not the listed one)."""
     key: str
     label: str
     group: str
@@ -165,8 +166,9 @@ class SplitRule(ABC):
 
     key: its name in settings.json, never changed once released. label: its name in Settings. tip: its tooltip
     there, in plain words with an example. summary: what it does, as a phrase for the windows' tips and "Who pays
-    what" ("each firm pays its share of the original as if every firm had ordered its speed"). note: said once in the math under an invoice with such pages. adds_up: said in the math under what
-    the firms pay together, of what their parts of an original add up to. invoice_note: the note printed on such
+    what" ("each firm pays its share of the original as if every firm had ordered its speed"). note: said once in
+    the math under an invoice with such pages. adds_up: said in the math under what the firms pay together, of
+    what their parts of an original add up to. invoice_note: the note printed on such
     an invoice as it comes (the "mixed_speeds" row of Settings.invoice_texts, which the user may reword)."""
     key: str = ""
     label: str = ""

@@ -17,12 +17,12 @@ file). A page is printed at its actual size when the paper is big enough for it 
 else made to fit. Other files (the Excel run sheet) are handed to their own program's Print.
 
 MathDialog spells out the math of the invoices Generate just made, when previews are off (invoice_math.explain):
-a glance and OK. It can also copy it or save it as a PDF, and its "Don't show this anymore" turns it off
-(Settings -> Options turns it back on). The main window's "Who pays what" and its Invoice card open it too
-(live=True), on the invoices as they would be made now, with no numbers yet. Wherever the math is shown it is a
-MathView: tables in either layout, "By invoice" or "Firms side by side", with a switch between them that is
-remembered (Settings.math_layout), and under it MathSaves: which of the math Generate saves as PDFs with the
-invoices (Settings.save_math), changed there at once.
+a glance and OK. It can also copy it or save it as a PDF (everyone's, or only what one firm owes), and its
+"Don't show this anymore" turns it off (Settings -> Options turns it back on). The main window's "Who pays
+what" and its Invoice card open it too (live=True), on the invoices as they would be made now, with no numbers
+yet. Wherever the math is shown it is a MathView: tables in either layout, "By invoice" or "Firms side by
+side", with a switch between them that is remembered (Settings.math_layout), and under it MathSaves: which of
+the math Generate saves as PDFs with the invoices (Settings.save_math), changed there at once.
 
 WelcomeDialog asks a new user the few things the forms can't do without.
 """
@@ -579,11 +579,10 @@ class MathDialog(QDialog):
     invoice, or the firms side by side). OK closes it; Copy all puts it on the clipboard; Save as PDF... saves
     the layout shown (starting in `folder`, the invoices' folder): everyone's amounts, or, from its menu when
     there are several firms, only what one firm owes (invoice_math.explain's one_firm, to send that firm: the
-    user, 2026-10-21); "Don't show this anymore" sets
-    Settings.show_math off at once (and saves the settings). Under the math, which of it Generate saves with the
-    invoices (MathSaves) and, after a Generate, what it saved this time (`saved`, the PDFs). `live`: the
-    invoices not made yet, as the main window's Who pays what card and the Invoice card's link show them (no
-    numbers yet, and nothing to turn off)."""
+    user, 2026-10-21); "Don't show this anymore" sets Settings.show_math off at once (and saves the settings).
+    Under the math, which of it Generate saves with the invoices (MathSaves) and, after a Generate, what it saved
+    this time (`saved`, the PDFs). `live`: the invoices not made yet, as the main window's Who pays what card and
+    the Invoice card's link show them (no numbers yet, and nothing to turn off)."""
 
     def __init__(self, made: list, s: Settings, parent=None, folder: Path | None = None, live: bool = False,
                  saved: list | None = None):
@@ -636,7 +635,8 @@ class MathDialog(QDialog):
             whole.setToolTip("Every firm's amounts: to look back at the job")
             whole.triggered.connect(lambda: self._save())
             for i, (f, number) in enumerate(made):
-                act = menu.addAction(f"Only {self._who(i)}'s" + (f" (invoice {number})" if number else "") + "…")
+                act = menu.addAction(f"Only what {self._who(i)} owes" + (f" (invoice {number})" if number else "")
+                                     + "…")
                 act.triggered.connect(lambda _=False, k=i: self._save(k))
             menu.setToolTipsVisible(True)
             save.setMenu(menu)

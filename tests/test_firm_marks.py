@@ -1,6 +1,7 @@
 """Each firm of a trial marked alike wherever the window names it (firm_marks, gui.badges; the user, 2026-10-21):
 as court exhibits, plaintiffs' firms 1, 2, 3, defense firms A, B, C, others 001; the same firm however its
-attorneys are listed, and the same mark on every day of the trial. All names are made up."""
+attorneys are listed, and the same mark on every day of the trial; their colours (never the amber of a field to
+check), and the tag and stripe the window's tables show. All names are made up."""
 import pytest
 
 from minute_filler.batch import Job, trial_marks
@@ -11,40 +12,59 @@ from helpers import ROE, make_case
 
 
 def att(name="", firm="", party=""):
+    """An attorney row, ticked as ordering."""
     return Attorney(name=name, firm=firm, party=party, checked=True)
 
 
 def test_the_side_of_a_party():
+    """Plaintiffs, petitioners and claimants are one side, defendants and respondents the other, by the role
+    named first ('Defendant/Third-Party Plaintiff' is the defense); anything else is OTHER."""
     assert side("Attorneys for Plaintiff") == side("Petitioners") == side("claimant") == PLAINTIFF
     assert side("Defendants") == side("Attorneys for Respondent") == DEFENSE
-    assert side("Defendant/Third-Party Plaintiff") == DEFENSE  # (a defendant first)
+    assert side("Defendant/Third-Party Plaintiff") == side("Defendants/Counterclaimants") == DEFENSE  # (named first)
+    assert side("Plaintiff/Counterclaim Defendant") == side("Plaintiffs-Counterclaim-Defendants") == PLAINTIFF
     assert side("") == side("sender") == side("orderer (invoice)") == OTHER
 
 
 def test_badges_run_as_exhibits_do():
+    """Plaintiffs' 1, 2 ... 10; the defense's A ... Z, then AA, AB; others' 001, 002 ... 012."""
     assert [badge(PLAINTIFF, n) for n in (0, 1, 9)] == ["1", "2", "10"]
     assert [badge(DEFENSE, n) for n in (0, 1, 25, 26, 27)] == ["A", "B", "Z", "AA", "AB"]
     assert [badge(OTHER, n) for n in (0, 1, 11)] == ["001", "002", "012"]
 
 
 def test_a_firm_is_one_however_it_is_listed():
-    assert firm_id(att("Dana Smith", "Smith Law, LLP")) == firm_id(att("", "smith law")) == "firm:smith law"
-    assert firm_id(att("Pat Doe, Esq.", "Doe & Roe, P.C.")) == "firm:doe & roe"
-    assert firm_id(att("Sam Poe")) == "name:sam poe" and firm_id(att()) == ""
+    """'Smith Law, LLP' and 'smith law' are one firm, whoever its attorney; an entry without a firm is its
+    attorney's name, and one naming neither is no firm ("")."""
+    assert firm_id(att("Dana Smith", "Smith Law, LLP")) == firm_id(att("", "smith law")) == "smith law"
+    assert firm_id(att("Pat Doe, Esq.", "Doe & Roe, P.C.")) == "doe and roe"
+    assert firm_id(att("Sam Poe")) == "sam poe" and firm_id(att()) == ""
+    # as Attorney.key() reads a firm: '&' is 'and', a leading 'The' goes (and 'Attorneys at Law' at the end too)
+    assert firm_id(att("", "Counsel & Counsel, LLP")) == firm_id(att("", "Counsel and Counsel"))
+    assert firm_id(att("", "The Smith Law Firm")) == firm_id(att("", "Smith Law Firm, Attorneys at Law"))
+    assert firm_id(att("", "Attorneys at Law")) == "attorneys at law"
+    # endings of both kinds, one after the other
+    assert firm_id(att("", "Smith Law, LLP, Attorneys at Law")) == firm_id(att("", "Smith Law")) == "smith law"
+    assert firm_id(att("", "Counsel & Counsel, P.C., Attorneys at Law")) == "counsel and counsel"
+    assert firm_id(att("Dana Smith, Esq.")) == firm_id(att("dana  smith esq")) == "dana smith"
 
 
 def test_each_side_counts_its_own_firms_in_order():
+    """Each side counts its firms in the order they come: Smith Law 1 (its second attorney too) and Sam Poe 2 (no
+    firm: by name); Counsel & Counsel A and Park PLLC B; Court Watch Inc., the sender, 001. A placeholder row
+    ("Unrepresented") gets no mark."""
     got = marks([att("Dana Smith", "Smith Law", "Plaintiff"), att("Alex B. Counsel", "Counsel & Counsel",
                                                                    "Defendants"),
                  att("Lee Jones", "Smith Law, LLP", "Plaintiff"),  # (Smith Law again: its mark)
                  att("Kim Park", "Park PLLC", "Defendant"), att("Sam Poe", "", "Plaintiffs"),
                  att("", "Court Watch Inc.", "sender"), att("Unrepresented", "", "Defendant")])
-    assert got == {"firm:smith law": Mark("1", PLAINTIFF, 0), "firm:counsel & counsel": Mark("A", DEFENSE, 0),
-                   "firm:park": Mark("B", DEFENSE, 1), "name:sam poe": Mark("2", PLAINTIFF, 1),
-                   "firm:court watch": Mark("001", OTHER, 0)}
+    assert got == {"smith law": Mark("1", PLAINTIFF, 0), "counsel and counsel": Mark("A", DEFENSE, 0),
+                   "park": Mark("B", DEFENSE, 1), "sam poe": Mark("2", PLAINTIFF, 1),
+                   "court watch": Mark("001", OTHER, 0)}
 
 
 def day(date, attorneys, index="712345/2021"):
+    """A job of one day of Jane Roe's case (another case with another index) with these attorneys."""
     job = Job()
     job.case = make_case({**ROE, "dates": date, "index_no": index}, attorneys)
     return job
@@ -66,6 +86,26 @@ def test_a_firm_keeps_its_mark_on_every_day_of_the_trial():
         assert {k: m.badge for k, m in got.items()} == {
             d1.case.attorneys[0].key(): "1", d1.case.attorneys[1].key(): "A", d1.case.attorneys[2].key(): "B",
             d2.case.attorneys[0].key(): "B", d2.case.attorneys[1].key(): "A", d2.case.attorneys[2].key(): "1"}
+
+
+def test_a_firm_written_two_ways_keeps_one_mark_on_every_day():
+    """'Counsel & Counsel, LLP' on day 1 and 'Counsel and Counsel' on day 2 are one entry (Attorney.key()) and one
+    firm: mark 1 on both days, Smith Law 2. A row of the same entry without its firm keeps the firm's mark."""
+    d1 = day("6/3/2026", [att("Alex B. Counsel", "Counsel & Counsel, LLP", "Plaintiff"),
+                          att("Dana Smith", "Smith Law", "Plaintiff")])
+    d2 = day("6/4/2026", [att("Alex B. Counsel", "Counsel and Counsel", "Plaintiff"),
+                          att("Dana Smith", "Smith Law", "Plaintiff"), att("Smith Law", "", "Plaintiff")])
+    got = {k: m.badge for k, m in trial_marks(d2, [d1, d2]).items()}
+    assert got == {"counsel and counsel": "1", "smith law": "2"}
+
+
+def test_a_firm_named_in_the_name_column_takes_no_badge_number_of_its_own():
+    """Day 1 Smith Law; day 2 a row naming 'Smith Law' with no firm (the same entry: Attorney.key()), then Counsel &
+    Counsel: Counsel & Counsel is plaintiffs' 2 (it was 3, the row having taken a number of its own)."""
+    d1 = day("6/3/2026", [att("Dana Smith", "Smith Law", "Plaintiff")])
+    d2 = day("6/4/2026", [att("Smith Law", "", "Plaintiff"), att("Alex B. Counsel", "Counsel & Counsel", "Plaintiff")])
+    got = {k: m.badge for k, m in trial_marks(d2, [d1, d2]).items()}
+    assert got == {"smith law": "1", "counsel and counsel": "2"}
 
 
 def test_the_colours_are_the_sides_and_never_the_amber_of_a_field_to_check(qt):

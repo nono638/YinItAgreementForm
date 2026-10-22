@@ -3,15 +3,15 @@
 A row per run of pages of a day: its date and weekday (in italics on the day's later runs), the pages (typed in
 the transcript's own page numbers, "141-170", or by place in the day when they aren't known; the runs around a
 run typed make room for it), optionally its place in the day ("1–20 of 85": Settings.excerpt_show_place), a box
-per firm (firms_of: one column for a firm, however many of its attorneys appear; ticked = that firm ordered the
-run; the boxes of each set of firms ordering together have a colour of their own, the colour of that set's line
-under the table), the pages billed in it and, for each speed offered, what each firm that ordered it pays for
-it. Under the table the same prices by the firms ordering together ("A + B: 15 pp., each pays ...") and each
-firm's invoice. Split run cuts a run in two; Remove run (or the Delete key) gives a run's pages to the run above it
-(excerpts.remove: every page stays in one run); Remove this day's excerpts makes a day one run again, Remove all
-excerpts every day of the case. A right-click on a run offers the same. Every change is kept at once (on the days'
-jobs) and the main window follows it; a change made there (an attorney ticked, a speed, Peripherals...) shows here at
-once too: the window stays open beside it.
+per firm (firms_of: one column for a firm, however many of its attorneys appear, headed by its tag ('1', 'A') as
+in the main window; ticked = that firm ordered the run; the boxes of each set of firms ordering together have a
+colour of their own, the colour of that set's line under the table), the pages billed in it and, for each speed
+offered, what each firm that ordered it pays for it. Under the table the same prices by the firms ordering
+together ("A + B: 15 pp., each pays ...") and each firm's invoice. Split run cuts a run in two; Remove run (or
+the Delete key) gives a run's pages to the run above it (excerpts.remove: every page stays in one run); Remove
+this day's excerpts makes a day one run again, Remove all excerpts every day of the case. A right-click on a run
+offers the same. Every change is kept at once (on the days' jobs) and the main window follows it; a change made
+there (an attorney ticked, a speed, Peripherals...) shows here at once too: the window stays open beside it.
 
 Each firm orders its pages at a speed (Job.speeds, and a run's own in Job.portions; see excerpts.py). The row of
 boxes above the table sets a firm's speed for all its pages of the case (_firm_speed_boxes); a right-click on a
@@ -72,11 +72,13 @@ class ExcerptsWindow(QDialog):
     """Who ordered which pages of the case: see the module docstring. load(group) shows the days of an invoice
     (MainWindow keeps it up to date); changed() is called after each change is kept."""
 
-    def __init__(self, s, changed, parent=None):
+    def __init__(self, s, changed, parent=None, marks=None):
         """s: the settings (the rate sheet, the speeds, what this window hides); changed: called after a change
-        is kept on the jobs, so the main window shows it."""
+        is kept on the jobs, so the main window shows it; marks: a job -> the tags of its trial's firms, by
+        Attorney.key(), as the main window shows them (MainWindow._marks: every day of the trial loaded, those
+        not on this invoice too, so a firm has the same tag here); without it, those of the days shown."""
         super().__init__(parent)
-        self.s, self.changed = s, changed
+        self.s, self.changed, self.marks = s, changed, marks
         self.setWindowTitle("Excerpts: who ordered which pages")
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
         self.group: list = []  # the jobs shown (the days of an invoice)
@@ -245,7 +247,12 @@ class ExcerptsWindow(QDialog):
         from ..batch import trial_marks
         from .badges import TAG_HEIGHT, badge_icon, badge_size
         from .zoom import z
-        marks = trial_marks(self.group[0], self.group) if self.group else {}  # (each firm's tag, as elsewhere)
+        marks = {}  # (each firm's tag, as elsewhere)
+        if self.group:
+            try:
+                marks = self.marks(self.group[0]) if self.marks else trial_marks(self.group[0], self.group)
+            except Exception:  # (a tag is a help: never a reason for the table not to show)
+                marks = {}
         t.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))
         for c, a in enumerate(firms):
             head = t.horizontalHeaderItem(FIRST_FIRM + c)
@@ -328,8 +335,8 @@ class ExcerptsWindow(QDialog):
         """The prices under the table: by the firms ordering together (at the speeds they ordered, when set:
         "Counsel & Counsel (Daily) + Smith Law (Immediate): 60 pp. - Counsel & Counsel pays $345.00, Smith Law
         $435.00 (one original, at Immediate)", the split rule saying how: SplitRule.run_note, the job's once
-        billed, else Settings'),
-        then each firm's invoice."""
+        billed, else the one its trial was first billed by (Job.trial_rule), else Settings'), then each firm's
+        invoice."""
         names = {a.key(): a.label() for a in self.firms}
         if not shown and not p.ordered:
             return "<i>Tick a speed above to see the prices.</i>"

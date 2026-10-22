@@ -15,7 +15,8 @@ says by default, its own index). A firm whose speed is set (batch.Job.speeds), o
 the courthouse has such firms commit to a speed (courthouses.speed_upfront), is billed that speed alone instead
 (invoice_calc.quote_ordered): pages ordered together at different speeds get one original, divided as the
 courthouse's split rule chosen in Settings -> Invoice -> "Split invoices" says (Settings.invoice_split_rule),
-or the one the job was billed by already (InvoiceOpts.split_rule, batch.Job.split_rule).
+or the one the job, or an earlier day of its trial, was billed by already (InvoiceOpts.split_rule:
+batch.Job.split_rule, else batch.Job.trial_rule).
 Whether a day gets an index is judged on every page of its transcripts, whoever wrote them (index_pages, indexed_days;
 index_reason says why in words). A firm with no pages gets no invoice, and the same firm entered twice gets one. The
 amounts are rounded as Settings.invoice_rounding says (up to the cent once, or each price a page to the nearest cent:
@@ -187,7 +188,8 @@ class InvoiceOpts:
     # made for another reporter's pages, in their name: their initials ("ds"; see Settings.as_reporter); "" =
     # the user's own invoice
     reporter: str = ""
-    # the split rule the job was billed by already (batch.Job.split_rule); "" = Settings.invoice_split_rule
+    # the split rule the job was billed by already (batch.Job.split_rule), else the one an earlier day of its
+    # trial was (batch.Job.trial_rule); "" = Settings.invoice_split_rule
     split_rule: str = ""
 
     def skip_key(self, atty: "Attorney | None") -> str:
@@ -319,8 +321,9 @@ def invoice_texts(s: Settings, case: CaseInfo, atty: Attorney | None, quotes: li
     """The user's invoice text (Settings.invoice_texts) for this invoice: place -> its paragraphs, in order,
     only the rows whose condition holds, with the placeholders filled in. shown: what granular detail shows
     (see text_conditions). The note on pages ordered at different speeds, as it comes in a split rule's words
-    (SplitRule.invoice_note), is in the words of the rule this invoice was priced by: a job billed one way keeps
-    that way after Settings change (batch.Job.split_rule); a note the user reworded is printed as written."""
+    (SplitRule.invoice_note), is in the words of the rule this invoice was priced by: a job (or a trial) billed
+    one way keeps that way after Settings change (batch.Job.split_rule, trial_rule); a note the user reworded is
+    printed as written."""
     on = text_conditions(quotes, opts, shown)
     values = text_values(case, atty, s, quotes, number, opts)
     out: dict[str, list[str]] = {k: [] for k in TEXT_PLACES}
@@ -842,7 +845,7 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
             shares = [Share(x.pages, x.n, indexed[i], x.speed or fallback,
                             tuple((names.get(o, o), sp or (fallback if upfront else x.speed or fallback))
                                   for o, sp in x.others)) for i, x in parts]
-            rule = courthouses.split_rule(opts.split_rule or s.invoice_split_rule)  # (the job's, once billed)
+            rule = courthouses.split_rule(opts.split_rule or s.invoice_split_rule)  # (the job's or its trial's)
             quotes = [quote_ordered(shares, sheet, rule, email,
                                     s.invoice_index_shared != "each", [sum(x.pages for x in xs) for _, xs in days],
                                     by_page)]

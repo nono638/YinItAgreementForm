@@ -5,7 +5,8 @@ Whose pages... says whose pages to bill; a Pages field typed with another number
 transcript without initials, are billed as they are. Excerpts (who ordered which pages) count the billed pages of
 the stretch each firm ordered, and a firm on a joint invoice names the reporters of its own days. Also initials
 corrected while Generate all runs, an excerpt cut out of a day (excerpts.carve), Enter in the Excerpts table, the
-Whose pages window and the Invoice panel. All names are made up."""
+Whose pages window, the Invoice card (its Billed line the same on every day of a joint invoice) and Who
+transcribed what (each reporter's pages of the trial). All names are made up."""
 import os
 
 import pytest
@@ -247,6 +248,8 @@ def test_the_billed_line_is_the_whole_invoices_on_every_day_of_it(window, tmp_pa
 
 
 def test_the_invoice_panel_shows_my_pages_and_asks_whose(window, tmp_path, monkeypatch):
+    """The Invoice card's Billed line says how many pages the user wrote ("You wrote 3 of 6 total pages"); with
+    the whole transcript chosen under Whose pages…, all 6 are billed and the line says why."""
     from minute_filler.gui.dialogs import PagesOwnerDialog
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     load(window, transcript_pdf(tmp_path / "Roe 6-3-2026.pdf", 6, initials=[PR, PR, DS, DS, DS, PR]))
@@ -295,7 +298,7 @@ def test_the_whole_transcript_decides_the_index_in_the_window(window, tmp_path):
 def test_the_math_names_a_typed_page_count_as_the_pages_field(tmp_path, s):
     """A Pages number typed in is billed, but it need not be the pages the user wrote: with 40 typed on a
     transcript Pat wrote 45 pages of 83, the math said "You wrote 40 of the 83 total pages". It says what the
-    Invoice panel says. A number typed above the transcript's count (only its caption page is there) is the whole
+    Invoice card says. A number typed above the transcript's count (only its caption page is there) is the whole
     transcript too: 120 total pages, not 3."""
     from minute_filler.invoice import firm_invoices
     from minute_filler.invoice_math import about
@@ -311,8 +314,8 @@ def test_the_math_names_a_typed_page_count_as_the_pages_field(tmp_path, s):
 
 
 def test_a_held_transcript_with_a_long_name_does_not_widen_the_invoice_card(window, tmp_path, qt):
-    # the reason names the file: shown in full it made the Invoice panel (and the window) wider than the screen;
-    # in the Invoice card it would make the form scroll sideways
+    # the reason names the file: shown in full it made the Invoice panel of the Outputs box (and the window) wider
+    # than the screen; in the Invoice card it would make the form scroll sideways
     name = "Jane Roe v. X.Y. Holding Corporation 712345-2021 Trial Transcript Volume 3 June 3 2026 Dana.pdf"
     window.resize(1320, 860)
     window.show()

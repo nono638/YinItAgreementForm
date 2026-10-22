@@ -79,7 +79,7 @@ QPushButton#primary {
 }
 QPushButton#primary:hover { background: {accent_hover}; }
 QPushButton#primary:disabled { background: {border}; color: {muted}; }
-/* the main window's Generate (or Generate all): the one thing to click at the end, so it stands out */
+/* the main window's Generate buttons ("Generate all 3 days"): the one thing to click at the end, so they stand out */
 QPushButton#generate {
   background: {go}; color: #ffffff; border: 1px solid {go_border}; border-radius: 7px; font-weight: 700;
   padding: 10px 30px; font-size: 12pt;
@@ -100,7 +100,7 @@ QToolButton:hover { background: {hover}; border: 1px solid {border}; }
 QToolButton::menu-indicator { image: none; }
 QToolButton#quick { border: 1px solid {input_border}; background: {card}; padding: 2px 8px; font-size: 9pt; }
 QToolButton#quick:hover { background: {sel}; border: 1px solid {accent}; }
-/* a field's other readings ("2 more"), and the fold of a card */
+/* a field's other readings ("2 more"); then a card's fold and its summary, shown while it is folded */
 QToolButton#alts { color: {accent}; border: 1px solid {input_border}; background: {card}; padding: 2px 6px; font-size: 9pt; }
 QToolButton#alts:hover { background: {sel}; border: 1px solid {accent}; }
 QToolButton#fold { color: {card_title}; padding: 0px 4px; font-size: 11pt; font-weight: 700; }
@@ -134,6 +134,8 @@ QFrame#todo { background: {warn_bg}; border: 1px solid {review}; border-radius: 
 QFrame#todo QLabel { color: {warn}; background: transparent; }
 QLabel#status[state="busy"] { background: {sel}; color: {accent}; font-weight: 600; }
 
+/* where a field's value came from ("found", "AI"): quiet grey, a pill in the source's colour only for a value to
+   look at (loud: the AI's, the records', a guess), as one on every field drowned them */
 QLabel#badge { border-radius: 8px; padding: 1px 7px; font-size: 8pt; color: {muted}; border: 1px solid transparent; }
 QLabel#badge[loud="true"] { font-weight: 600; border: 1px solid {review}; background: {review_bg}; }
 QLabel#badge[loud="true"][src="regex"] { color: {regex}; }

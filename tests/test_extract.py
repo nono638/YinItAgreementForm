@@ -1,5 +1,7 @@
 """Extraction tests against the fictional samples in tests/samples (a transcript's cover page, an invoice, two
-e-mails), with the merge of one of them, the AI's answers checked against the text, Title Case and parts.
+e-mails), with the merge of one of them, the AI's answers checked against the text, Title Case and parts. Also
+index numbers: one under its label with a two-digit year ('712345/21' -> '712345/2021'), a ZIP+4 under the label
+that is none, and the user's own patterns (Settings -> Options -> Index numbers).
 
 Real documents go in samples_internal/ (git-ignored) and are covered by test_private_samples.py.
 """
@@ -175,8 +177,45 @@ def test_index_number_patterns_of_the_users_own():
     assert best(named.extract(ingest_text("File 25/QU-54321.", "e.txt")), "index_no") == "54321/2025"
     assert index_pattern_problem(r"CV-(\d{6})-(\d{2})") == ""
     assert index_pattern_problem(r"CV-(\d{6}").startswith("not a regular expression")
-    assert index_pattern_problem(r"CV-\d{6}-(\d{2})") == "it needs two groups in parentheses: the number, then the year"
+    assert index_pattern_problem(r"CV-\d{6}-(\d{2})").startswith("it needs two groups in parentheses")
     assert len(index_patterns(["(", r"(\d+)/(\d+)", "", 5])) == 1
+
+
+def test_a_pattern_of_the_users_needs_exactly_its_two_groups_and_is_stopped_when_slow(monkeypatch, caplog):
+    """A group around both (it would read the number and year as one) is said at once, not found to find nothing;
+    (?:...) groups without being one. A search that takes longer than OWN_PATTERN_SECONDS is stopped (the regex
+    library: re can't stop one, and a pattern like '(\\d+)+x' on a line of digits takes minutes) and logged."""
+    import minute_filler.extract_regex as er
+    assert er.index_pattern_problem(r"CV-((\d{6})-(\d{2}))/QU").startswith("it needs two groups")
+    assert er.index_pattern_problem(r"(?:CV|DK)-(\d{6})-(\d{2})/QU") == ""
+    [rx] = er.index_patterns([r"CV-(\d{6})-(\d{2})/QU"])
+    text = "Re: Roe v. Poe, CV-012345-25/QU.\n" * 20000
+    assert len(er.own_matches(rx, text)) == 20000
+    monkeypatch.setattr(er, "OWN_PATTERN_SECONDS", 0.000001)
+    with caplog.at_level("WARNING", logger="yin"):
+        assert er.own_matches(rx, text) == []
+    assert "was stopped" in caplog.text
+
+
+def test_an_address_under_a_stacked_label_is_no_index_number():
+    """'Index No.:' ending a line with an address under it: its ZIP+4 is not read as the number (it was, at 0.9);
+    a number there is."""
+    for text in ("Index No.:\nSmith Law, 1 Main Street, Kew Gardens, NY 11415-2010\n",
+                 "Index No.:\nKew Gardens, N.Y. 11415-2010\n"):
+        assert not RegexExtractor(PROFILE).extract(ingest_text(text, "e.txt")).fields.get("index_no"), text
+    ex = RegexExtractor(PROFILE).extract(ingest_text("Index No.:\nJANE ROE, Plaintiff,     712345/2021\n", "e.txt"))
+    assert best(ex, "index_no") == "712345/2021"
+
+
+def test_a_two_digit_year_is_of_this_century_up_to_next_year():
+    """A two-digit year up to next year's is this century's ('21' -> 2021), a later one the last century's ('99'
+    -> 1999), and one that would fall before 1950 is no year (None)."""
+    from datetime import date
+    from minute_filler.extract_regex import norm_index
+    nxt = date.today().year % 100 + 1
+    assert norm_index("712345", "21") == "712345/2021" and norm_index("712345", "99") == "712345/1999"
+    assert norm_index("712345", f"{nxt:02}") == f"712345/20{nxt:02}"
+    assert norm_index("712345", f"{nxt + 1:02}") == (f"712345/19{nxt + 1:02}" if nxt + 1 >= 50 else None)
 
 
 PATTERN = r"CV-(\d{6})-(\d{2})/QU"  # (a pattern of the user's: Civil Court's docket numbers)

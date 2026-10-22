@@ -17,7 +17,9 @@ their column (double-click or F2).
 Along the bottom: the exports, Summary... (a month or a year summed up, SummaryDialog), Backups... (the daily
 copies of the records, BackupsDialog) and Undo (Ctrl+Z: the last change made here - paid, a box ticked, void,
 amounts, notes, a delete - is taken back). A right-click also prints a record's file and opens its job again in
-the main window (RecordsWindow.on_reopen)."""
+the main window (RecordsWindow.on_reopen). A delete, a restore, an undo or a backup put back is told to the main
+window (RecordsWindow.on_changed), which reads again how each trial was first billed (an invoice in the trash no
+longer counts)."""
 from __future__ import annotations
 
 import calendar
@@ -491,6 +493,9 @@ class RecordsWindow(QDialog):
         self.act_shown: dict[int, Activity] = {}  # the rows of everything made shown, by id
         self.on_reopen: Callable[[str], bool] | None = None  # opens a job again in the main window (set by it)
         self.on_settings: Callable[[str], None] | None = None  # opens Settings at a tab ("Records"; set by it)
+        # tells the main window the records were changed here (a delete, a restore, an undo, a backup put back):
+        # what it read from them (the way each trial was first billed) is read again (set by it)
+        self.on_changed: Callable[[], None] | None = None
         self.undo_stack: list[tuple[str, Callable]] = []  # (what was done, how to take it back), latest last
         self.boxes: list[TrackBox] = s.boxes()   # the tick boxes and row colours, as Settings were at the last
         self.rules: list[ColourRule] = s.rules()  # reload()
@@ -1475,7 +1480,14 @@ class RecordsWindow(QDialog):
             log_error("could not change the records", e)
             QMessageBox.warning(self, "Could not save", f"{type(e).__name__}: {e}")
         self.reload()
+        if ok:
+            self._changed()
         return ok
+
+    def _changed(self) -> None:
+        """The records were changed here: the main window is told (on_changed)."""
+        if self.on_changed is not None:
+            self.on_changed()
 
     # ------------------------------------------------------------ undo
     def _undoable(self, what: str, before: Invoice | None = None, back: Callable | None = None) -> None:
@@ -1535,6 +1547,7 @@ class RecordsWindow(QDialog):
             self.undo_stack = []
             self._show_undo()
             self.reload()
+            self._changed()
 
     def _print(self, files: list[str]) -> None:
         """Prints the files of the records selected (those still where they were saved)."""

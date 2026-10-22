@@ -117,6 +117,7 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("hotkeys", ("keys",)),
     # 2.8.1
     ("my rate sheet still says 7 and 21 days", ("dates-turnaround", "rates-columns")),
+    # (the Outputs box can't fold since 2026-10-22, but a user who remembers it may still ask)
     ("why is the outputs box folded", ("start-room", "make-outputs")),
     # 2.8.2
     ("where is the invoice i made for another reporter", ("rec-overview", "inv-reporters")),

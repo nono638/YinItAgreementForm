@@ -1,12 +1,13 @@
 """Drives the main window (off screen): several documents become a batch of jobs, each a row of the job list
 (with a row per document under a job of two); outputs that need a transcript; the Outputs box (each output's
-options and how many files it makes, parties, Peripherals... and Customize..., the Speeds offered in the Invoice
-panel, the Generate button); the days of a case on one invoice, billed once by Generate all; Excerpts... (which
-firm ordered which pages) and the prices of each: its rows following a renamed firm (an attorney's name fixed is
-the same firm), kept to be checked when an attorney is unticked or the pages are typed again, and the days it
-shows (those of the invoice); a split order's prices before and after its firms' speeds are set; a document
+options and how many files it makes, the Generate buttons); the Invoice card (parties, Peripherals... and
+Customize...) and the speeds offered under the rate sheet; the days of a case on one invoice, billed once by
+Generate all; Excerpts... (which firm ordered which pages) and the prices of each: its rows following a renamed
+firm (an attorney's name fixed is the same firm), kept to be checked when an attorney is unticked or the pages
+are typed again, and the days it shows (those of the invoice); a split order's prices before and after its
+firms' speeds are set; a document
 added or an attorney ticked while Generate all runs, and Generate tried again after a problem; the granular
-detail box of each day; File -> Lock finished PDFs; the Invoice panel in a small window; the big yin-yang picture
+detail box of each day; File -> Lock finished PDFs; the Invoice card in a small window; the big yin-yang picture
 when the window first shows; the Records window (paid, amounts changed, only amounts taken); a preview whose
 records can't be opened; and background work that ends while the user is busy in the window."""
 import os
@@ -136,7 +137,8 @@ def test_outputs_and_invoice_need_a_transcript(window, tmp_path):
 
 
 def test_outputs_box_options(window, tmp_path):
-    """Each output's options sit under its own box: greyed out while it is unticked, saved when changed."""
+    """Each output's options (the invoice's in its card, the others under Options ▾) are greyed out while it is
+    unticked and saved when changed; the speeds offered are under the rate sheet."""
     window.output_boxes["invoice"].setChecked(False)
     assert not window.output_opts["invoice"].isEnabled()
     window.output_boxes["invoice"].setChecked(True)
@@ -146,7 +148,7 @@ def test_outputs_box_options(window, tmp_path):
     window.output_boxes["agreement"].setChecked(True)
     assert window.per_email.isEnabled()
 
-    # Speeds offered (in the Invoice panel): a box per speed of the rate sheet; the ones ticked are saved and priced
+    # Speeds offered (under the rate sheet): a box per speed of the rate sheet; the ones ticked are saved and priced
     assert set(window.inv_speed_boxes) == {sp.name for sp in window.s.sheet().speeds}
     window.add_files([str(transcript_pdf(tmp_path / "t.pdf", pages=12))])
     wait(window, lambda: len(window.cur.docs) == 1)
@@ -320,7 +322,7 @@ def two_days(window, tmp_path):
 
 def test_generate_all_bills_each_day_once(window, tmp_path, monkeypatch):
     """Days billed by Generate all are marked invoiced: ticked again, they are done without a second invoice.
-    Generate this job still bills the day shown when asked."""
+    Generate for the day shown alone still bills it when asked."""
     from minute_filler.deliver import ledger_for
     from minute_filler.gui import dialogs
     monkeypatch.setattr(dialogs.ClarifyDialog, "exec", lambda self: 0)  # (not expected; never waits)
@@ -405,7 +407,7 @@ def test_lock_leaves_out_pdfs_without_fields(window, tmp_path, monkeypatch):
 
 
 def test_the_invoice_prices_fit_in_a_small_window(window, tmp_path):
-    """Four speeds and a two-day invoice: the Invoice panel's text is not cut off at the smallest size."""
+    """Four speeds and a two-day invoice: the Invoice card's text is not cut off at the smallest size."""
     if not os.environ.get("QT_QPA_FONTDIR"):
         pytest.skip("needs the real fonts to measure the text (see conftest.qt)")
     window.output_boxes["invoice"].setChecked(True)
@@ -547,13 +549,14 @@ def test_records_window_changes_amounts(window, tmp_path, monkeypatch):
 
 @pytest.mark.usefixtures("split_orders_choose")  # (four speeds a firm: the most lines)
 def test_each_attorneys_prices_fit_in_a_small_window(window, tmp_path):
-    """Four speeds, lines for each firm: the Invoice panel's text is not cut off at the smallest size."""
+    """Four speeds, lines for each firm: the Invoice card's text is not cut off at the smallest size."""
     if not os.environ.get("QT_QPA_FONTDIR"):
         pytest.skip("needs the real fonts to measure the text (see conftest.qt)")
     window.output_boxes["invoice"].setChecked(True)
     two_days(window, tmp_path)
     window.jobs[0].case.attorneys = [counsel(), smith(checked=False)]
     window.jobs[1].case.attorneys = [counsel(), smith()]
+    window._show_job()  # (the attorney table as the jobs now have them: a box clicked reads it back)
     for cb in window.inv_speed_boxes.values():
         cb.setChecked(True)
     window.resize(1080, 720)
@@ -708,7 +711,7 @@ def test_generate_this_job_after_a_problem_does_not_bill_an_attorney_twice(windo
 
 
 def test_the_detail_box_shows_the_jobs_own_choice(window, tmp_path):
-    """Generate this job uses the day's own choice, so the box shows it, not the joint invoice's."""
+    """Generate for the day shown alone uses the day's own choice, so the box shows it, not the joint invoice's."""
     window.output_boxes["invoice"].setChecked(True)
     two_days(window, tmp_path)
     window.jobs[1].include = False
@@ -818,7 +821,7 @@ def test_with_several_jobs_the_counts_say_what_generate_all_makes(window, tmp_pa
 
 
 def test_the_invoice_panel_links_to_the_math(window, tmp_path, monkeypatch):
-    """The Invoice panel has the same link to the whole math as Who pays what, while there are prices."""
+    """The Invoice card has the same link to the whole math as Who pays what, while there are prices."""
     from minute_filler.gui import preview
     shown = []
     monkeypatch.setattr(preview.MathDialog, "exec", lambda dlg: shown.append(dlg.plain) or 0)
@@ -868,7 +871,7 @@ def test_peripherals_are_for_this_job_only_and_say_so(qt):
 # ------------------------------------------------------------------ found by the 2.5.0 sweep
 
 def test_generate_counts_a_day_invoiced_already_as_it_bills_it_again(window, tmp_path):
-    """Generate this job bills a day again when asked, invoiced already or not (Job.billed_keys): its count
+    """Generate (the job shown) bills a day again when asked, invoiced already or not (Job.billed_keys): its count
     says so, not "Will generate no invoice" after every Generate. Generate all doesn't bill it again."""
     from minute_filler.batch import output_counts
     one_day_two_attorneys(window, tmp_path)
@@ -879,7 +882,7 @@ def test_generate_counts_a_day_invoiced_already_as_it_bills_it_again(window, tmp
 
 
 def test_a_keystroke_counts_the_jobs_of_generate_all_once(window, tmp_path, monkeypatch):
-    """With several jobs, the counts under the outputs and the Generate all button come from one count of every
+    """With several jobs, the counts beside the outputs and the Generate all button come from one count of every
     job: each keystroke counted them twice (the button through files_to_make), and typing slowed down."""
     from minute_filler import batch
     from minute_filler.gui.widgets import plural

@@ -755,6 +755,14 @@ class Ledger:
             else []
         return rows[0][0] or "" if rows else ""
 
+    def first_invoices(self) -> dict[str, str]:
+        """invoiced_from of every origin at once ({origin: when its first invoice was made}), for asking about
+        many: one query, where invoiced_from reads through the whole activity each time (batch.trial_split_rules
+        asks about every trial)."""
+        rows = self._rows("SELECT origin, MIN(ts) FROM activity WHERE kind='invoice' AND origin IS NOT NULL "
+                          "AND origin != '' GROUP BY origin")
+        return {r[0]: r[1] or "" for r in rows}
+
     def invoice_origins(self) -> list[tuple[str, str, str]]:
         """(index number, Activity.origin, Activity.ts) of each invoice made, oldest first, those in the trash
         left out: the split rule a trial was first billed by is the one its later days are billed by
@@ -770,13 +778,19 @@ class Ledger:
     # ------------------------------------------------------------------ copies
     def preview_copy(self, folder: Path) -> "Ledger":
         """An empty records database in `folder` that gives the same invoice numbers next as this one would
-        (every number given is entered in it). For the preview before saving: its invoices are made for show
-        and must not be recorded or take a number."""
+        (every number given is entered in it), and knows the invoices made (their activity rows: how each trial
+        was first billed). For the preview before saving: its invoices are made for show and must not be recorded
+        or take a number."""
         other = Ledger(Path(folder) / "records.db")
         rows = self._rows("SELECT invoice_no, year, seq, COALESCE(reporter, '') FROM used_numbers UNION "
                           "SELECT invoice_no, year, seq, COALESCE(reporter, '') FROM invoices")
         other._run_all([("INSERT OR IGNORE INTO used_numbers (invoice_no, year, seq, reporter) VALUES (?, ?, ?, ?)",
                          tuple(r)) for r in rows])
+        # the invoices made (when, of which case, from what job): the way each trial was first billed is read from
+        # them (batch.trial_split_rules), so the preview prices a later day of a trial as the save will
+        made = self._rows("SELECT ts, kind, index_no, origin, deleted FROM activity WHERE kind='invoice'")
+        other._run_all([("INSERT INTO activity (ts, kind, index_no, origin, deleted) VALUES (?, ?, ?, ?, ?)",
+                         tuple(r)) for r in made])
         return other
 
     def backup(self, folder: Path, keep: int = BACKUPS_KEPT, now: datetime | None = None,
