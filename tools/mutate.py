@@ -132,6 +132,9 @@ MODULES: dict[str, dict] = {
             ('s.invoice_index_shared, judged, s.invoice_rounding == "page")',
              's.invoice_index_shared, judged, s.invoice_rounding >= "page")',
              'only "exact" and "page" get there (Settings checks it), and "exact" sorts before "page"'),
+            ('parts = tuple(("" if i == 0 else p.name, p.speed, rule.split(parties, i).per_page)',
+             'parts = tuple(("" if i <= 0 else p.name, p.speed, rule.split(parties, i).per_page)',
+             "i counts from 0 (enumerate), so it is at most 0 only when it is 0"),
         ],
     },
     "courthouses.queens_supreme_civil.billing": {
@@ -151,6 +154,20 @@ MODULES: dict[str, dict] = {
              "billed is a firm at the highest rank, so no firm's is above it"),
             ("if all(p.rank == billed.rank for p in parties):", "if all(p.rank >= billed.rank for p in parties):",
              "billed is a firm at the highest rank, so no firm's is above it"),
+        ],
+    },
+    "firm_marks": {
+        "tests": ["tests/test_firm_marks.py"],
+        "equivalent": [
+            ("if cut == firm:", "if cut >= firm:",
+             "cut is firm with an ending taken off its end, so it is firm or shorter, and a string sorts after "
+             "none of its own beginnings"),
+            ("@dataclass(frozen=True)", "@dataclass(frozen=False)",
+             "frozen only stops a Mark from being changed and makes it hashable; nothing does either"),
+            ("if side_ == PLAINTIFF:", "if side_ >= PLAINTIFF:",
+             'a side is "plaintiff", "defense" or "other" (side), and only "plaintiff" sorts from "plaintiff" on'),
+            ("if side_ == DEFENSE:", "if side_ <= DEFENSE:",
+             '"plaintiff" has returned above, and "other" sorts after "defense"'),
         ],
     },
 }
