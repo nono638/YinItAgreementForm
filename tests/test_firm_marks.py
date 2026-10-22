@@ -68,23 +68,29 @@ def test_a_firm_keeps_its_mark_on_every_day_of_the_trial():
             d2.case.attorneys[0].key(): "B", d2.case.attorneys[1].key(): "A", d2.case.attorneys[2].key(): "1"}
 
 
-@pytest.mark.parametrize("dark", [False, True])
-def test_the_colours_are_the_sides_and_read_in_either_theme(qt, dark):
-    from minute_filler.gui.badges import background, badge_html, badge_icon, tag_color
+def test_the_colours_are_the_sides_and_never_the_amber_of_a_field_to_check(qt):
+    """Oranges for the plaintiffs, blues for the defense, the next firm of a side in another colour; none of them
+    the amber the window marks a field to check with (the user, 2026-10-22: a pale orange shade read as one)."""
+    from minute_filler.gui.badges import SHADES, badge_html, badge_icon, tag_color
+    from minute_filler.gui.theme import DARK, LIGHT
     plaintiff, defense = Mark("1", PLAINTIFF, 0), Mark("A", DEFENSE, 0)
     assert tag_color(plaintiff).hue() in range(15, 45)  # (orange)
     assert tag_color(defense).hue() in range(190, 240)  # (blue)
-    assert background(Mark("1", PLAINTIFF, 0), dark) != background(Mark("2", PLAINTIFF, 1), dark)
-    light = background(plaintiff, dark).lightness()
-    assert (light < 100) if dark else (light > 170)  # (light text on a deep shade; dark text on a pale one)
+    assert tag_color(Mark("1", PLAINTIFF, 0)) != tag_color(Mark("2", PLAINTIFF, 1))
+    ambers = {LIGHT["review"].lower(), DARK["review"].lower(), "#b45309", "#f59e0b", "#fcd34d", "#fde68a"}
+    assert not ambers & {c.lower() for row in SHADES.values() for c in row}
     assert not badge_icon(Mark("001", OTHER, 0)).isNull()
-    assert "&nbsp;A&nbsp;" in badge_html(defense, "Counsel & Counsel", dark) and "Counsel &amp; Counsel" in \
-        badge_html(defense, "Counsel & Counsel", dark)
-    assert badge_html(None, "A & B", dark) == "A &amp; B"
+    assert "&nbsp;A&nbsp;" in badge_html(defense, "Counsel & Counsel") and "Counsel &amp; Counsel" in \
+        badge_html(defense, "Counsel & Counsel")
+    assert "background-color" not in badge_html(defense, "Counsel & Counsel").split("</span>", 1)[1]
+    assert badge_html(None, "A & B") == "A &amp; B"
 
 
 def test_the_window_marks_each_firm_in_its_tables(qt, tmp_path, monkeypatch, make_window):
-    """The attorney table and Who ordered what: each firm's tag beside its name and its shade behind it."""
+    """The attorney table and Who ordered what: each firm's tag beside its name and a stripe of its colour at the
+    name's left edge, no shade behind it; Who pays what: its tag and a stripe."""
+    from PySide6.QtCore import Qt
+    from minute_filler.gui.badges import STRIPE_ROLE, StripeDelegate
     from helpers import pat_settings
     from test_sweep_270 import one_day
     monkeypatch.setattr(qt.QMessageBox, "exec", lambda self: 0)
@@ -98,7 +104,13 @@ def test_the_window_marks_each_firm_in_its_tables(qt, tmp_path, monkeypatch, mak
     win._show_attorneys()
     win._update_status()
     assert not win.att.item(0, 1).icon().isNull() and not win.att.item(1, 1).icon().isNull()
-    assert win.att.item(0, 1).background().color() != win.att.item(1, 1).background().color()
+    stripes = [win.att.item(r, 1).data(STRIPE_ROLE) for r in (0, 1)]
+    assert all(stripes) and stripes[0] != stripes[1]
+    assert all(win.att.item(r, c).background().style() == Qt.NoBrush for r in (0, 1) for c in (1, 2))
+    assert isinstance(win.att.itemDelegateForColumn(1), StripeDelegate)
+    assert isinstance(win.orders.itemDelegateForColumn(1), StripeDelegate)
     names = {win.orders.item(r, 1).text(): win.orders.item(r, 1) for r in range(win.orders.rowCount())}
     assert not names["Dana Smith"].icon().isNull() and not names["Alex B. Counsel"].icon().isNull()
+    assert names["Dana Smith"].data(STRIPE_ROLE) == stripes[0] and names["Dana Smith"].background().style() == Qt.NoBrush
     assert "&nbsp;1&nbsp;" in win.pays.text() and "&nbsp;A&nbsp;" in win.pays.text()
+    assert f"bgcolor='{stripes[0]}'" in win.pays.text()

@@ -1,51 +1,41 @@
-"""How a firm's mark (firm_marks.Mark: '1', 'A', '001') looks in the window: a small tag in its side's strong colour
-with the badge in white (badge_icon, beside the firm's name in a table; badge_html in rich text), and a pale
-shade of the same colour behind the name (background). Plaintiffs' firms in oranges, the defense in blues, the
-others in grey-greens (the user, 2026-10-21): orange against blue stays apart for the commoner colour blindness;
-the firms of one side are told apart by their badges, their shades only helping. Each colour has a light and a
-dark theme version: a pale shade under dark text, a deep one under light text."""
+"""How a firm's mark (firm_marks.Mark: '1', 'A', '001') looks in the window: a small tag in its side's colour with
+the badge in white (badge_icon, beside the firm's name in a table; badge_html in rich text), and in a table a thin
+stripe of the same colour at the left edge of the name (StripeDelegate, STRIPE_ROLE). Plaintiffs' firms in
+oranges, the defense in blues, the others in grey-greens (the user, 2026-10-21): orange against blue stays apart
+for the commoner colour blindness; the firms of one side are told apart by their badges, their colours only
+helping. No shade behind the name (the user, 2026-10-22): a pale orange there read as the amber of a field to
+check, so the colour is only in the tag and the stripe, and none of the oranges is that amber. The colours are
+the same in both themes (white text on them reads in either)."""
 from __future__ import annotations
 
 import html
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
 
 from ..firm_marks import DEFENSE, PLAINTIFF, Mark
 
-# by side, for each shade: (behind the name, light theme; behind the name, dark theme; the tag)
+# by side, the firms' colours in turn (Mark.shade): a bright and a deep one in turn, so the next firm differs
 SHADES = {
-    PLAINTIFF: [("#fed7aa", "#7c2d12", "#ea580c"), ("#fde68a", "#78350f", "#b45309"),
-                ("#fdba74", "#9a3412", "#c2410c"), ("#fcd34d", "#92400e", "#d97706")],
-    DEFENSE: [("#bfdbfe", "#1e3a8a", "#2563eb"), ("#a5f3fc", "#164e63", "#0e7490"),
-              ("#c7d2fe", "#312e81", "#4f46e5"), ("#93c5fd", "#1e40af", "#1d4ed8")],
-    "other": [("#d1fae5", "#064e3b", "#047857"), ("#e5e7eb", "#374151", "#4b5563"),
-              ("#bbf7d0", "#14532d", "#15803d")],
+    PLAINTIFF: ["#ea580c", "#9a3412", "#c2410c", "#7c2d12"],
+    DEFENSE: ["#2563eb", "#0e7490", "#4f46e5", "#1e40af"],
+    "other": ["#047857", "#4b5563", "#15803d"],
 }
 
-
 TAG_HEIGHT = 18  # a tag's height in a table, before zoom (zoom.z): its badge has to read at a glance
-
-
-def _shade(mark: Mark) -> tuple[str, str, str]:
-    row = SHADES.get(mark.side, SHADES["other"])
-    return row[mark.shade % len(row)]
-
-
-def background(mark: Mark, dark: bool) -> QColor:
-    """The shade behind the firm's name, in the light or the dark theme."""
-    light, deep, _ = _shade(mark)
-    return QColor(deep if dark else light)
+STRIPE_ROLE = Qt.UserRole + 7  # a table cell's stripe colour ("#ea580c"), drawn by StripeDelegate
 
 
 def tag_color(mark: Mark) -> QColor:
-    """The colour of the firm's tag (the same in both themes: white text on it reads in either)."""
-    return QColor(_shade(mark)[2])
+    """The colour of the firm's tag and stripe."""
+    row = SHADES.get(mark.side, SHADES["other"])
+    return QColor(row[mark.shade % len(row)])
 
 
 def badge_icon(mark: Mark, height: int = TAG_HEIGHT) -> QIcon:
-    """The firm's tag: its badge in white bold on a rounded rectangle of its tag colour, as wide as the badge
-    needs ('001' wider than '1'). The view showing it needs an icon size as wide (badge_size)."""
+    """The firm's tag: its badge in white bold on a rounded rectangle of its colour, as wide as the badge needs
+    ('001' wider than '1'). The view showing it needs an icon size as wide (badge_size)."""
     w, h = badge_size(height)
     pix = QPixmap(w, h)
     pix.fill(Qt.transparent)
@@ -71,11 +61,35 @@ def badge_size(height: int = TAG_HEIGHT) -> tuple[int, int]:
     return int(height * 2.2), height
 
 
-def badge_html(mark: Mark | None, name: str, dark: bool) -> str:
-    """A firm's name in rich text with its tag before it and its shade behind it ('Dana Smith' with a blue 'A');
-    just the name (escaped) without a mark."""
+def badge_html(mark: Mark | None, name: str) -> str:
+    """A firm's name in rich text with its tag before it ('Dana Smith' after a blue 'A'); just the name (escaped)
+    without a mark."""
     if mark is None:
         return html.escape(name)
     return (f"<span style='background-color:{tag_color(mark).name()}; color:white'><b>&nbsp;"
-            f"{html.escape(mark.badge)}&nbsp;</b></span>&nbsp;<span style='background-color:"
-            f"{background(mark, dark).name()}'>{html.escape(name)}</span>")
+            f"{html.escape(mark.badge)}&nbsp;</b></span>&nbsp;{html.escape(name)}")
+
+
+def stripe_width(option: QStyleOptionViewItem) -> int:
+    """How wide a stripe is: a quarter of the text's height (it follows the zoom), 3 pixels at least."""
+    return max(3, option.fontMetrics.height() // 4)
+
+
+class StripeDelegate(QStyledItemDelegate):
+    """Draws a cell as usual, moved right to make room for a stripe of the colour in its STRIPE_ROLE at its left
+    edge (a firm's colour, by its name); a cell without one as usual."""
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        color = index.data(STRIPE_ROLE)
+        if not color:
+            super().paint(painter, option, index)
+            return
+        w = stripe_width(option)
+        moved = QStyleOptionViewItem(option)
+        moved.rect = option.rect.adjusted(w, 0, 0, 0)
+        super().paint(painter, moved, index)
+        painter.fillRect(QRect(option.rect.left(), option.rect.top(), w, option.rect.height()), QColor(color))
+
+    def sizeHint(self, option: QStyleOptionViewItem, index) -> QSize:
+        size = super().sizeHint(option, index)
+        return size + QSize(stripe_width(option), 0) if index.data(STRIPE_ROLE) else size

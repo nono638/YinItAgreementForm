@@ -98,8 +98,8 @@ from ..courthouses.base import resolve
 from ..settings import LOCAL, OUTPUTS, Settings
 from .dialogs import ClarifyDialog, RunSheetDialog, SettingsDialog
 from .help_window import help_topic_of, open_help
-from .badges import TAG_HEIGHT, background as mark_background, badge_icon, badge_size
-from .theme import apply_theme, is_dark
+from .badges import STRIPE_ROLE, TAG_HEIGHT, StripeDelegate, badge_icon, badge_size, tag_color
+from .theme import apply_theme
 from .widgets import (ASSETS, ClickLabel, ElidedLabel, QuietCombo, open_path, open_url, plural, refill_combo, repolish,
                       round_corners, rounded, set_checks, show_save_error)
 from .workers import Runner
@@ -423,7 +423,7 @@ def _file_mark(path: Path) -> tuple | None:
 
 
 def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str = "", own: str = "copy",
-              firm_speeds: bool = False, marks: dict | None = None, dark: bool = False) -> str:
+              firm_speeds: bool = False, marks: dict | None = None) -> str:
     """The "Who pays what" card as rich text: the minute agreement form's one speed and rate, then a row per
     invoice: the firm, its pages, how it ordered them and what it pays at each speed the invoice offers
     ("$408.50 ($3.40/pg)"; the agreement form's speed marked "(form)" when there are several), what a page of
@@ -432,7 +432,7 @@ def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str =
     (the speed its firm ordered: a split order commits to one), a Speed and an Amount column instead.
     rows: invoice_math.who_pays; days: how many days the invoices cover (Generate all); firm_speeds: some firms
     have a speed of their own (Job.speeds), which their agreements name; marks: each firm's mark by its key
-    (batch.trial_marks), shown as its tag and shade (badges.badge_html; dark: the dark theme's)."""
+    (batch.trial_marks), shown as its tag (badges.badge_html) and a stripe of its colour at the row's left edge."""
     from .badges import badge_html
     import html
     from ..invoice_calc import fmt
@@ -452,16 +452,18 @@ def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str =
     heads = ["Firm", "Pages", "How it ordered them"] + (["Speed", "Amount"] if single else [
         html.escape(sp) + (" (form)" if len(speeds) > 1 and speed_key(sp) == form else "") for sp in speeds])
     table = ["<table cellspacing='0' cellpadding='3'>",
-             "<tr>" + "".join(f"<th align='left'>{h}&nbsp;&nbsp;</th>" for h in heads) + "</tr>"]
+             "<tr><th width='4'></th>" + "".join(f"<th align='left'>{h}&nbsp;&nbsp;</th>" for h in heads) + "</tr>"]
     for r in rows:
-        cells = [badge_html((marks or {}).get(r.key), r.name, dark), f"{r.pages:,}", html.escape(r.how)]
+        mark = (marks or {}).get(r.key)
+        stripe = f" bgcolor='{tag_color(mark).name()}'" if mark is not None else ""
+        cells = [badge_html(mark, r.name), f"{r.pages:,}", html.escape(r.how)]
         if single:
             sp, pays, each = r.prices[0]
             cells += [html.escape(sp), f"{fmt(pays)} ({fmt(each)}/pg)"]
         else:
             got = {sp: (pays, each) for sp, pays, each in r.prices}
             cells += [f"{fmt(got[sp][0])} ({fmt(got[sp][1])}/pg)" if sp in got else "—" for sp in speeds]
-        table.append("<tr>" + "".join(f"<td>{c}&nbsp;&nbsp;</td>" for c in cells) + "</tr>")
+        table.append(f"<tr><td width='4'{stripe}></td>" + "".join(f"<td>{c}&nbsp;&nbsp;</td>" for c in cells) + "</tr>")
     table.append("</table>")
     out.append("".join(table))
     if rates:
@@ -1463,7 +1465,8 @@ class MainWindow(QMainWindow):
             self.att.setColumnHidden(i, True)
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.Stretch)
-        self.att.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (each firm's tag: _mark_items)
+        self.att.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (each firm's tag and stripe: _mark_row)
+        self.att.setItemDelegateForColumn(1, StripeDelegate(self.att))
         sized(self.att, "setMinimumHeight", 150)
         self.att.itemChanged.connect(self._att_changed)
         self.att.currentCellChanged.connect(lambda *_: self._show_att_details())
@@ -1664,7 +1667,8 @@ class MainWindow(QMainWindow):
         self.orders.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.orders.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.orders.setWordWrap(True)
-        self.orders.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (each firm's tag: _mark_items)
+        self.orders.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (each firm's tag and stripe: _mark_row)
+        self.orders.setItemDelegateForColumn(1, StripeDelegate(self.orders))
         # (not the last section stretched: squeezed into what was left, "Your pages billed" lost its heading; it
         # is widened to fill the card instead, when there is room: _show_orders)
         self.orders.horizontalHeader().setStretchLastSection(False)
@@ -3321,8 +3325,7 @@ class MainWindow(QMainWindow):
         marks = self._marks(self.cur)
         for a in self.case.attorneys:
             self._append_att(a)
-            self._mark_items(marks.get(a.key()), self.att.item(self.att.rowCount() - 1, 1),
-                             self.att.item(self.att.rowCount() - 1, 2))
+            self._mark_row(self.att, self.att.rowCount() - 1, marks.get(a.key()))
         self.att.resizeRowsToContents()
         if row >= 0 and self.att.rowCount():  # (none selected before: none now, so Remove selected removes nothing)
             self.att.setCurrentCell(min(row, self.att.rowCount() - 1), 1)
@@ -3342,16 +3345,15 @@ class MainWindow(QMainWindow):
             log_error("could not mark the firms", e)
             return {}
 
-    def _mark_items(self, mark, first: QTableWidgetItem | None, *more: QTableWidgetItem | None) -> None:
-        """A firm's mark on table cells: its tag beside the first's text, its shade behind them all (badges);
-        nothing without a mark."""
-        if mark is None or first is None:
+    def _mark_row(self, table: QTableWidget, row: int, mark) -> None:
+        """A firm's mark on its row of a table (the attorneys', Who ordered what's): its tag beside its name
+        (column 1) and a stripe of its colour at the name's left edge (badges.StripeDelegate); nothing without a
+        mark. No shade behind the row: it read as the amber of a field to check (the user, 2026-10-22)."""
+        item = table.item(row, 1)
+        if mark is None or item is None:
             return
-        first.setIcon(badge_icon(mark, z(TAG_HEIGHT)))
-        shade = mark_background(mark, is_dark(self.s.theme))
-        for it in (first, *more):
-            if it is not None:
-                it.setBackground(shade)
+        item.setIcon(badge_icon(mark, z(TAG_HEIGHT)))
+        item.setData(STRIPE_ROLE, tag_color(mark).name())
 
     def _append_att(self, a: Attorney):
         """Adds a table row for one attorney. Address lines show joined by " / "; a placeholder row is greyed."""
@@ -3630,7 +3632,7 @@ class MainWindow(QMainWindow):
         for job in dict.fromkeys(a.job for a in asks):
             marks.update(self._marks(job))
         dlg = SplitSpeedsDialog(asks, [(sp.label(), sp.name) for sp in self.s.sheet().speeds], button, self,
-                                marks, is_dark(self.s.theme))
+                                marks)
         if dlg.exec() != SplitSpeedsDialog.Accepted or self._batch_running():
             return False
         from ..extract_regex import same_entry
@@ -5843,7 +5845,7 @@ class MainWindow(QMainWindow):
             text = _pay_html(who_pays(firms), self.case.get("delivery"), self.case.get("rate"), days,
                              page_rates(firms), _own_words(firms, self.s),
                              any(j.speeds or j.ordered_speeds() for j in self._invoice_group()),
-                             self._marks(job), is_dark(self.s.theme))
+                             self._marks(job))
         else:
             why = self.inv_info.text() or "Nothing to bill yet."
             text = html.escape(why).replace("\n", "<br>")
@@ -6046,7 +6048,7 @@ class MainWindow(QMainWindow):
                 t.setItem(r, c, it)
             if not line.note and line.key:
                 t.setCellWidget(r, ORDER_SPEED, self._speed_box(j, line.key))
-            self._mark_items(marks.get(line.key), t.item(r, 1))
+            self._mark_row(t, r, marks.get(line.key))
         t.resizeColumnsToContents()
         for c in range(2, len(ORDER_COLS)):  # long notes wrap instead of making the table wider than the card
             t.setColumnWidth(c, min(t.columnWidth(c), z(320)))

@@ -298,6 +298,10 @@ represents. A firm is one party: one agreement and one invoice, however many of 
 from one of its attorneys, or the same firm on another day's transcript, joins its row.</p>
 <p>Click a row to see and change all its details under the table: address (one line per line), phone, fax and
 e-mail.</p>
+<p><b>Each firm has a tag</b>, as court exhibits do: the plaintiffs' firms <b>1</b>, <b>2</b>, <b>3</b> in oranges, the
+defense firms <b>A</b>, <b>B</b>, <b>C</b> in blues, any others <b>001</b>, <b>002</b>, with a thin stripe of its colour
+at the left of its name. A firm keeps its tag on every day of a trial, here, in Who ordered what, Who pays what and
+Excerpts…, so you can tell the firms apart at a glance.</p>
 <p>Two rows that may be one firm are asked about (<a href="topic:check-same-firm">more</a>).</p>
 """),
     T("check-same-firm", CHECK, "Are these one firm?", "same firm not the same duplicate merge join forget remember "

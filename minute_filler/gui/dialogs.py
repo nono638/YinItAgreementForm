@@ -1471,10 +1471,10 @@ class SplitSpeedsDialog(QDialog):
     makes nothing."""
 
     def __init__(self, asks: list, speeds: list[tuple[str, str]], button: str = "Generate", parent=None,
-                 marks: dict | None = None, dark: bool = False):
+                 marks: dict | None = None):
         """asks: batch.SpeedAsk each; speeds: the rate sheet's, (label, name) each, cheapest first; button: the
         button pressed ("Generate", "Generate all"), named on OK ("Generate all with these speeds"); marks: each
-        firm's mark by its key (batch.trial_marks), its tag and shade before its name (dark: the dark theme's)."""
+        firm's mark by its key (batch.trial_marks), its tag before its name."""
         from .badges import badge_html
         super().__init__(parent)
         self.setWindowTitle("Which speed did each firm order?")
@@ -1509,7 +1509,7 @@ class SplitSpeedsDialog(QDialog):
                 lab.setTextFormat(Qt.PlainText)
                 if c == 1 and (marks or {}).get(a.key) is not None:
                     lab.setTextFormat(Qt.RichText)
-                    lab.setText(badge_html(marks[a.key], text, dark))
+                    lab.setText(badge_html(marks[a.key], text))
                 lab.setWordWrap(True)
                 grid.addWidget(lab, r, c)
             cb = QComboBox()
