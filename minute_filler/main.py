@@ -150,7 +150,7 @@ def selftest(out_dir: str, files: list[str]) -> int:
         report["tick_marks"] = f"{type(e).__name__}: {e}"
     for f in files:
         try:
-            case = merge([RegexExtractor(s.profile).extract(ingest_file(f))], s)
+            case = merge([RegexExtractor(s.profile, index_patterns_=s.index_patterns).extract(ingest_file(f))], s)
             pdfs = []
             for choice in ("ucs", "clean", "original"):
                 s.form_choice = choice

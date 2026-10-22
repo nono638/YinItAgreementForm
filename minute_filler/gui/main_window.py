@@ -66,7 +66,7 @@ from datetime import MAXYEAR, MINYEAR, date, timedelta
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QEvent, QPoint, QRect, QSignalBlocker, QStringListModel, Qt, QThreadPool, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QPoint, QRect, QSignalBlocker, QSize, QStringListModel, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QActionGroup, QColor, QKeySequence, QMovie, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemDelegate, QAbstractItemView, QApplication, QBoxLayout, QCheckBox, QComboBox, QCompleter, QFileDialog,
@@ -77,7 +77,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import log as logfile
-from ..log import log
+from ..log import error as log_error, log
 from ..batch import (BATCH_EXT, HELD, MISMATCH_LEAD, NOT_INVOICED, Doc, Job, case_folders, case_reporters, expand_paths,
                      files_to_make, fill_jobs, firm_questions, group, ident, index_number_text, input_folders,
                      billed_split_rule, job_from_origin, job_origin, join_entries, out_dir_for, read_loaders,
@@ -97,7 +97,8 @@ from ..courthouses.base import resolve
 from ..settings import LOCAL, OUTPUTS, Settings
 from .dialogs import ClarifyDialog, RunSheetDialog, SettingsDialog
 from .help_window import help_topic_of, open_help
-from .theme import apply_theme
+from .badges import TAG_HEIGHT, background as mark_background, badge_icon, badge_size
+from .theme import apply_theme, is_dark
 from .widgets import (ASSETS, ClickLabel, ElidedLabel, QuietCombo, open_path, open_url, plural, refill_combo, repolish,
                       round_corners, rounded, set_checks, show_save_error)
 from .workers import Runner
@@ -112,6 +113,61 @@ ATT_FIELDS = [None, "name", "firm", "address", "phone", "fax", "email", "party",
 ORDER_COLS = ["Day", "Attorney", "Pages ordered", "Speed", "Printed page numbers", "Also ordered",
               "Your pages billed"]
 ORDER_SPEED = ORDER_COLS.index("Speed")  # (a box to choose it in, see _speed_box)
+TAKE_COLS = ["Day", "Reporter", "Printed pages", "Pages", "Witnesses"]  # the Who transcribed what card
+TAKES_NOTE = ("For the full record of each take (kept and added to day after day), tick Run sheet and Generate: "
+              "the trial's run sheet, an Excel workbook.")
+
+
+def take_cells(row) -> list[str]:
+    """A take (runsheet.Row) as the Who transcribed what card shows it: '6/3/2026', 'Pat Reporter', 'pp. 241–309',
+    '69', 'Jane Roe took the stand; Jane Roe stepped down'."""
+    day = f"{row.day.month}/{row.day.day}/{row.day.year}" if row.day else ""
+    pages = (f"pp. {row.start}–{row.end()}" if row.end() is not None and row.end() != row.start else
+             f"p. {row.start}" if row.start is not None else "")
+    said = [f"{row.witness_start} took the stand"] if row.witness_start else []
+    said += [f"{row.witness_end} stepped down"] if row.witness_end else []
+    return [day, row.reporter or "(initials not found)", pages, str(row.pages or 0), "; ".join(said)]
+
+
+def reporter_totals(rows) -> str:
+    """What each reporter wrote of these takes, most first: 'Pat Reporter 144 pp. · DS 76 pp.'."""
+    by: dict[str, int] = {}
+    for row in rows:
+        who = row.reporter or "(initials not found)"
+        by[who] = by.get(who, 0) + (row.pages or 0)
+    return " · ".join(f"{who} {n:,} pp." for who, n in sorted(by.items(), key=lambda x: -x[1]))
+
+
+def save_takes(rows, path: Path, csv_file: bool = False) -> Path:
+    """The Who transcribed what table (take_cells, then each reporter's total) saved at path: an Excel workbook,
+    or a CSV file (csv_file). Returns the path written."""
+    table = [TAKE_COLS] + [take_cells(r) for r in rows] + [[], ["Each reporter", reporter_totals(rows)]]
+    path = Path(path)
+    if csv_file:
+        import csv
+        path = path.with_suffix(".csv")
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            csv.writer(f).writerows(table)
+        return path
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Who transcribed what"
+    for line in table:
+        ws.append([int(x) if x.isdigit() and line is not table[0] else x for x in line])
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for col, width in zip("ABCDE", (12, 24, 18, 8, 60)):
+        ws.column_dimensions[col].width = width
+    path = path.with_suffix(".xlsx")
+    wb.save(path)
+    return path
+# The Invoice panel's Speeds offered while firms' speeds are chosen in Who ordered what (_speeds_locked)
+SPEEDS_LOCKED_TIP = ("Speeds are chosen for the firms in Who ordered what: these boxes only list speeds for a firm "
+                     "that chooses from its invoice.")
+SPEEDS_LOCKED_ASK = ("You already chose speeds in Who ordered what.\n\nAre you sure you want to change the speeds "
+                     "offered on invoices?")
 ORDER_TIPS = {  # the headings' tooltips
     "Pages ordered": "The pages of the day this attorney ordered: every page, or an excerpt (Excerpts…)",
     "Speed": "The speed this attorney ordered its pages of the day at. Firms that ordered the same pages commit "
@@ -155,7 +211,7 @@ DETAIL_KEYS = ("delivery", "rate", "copies", "est_pages", "delivery_date", "agre
 # The help topic F1 opens for each part of the window (help_window.help_topic_of: the focused widget's, else the
 # nearest parent's): the cards, a few fields, the Outputs box's panels, the job list and the drop zone.
 CARD_TOPICS = {"case": "check-badges", "details": "inv-speeds", "attorneys": "check-attorneys",
-               "pays": "inv-who-pays", "orders": "inv-who-ordered"}
+               "pays": "inv-who-pays", "orders": "inv-who-ordered", "takes": "run-who-transcribed"}
 FIELD_TOPICS = {"index_no": "check-index", "est_pages": "check-pages", "copies": "check-copies",
                 "delivery_date": "dates-turnaround", "agreement_date": "dates-business-days"}
 OUTPUT_TOPICS = {"agreement": "make-agreement", "invoice": "inv-panel", "mofr": "make-mofr",
@@ -366,7 +422,7 @@ def _file_mark(path: Path) -> tuple | None:
 
 
 def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str = "", own: str = "copy",
-              firm_speeds: bool = False) -> str:
+              firm_speeds: bool = False, marks: dict | None = None, dark: bool = False) -> str:
     """The "Who pays what" card as rich text: the minute agreement form's one speed and rate, then a row per
     invoice: the firm, its pages, how it ordered them and what it pays at each speed the invoice offers
     ("$408.50 ($3.40/pg)"; the agreement form's speed marked "(form)" when there are several), what a page of
@@ -374,7 +430,9 @@ def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str =
     (own: "copy, e-mailed copy and index"), and a link to the whole math. When every invoice bills one speed
     (the speed its firm ordered: a split order commits to one), a Speed and an Amount column instead.
     rows: invoice_math.who_pays; days: how many days the invoices cover (Generate all); firm_speeds: some firms
-    have a speed of their own (Job.speeds), which their agreements name."""
+    have a speed of their own (Job.speeds), which their agreements name; marks: each firm's mark by its key
+    (batch.trial_marks), shown as its tag and shade (badges.badge_html; dark: the dark theme's)."""
+    from .badges import badge_html
     import html
     from ..invoice_calc import fmt
     from ..rates import speed_key
@@ -395,7 +453,7 @@ def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str =
     table = ["<table cellspacing='0' cellpadding='3'>",
              "<tr>" + "".join(f"<th align='left'>{h}&nbsp;&nbsp;</th>" for h in heads) + "</tr>"]
     for r in rows:
-        cells = [html.escape(r.name), f"{r.pages:,}", html.escape(r.how)]
+        cells = [badge_html((marks or {}).get(r.key), r.name, dark), f"{r.pages:,}", html.escape(r.how)]
         if single:
             sp, pays, each = r.prices[0]
             cells += [html.escape(sp), f"{fmt(pays)} ({fmt(each)}/pg)"]
@@ -1526,6 +1584,7 @@ class MainWindow(QMainWindow):
             self.att.setColumnHidden(i, True)
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.att.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (each firm's tag: _mark_items)
         sized(self.att, "setMinimumHeight", 150)
         self.att.itemChanged.connect(self._att_changed)
         self.att.currentCellChanged.connect(lambda *_: self._show_att_details())
@@ -1619,7 +1678,10 @@ class MainWindow(QMainWindow):
         self.orders.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.orders.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.orders.setWordWrap(True)
-        self.orders.horizontalHeader().setStretchLastSection(True)
+        self.orders.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (each firm's tag: _mark_items)
+        # (not the last section stretched: squeezed into what was left, "Your pages billed" lost its heading; it
+        # is widened to fill the card instead, when there is room: _show_orders)
+        self.orders.horizontalHeader().setStretchLastSection(False)
         self.orders.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # as tall as its rows (see _show_orders)
         self.orders.setToolTip("Double-click a row to open Excerpts… at that day (who ordered which pages of the "
                                "case)")
@@ -1629,6 +1691,36 @@ class MainWindow(QMainWindow):
         cl.addWidget(self.orders)
         self.orders_card.setVisible(False)
         rl.addWidget(self.orders_card)
+
+        # Who transcribed what: each reporter's pages of every day of the trial, from the initials on its pages
+        # (the user, 2026-10-21: to review in the window, and save; the run sheet has every take in full)
+        self.takes_card, cl = folding("Who transcribed what", "takes")
+        self.takes_info = QLabel("")
+        self.takes_info.setObjectName("muted")
+        self.takes_info.setWordWrap(True)
+        cl.addWidget(self.takes_info)
+        self.takes = QTableWidget(0, len(TAKE_COLS))
+        self.takes.setHorizontalHeaderLabels(TAKE_COLS)
+        self.takes.verticalHeader().setVisible(False)
+        self.takes.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.takes.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.takes.setWordWrap(True)
+        self.takes.horizontalHeader().setStretchLastSection(True)
+        self.takes.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # as tall as its rows (_show_takes)
+        cl.addWidget(self.takes)
+        foot_row = QHBoxLayout()
+        self.takes_note = QLabel(TAKES_NOTE)
+        self.takes_note.setObjectName("muted")
+        self.takes_note.setWordWrap(True)
+        foot_row.addWidget(self.takes_note, 1)
+        self.takes_save = QPushButton("Save a copy…")
+        self.takes_save.setToolTip("This table as an Excel workbook or a CSV file, where you choose")
+        self.takes_save.clicked.connect(self._save_takes)
+        foot_row.addWidget(self.takes_save, 0, Qt.AlignTop)
+        cl.addLayout(foot_row)
+        self._take_rows: list = []  # the takes shown (batch.trial_takes), for Save a copy...
+        self.takes_card.setVisible(False)
+        rl.addWidget(self.takes_card)
         rl.addStretch(1)
 
         # footer: the Outputs box - the Generate buttons by its title, then a column per output with its own options;
@@ -3222,13 +3314,40 @@ class MainWindow(QMainWindow):
         row = self.att.currentRow()
         self.att.blockSignals(True)
         self.att.setRowCount(0)
+        marks = self._marks(self.cur)
         for a in self.case.attorneys:
             self._append_att(a)
+            self._mark_items(marks.get(a.key()), self.att.item(self.att.rowCount() - 1, 1),
+                             self.att.item(self.att.rowCount() - 1, 2))
         self.att.resizeRowsToContents()
         if row >= 0 and self.att.rowCount():  # (none selected before: none now, so Remove selected removes nothing)
             self.att.setCurrentCell(min(row, self.att.rowCount() - 1), 1)
         self.att.blockSignals(False)
         self._show_att_details()
+
+    def _marks(self, job: Job | None) -> dict:
+        """The marks of the firms of job's trial, by Attorney.key() (batch.trial_marks: plaintiffs 1, 2, defense
+        A, B, others 001): the same on every day of it, so a firm is told apart at a glance wherever it is named
+        (the user, 2026-10-21)."""
+        from ..batch import trial_marks
+        if job is None:
+            return {}
+        try:
+            return trial_marks(job, self.jobs)
+        except Exception as e:  # (a mark is a help: never a reason for the window to fail)
+            log_error("could not mark the firms", e)
+            return {}
+
+    def _mark_items(self, mark, first: QTableWidgetItem | None, *more: QTableWidgetItem | None) -> None:
+        """A firm's mark on table cells: its tag beside the first's text, its shade behind them all (badges);
+        nothing without a mark."""
+        if mark is None or first is None:
+            return
+        first.setIcon(badge_icon(mark, z(TAG_HEIGHT)))
+        shade = mark_background(mark, is_dark(self.s.theme))
+        for it in (first, *more):
+            if it is not None:
+                it.setBackground(shade)
 
     def _append_att(self, a: Attorney):
         """Adds a table row for one attorney. Address lines show joined by " / "; a placeholder row is greyed."""
@@ -3502,7 +3621,11 @@ class MainWindow(QMainWindow):
         asks = speeds_to_ask(jobs, self.s)
         if not asks:
             return True
-        dlg = SplitSpeedsDialog(asks, [(sp.label(), sp.name) for sp in self.s.sheet().speeds], button, self)
+        marks = {}
+        for job in dict.fromkeys(a.job for a in asks):
+            marks.update(self._marks(job))
+        dlg = SplitSpeedsDialog(asks, [(sp.label(), sp.name) for sp in self.s.sheet().speeds], button, self,
+                                marks, is_dark(self.s.theme))
         if dlg.exec() != SplitSpeedsDialog.Accepted or self._batch_running():
             return False
         from ..extract_regex import same_entry
@@ -4264,7 +4387,8 @@ class MainWindow(QMainWindow):
         hold = job.invoice_hold() if "invoice" in outputs else ""
         if hold:
             self._fold_outputs(False)
-            return self._flash(self.inv_whose if hold.startswith("Whose pages") else self.inv_who)
+            return self._flash(self.inv_whose if hold.startswith("Whose pages") else
+                               self.inv_parties if job.unnamed_problem() else self.inv_who)
         from ..invoice import NO_INVOICE
         from ..runsheet import NO_RUNSHEET
         if NO_INVOICE in issues:
@@ -4538,6 +4662,7 @@ class MainWindow(QMainWindow):
             return
         case = job.case
         out_dir = out_dir_for(job, self.s)
+        self._note_trial_rules([job], fresh=True)  # (billed as an earlier invoice of the trial was, if any)
         opts, origin = job.invoice_sets(), job_origin(job)  # (the user's invoices, and other reporters' ticked)
         ordered = job.ordered_pages()  # each attorney's agreement: the pages it ordered, whoever wrote them
         speeds = job.ordered_speeds()  # and the speed(s) it ordered them at, where set
@@ -4691,11 +4816,15 @@ class MainWindow(QMainWindow):
             return outputs
         others = [o for o in outputs if o != "invoice"]
         title = "Excerpts… needs checking" if job.portions_problem() else "Whose pages to bill" \
-            if job.ownership_problem() else "The speeds need checking"
+            if job.ownership_problem() else "Parties needs checking" if job.unnamed_problem() \
+            else "The speeds need checking"
         if job.portions_problem():
             why = (f"{job.portions_check()}.\n\nNo invoice is made for this day until you check it: open "
                    "Excerpts… in the Invoice panel and tick who ordered which pages, or choose \"Remove this "
                    "day's excerpts\".")
+        elif job.unnamed_problem():  # parties not named, on pages ordered at different speeds
+            why = (f"{job.unnamed_problem()}.\n\nNo invoice is made for this day until every party is named or "
+                   "Parties is changed (the Parties box in the Invoice panel is lit up).")
         elif not job.ownership_problem():  # more speeds on the same pages than are billed for now
             why = (f"{job.invoice_hold()}.\n\nNo invoice is made for this day until you change a firm's speed "
                    "(Who ordered what, or Excerpts… for a run of pages).")
@@ -4704,13 +4833,23 @@ class MainWindow(QMainWindow):
                    "for this job until you choose whose pages to bill (Whose pages… in the Invoice panel).")
         if not others:
             QMessageBox.warning(self, title, why)
+            self._show_parties_problem(job)
             return []
-        if QMessageBox.question(self, title, why + "\n\nMake the other outputs without the invoice?") \
-                != QMessageBox.Yes:
+        answer = QMessageBox.question(self, title, why + "\n\nMake the other outputs without the invoice?")
+        self._show_parties_problem(job)
+        if answer != QMessageBox.Yes:
             return []
         if job not in self.jobs or self._batch_running():
             return []
         return others
+
+    def _show_parties_problem(self, job: Job) -> None:
+        """After the box saying the job's Parties number counts more parties than the firms named, who ordered at
+        different speeds (Job.unnamed_problem): the Parties box lights up for a few seconds, the job shown, so
+        the reporter sees what to change (the user, 2026-10-21). Nothing for another problem, or a job not shown."""
+        if job is self.cur and job.unnamed_problem():
+            self._fold_outputs(False)
+            self._flash(self.inv_parties, 4000)
 
     def _sheets_free(self, targets: list[str], button: str) -> bool:
         """Before anything is made: the run sheets the takes go on can be written. One open in another program
@@ -5545,6 +5684,7 @@ class MainWindow(QMainWindow):
         self._show_who_pays(*self._show_invoice_prices())  # (the invoices priced once for both)
         self._show_counts()
         self._show_orders()
+        self._show_takes()
         self._place_output_cols()  # the prices may need more room than the panels have
         self._update_header_buttons()
         self._sync_mini_outputs()
@@ -5563,6 +5703,7 @@ class MainWindow(QMainWindow):
         from ..batch import joint_invoice
         job = self.cur
         group = self._invoice_group()
+        self._note_trial_rules(group)  # (priced as an earlier invoice of the trial was, if there is one)
         case, opts = joint_invoice(group)
         split = job.portions is not None  # Excerpts... decides this day's parties (or needs checking)
         check = job.portions_check()
@@ -5577,7 +5718,8 @@ class MainWindow(QMainWindow):
         self.inv_who.setEnabled(not why or split)  # rows that need checking can always be opened, to fix them
         self.inv_who.setText("⚠ Excerpts…" if check else "✓ Excerpts…" if split else "Excerpts…")
         self.inv_who.setToolTip(check + "\n(click to check it)" if check else why or WHO_TIP.format(**_who_splits(self.s)))
-        owned = self._show_whose_pages(job)
+        owned = self._show_whose_pages(job, group)
+        self._show_speeds_lock()
         with QSignalBlocker(self.inv_detail):
             self.inv_detail.setChecked(job.invoice_detail)  # this job's own (Generate this job uses it)
         from ..batch import index_question, typed_days
@@ -5609,6 +5751,11 @@ class MainWindow(QMainWindow):
             self._warn(f"⚠ {job.invoice_hold()}")
             self.inv_info.setToolTip("No invoice is made for this day until a firm's speed is changed\n"
                                      "(Who ordered what, or Excerpts… for a run of pages).")
+            return None, 1
+        if job.unnamed_problem():  # parties not named at different speeds: nobody's share can be worked out
+            self._warn(f"⚠ {job.unnamed_problem()}")
+            self.inv_info.setToolTip("No invoice is made for this day until every party is named\n"
+                                     "(ticked in the attorney table, with its speed) or Parties is changed.")
             return None, 1
         from ..batch import group_problem
         held = group_problem(group)
@@ -5690,7 +5837,8 @@ class MainWindow(QMainWindow):
         if firms:
             text = _pay_html(who_pays(firms), self.case.get("delivery"), self.case.get("rate"), days,
                              page_rates(firms), _own_words(firms, self.s),
-                             any(j.speeds or j.ordered_speeds() for j in self._invoice_group()))
+                             any(j.speeds or j.ordered_speeds() for j in self._invoice_group()),
+                             self._marks(job), is_dark(self.s.theme))
         else:
             why = self.inv_info.text() or "Nothing to bill yet."
             text = html.escape(why).replace("\n", "<br>")
@@ -5717,7 +5865,8 @@ class MainWindow(QMainWindow):
         held = ""
         if shown and "invoice" in outputs and job.invoice_hold():  # (Generate asks first: see invoice_hold)
             held = "Excerpts… is checked" if job.portions_problem() else "Whose pages… is chosen" \
-                if job.ownership_problem() else "the speeds are checked"
+                if job.ownership_problem() else "Parties is checked" if job.unnamed_problem() \
+                else "the speeds are checked"
         for key, label in self.output_counts.items():
             on = key in outputs and (shown or everyone is not None)
             label.setText(_count_text(key, counts, everyone, held if key == "invoice" else "") if on else "")
@@ -5757,32 +5906,44 @@ class MainWindow(QMainWindow):
         self.pages_warn.setText(warning)
         self.pages_warn.setVisible(bool(warning))
 
-    def _show_whose_pages(self, job: Job) -> str:
+    def _show_whose_pages(self, job: Job, group: list[Job] | None = None) -> str:
         """The Invoice panel's Billed row, shown for a transcript of several reporters: "You wrote 65 of 153 total
         pages" (the whole transcripts' own pages, the word index left out; "Billing 153 of 153 total pages (chosen
         under Whose pages…)" when Whose pages... chose others, "The Pages field: 40 of 153 total pages" when typed),
-        and the Whose pages... button. Returns why the invoice is held until Whose pages... says ("" when it
-        isn't)."""
-        shared = job.shared_transcripts()
+        and the Whose pages... button. group: the days Generate all bills on one invoice with the job
+        (_invoice_group): the row is the whole invoice's, "One invoice for 3 days: you wrote 144 of 341 total
+        pages", a line per day in its tooltip, so it stays the same whichever of them is shown (the user,
+        2026-10-21: it said the day's pages, though the invoice is the days'). Returns why the invoice is held
+        until Whose pages... says ("" when it isn't): the job's own."""
+        days = list(group) if group and len(group) > 1 else [job]
+        shared = any(j.shared_transcripts() for j in days)
         held = job.ownership_problem()
         self.inv_form.setRowVisible(self.inv_pages_row, bool(shared or held))
         if not (shared or held):
             return ""
-        whole = job.transcript_pages()
-        mine = all(job.basis_of(d)[0] == "me" for d in job.transcripts())
+        whole = sum(j.transcript_pages() for j in days)
+        billed = sum(j.invoice_pages() for j in days)
+        mine = all(j.basis_of(d)[0] == "me" for j in days for d in j.transcripts())
         if held:
             text = "Whose pages?"
-        elif job.pages_typed():
-            text = f"The Pages field: {job.invoice_pages()} of {whole} total pages"
+        elif any(j.pages_typed() for j in days):
+            text = f"The Pages field: {billed} of {whole} total pages"
         elif mine:
-            text = f"You wrote {job.invoice_pages()} of {whole} total pages"
+            text = f"You wrote {billed} of {whole} total pages"
         else:
-            text = f"Billing {job.invoice_pages()} of {whole} total pages\n(chosen under Whose pages…)"
-        others = [r for r in job.bill_reporters() if r != "me"]
+            text = f"Billing {billed} of {whole} total pages\n(chosen under Whose pages…)"
+        if len(days) > 1 and not held:
+            text = f"One invoice for {len(days)} days: {text[0].lower()}{text[1:]}"
+        self.inv_pages_info.setToolTip("\n".join(
+            f"{j.case.get('dates') or j.title()}: {j.invoice_pages()} of {j.transcript_pages()} pages"
+            for j in days) if len(days) > 1 else "")
+        others = list(dict.fromkeys(r for j in days for r in j.bill_reporters() if r != "me"))
         if others and not held:  # invoices in other reporters' names too (Whose pages... ticked them)
-            if "me" not in job.bill_reporters():
+            if not any("me" in j.bill_reporters() for j in days):
                 text = "Not yours"
-            text += "\nalso " + ", ".join(f"{r.upper()}'s ({job.billed_by(r).invoice_pages()})" for r in others)
+            text += "\nalso " + ", ".join(
+                f"{r.upper()}'s ({sum(j.billed_by(r).invoice_pages() for j in days if r in j.bill_reporters())})"
+                for r in others)
             bare = [r.upper() for r in others if not self.s.reporter(r).has_details()]
             if bare:
                 text += f"\n⚠ no invoice details for {', '.join(bare)}: Settings → Run sheet → Invoices for"
@@ -5848,6 +6009,7 @@ class MainWindow(QMainWindow):
         none = "none of these pages are yours" if mine else "none of these pages are the ones billed"
         t = self.orders
         t.setRowCount(0)
+        marks = self._marks(job)
         for j, line in lines:
             r = t.rowCount()
             t.insertRow(r)
@@ -5879,9 +6041,13 @@ class MainWindow(QMainWindow):
                 t.setItem(r, c, it)
             if not line.note and line.key:
                 t.setCellWidget(r, ORDER_SPEED, self._speed_box(j, line.key))
+            self._mark_items(marks.get(line.key), t.item(r, 1))
         t.resizeColumnsToContents()
         for c in range(2, len(ORDER_COLS)):  # long notes wrap instead of making the table wider than the card
             t.setColumnWidth(c, min(t.columnWidth(c), z(320)))
+        last = len(ORDER_COLS) - 1  # (as wide as its heading at least, and to the card's edge when there's room)
+        room = t.viewport().width() - sum(t.columnWidth(c) for c in range(last))
+        t.setColumnWidth(last, max(t.columnWidth(last), t.horizontalHeader().sectionSizeHint(last), room))
         t.resizeRowsToContents()
         self._fit_orders_height()
         whose = bool(job.ownership_problem()) and not job.portions_problem()
@@ -5944,6 +6110,52 @@ class MainWindow(QMainWindow):
             return
         job.set_speed(key, speed)
         QTimer.singleShot(0, self._update_status)
+
+    def _show_takes(self) -> None:
+        """The Who transcribed what card: a row per take of every day of the trial shown (batch.trial_takes: the
+        day, the reporter, the printed pages, how many, the witnesses), and what each reporter wrote in all.
+        Shown while some day of it has a transcript."""
+        from ..batch import trial_takes
+        job = self.cur
+        try:
+            rows = trial_takes(job, self.jobs, self.s) if not job.is_empty() else []
+        except Exception as e:  # (a transcript that can't be read again must not break the window)
+            log_error("could not list who transcribed what", e)
+            rows = []
+        self._take_rows = rows
+        self.takes_card.setVisible(bool(rows))
+        if not rows:
+            return
+        t = self.takes
+        t.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for c, text in enumerate(take_cells(row)):
+                t.setItem(r, c, QTableWidgetItem(text))
+        t.resizeColumnsToContents()
+        t.resizeRowsToContents()
+        t.setFixedHeight(t.horizontalHeader().height() + sum(t.rowHeight(r) for r in range(t.rowCount())) + 4)
+        days = len({row.day for row in rows})
+        self.takes_info.setText(f"{'This day' if days == 1 else f'These {days} days'}: " + reporter_totals(rows))
+
+    def _save_takes(self) -> None:
+        """Save a copy...: the Who transcribed what table as an Excel workbook or a CSV file, where the user
+        chooses (in the records folder at first)."""
+        if not self._take_rows:
+            return
+        from ..pdfout import safe_filename
+        name = safe_filename(f"Who transcribed what - {self.cur.title() or 'trial'}") + ".xlsx"
+        path, chosen = QFileDialog.getSaveFileName(self, "Save who transcribed what",
+                                                   str(self.s.records_folder() / name),
+                                                   "Excel workbook (*.xlsx);;CSV file (*.csv)")
+        if not path:
+            return
+        try:
+            out = save_takes(self._take_rows, Path(path), csv_file="csv" in chosen.lower() or
+                             path.lower().endswith(".csv"))
+        except OSError as e:
+            QMessageBox.warning(self, "Not saved", f"The file could not be saved ({e}).\n\nIs it open in Excel?")
+            return
+        self._toast(f"Saved {out.name}")
 
     def _fit_orders_height(self) -> None:
         """The card's table as tall as its rows (it doesn't scroll up and down), with room for the horizontal
@@ -6235,13 +6447,44 @@ class MainWindow(QMainWindow):
             self.inv_speeds_grid.addWidget(QLabel("(none on the rate sheet)"), 0, 0)
         # (the Invoice panel's prices list each speed offered: the panels may fit in a row now, or no longer)
         self._place_output_cols()
+        self._show_speeds_lock()
+
+    def _speeds_locked(self) -> bool:
+        """The Speeds offered boxes are soft locked: a firm of the invoice shown (its days: _invoice_group) has its
+        speed chosen in Who ordered what (or Excerpts…), and the user hasn't said yes to changing them anyway for
+        this job (_speeds_unlocked). The user, 2026-10-21: the speed is chosen in one place; the boxes look greyed
+        out, and a click asks before changing them."""
+        job = getattr(self, "cur", None)
+        if job is None or job.is_empty() or getattr(self, "_speeds_unlocked", None) is job:
+            return False
+        return any(sp for j in self._invoice_group(job) for _, _, speeds in j.runs_ordered() for sp in speeds)
+
+    def _show_speeds_lock(self) -> None:
+        """The Speeds offered boxes greyed out (still clickable: _invoice_speeds_changed asks) while soft locked."""
+        locked = self._speeds_locked()
+        for name, cb in getattr(self, "inv_speed_boxes", {}).items():
+            if cb.property("softlock") == locked:
+                continue
+            cb.setProperty("softlock", locked)
+            cb.setStyleSheet("QCheckBox { color: gray; }" if locked else "")
+            tip = cb.toolTip().split("\n\n")[0]
+            cb.setToolTip(tip + ("\n\n" + SPEEDS_LOCKED_TIP if locked else ""))
 
     def _invoice_speeds_changed(self, _=None):
         """The speeds ticked are saved straight away. Speeds of other rate sheets stay as they were. With one
         speed ticked the invoice bills that speed alone; with none, the agreement form's speed. Every job's
         agreement form speed is the Settings rule's among them again, unless the user chose one still offered
-        (Expedite unticked and ticked again: back to Expedite, not left on Regular)."""
+        (Expedite unticked and ticked again: back to Expedite, not left on Regular). While the boxes are soft
+        locked (_speeds_locked: speeds chosen in Who ordered what), a click asks first; No puts the box back."""
         from ..rates import speed_key
+        box = self.sender()
+        if isinstance(box, QCheckBox) and self._speeds_locked():
+            if QMessageBox.question(self, "Speeds chosen in Who ordered what", SPEEDS_LOCKED_ASK) != QMessageBox.Yes:
+                with QSignalBlocker(box):
+                    box.setChecked(not box.isChecked())
+                return
+            self._speeds_unlocked = self.cur  # (asked once: this job's boxes are the user's to change now)
+            self._show_speeds_lock()
         here = {speed_key(n) for n in self.inv_speed_boxes}
         keep = [x for x in self.s.invoice_speeds if speed_key(x) not in here]
         self._set_opt("invoice_speeds", keep + [n for n, cb in self.inv_speed_boxes.items() if cb.isChecked()])
@@ -6383,7 +6626,25 @@ class MainWindow(QMainWindow):
             self.runner.start(lambda: Ledger(mirror_dir=folder, boxes=boxes).mirror(), on_done=lambda _r: None,
                               on_error=lambda _m: None)
         self._mirrored = columns
+        self._trial_rules = None  # (an invoice made or deleted: read again when next needed)
         self._read_records_side()
+
+    def _note_trial_rules(self, jobs: list, fresh: bool = False) -> None:
+        """Gives these jobs the split rule their trial was first billed by (Job.trial_rule, batch.trial_split_rules),
+        read from the records once until they change (_records_changed); fresh: read now (Generate, so what it
+        saves is what its preview shows). Records that can't be read leave each as Settings say; none yet, nothing
+        is read (an empty database isn't made just to look)."""
+        from ..batch import note_trial_rules, trial_split_rules
+        from ..records import default_db
+        rules = getattr(self, "_trial_rules", None)
+        if rules is None or fresh:
+            try:
+                rules = trial_split_rules(ledger_for(self.s)) if default_db().exists() else {}
+            except Exception as e:
+                log_error("could not read the records for the trials' split rules", e)
+                rules = {}
+            self._trial_rules = rules
+        note_trial_rules(jobs, rules)
 
     def _csv_columns(self) -> tuple:
         """What the CSV copies of the records have columns for (deliver.ledger_for): the records folder and the

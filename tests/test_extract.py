@@ -126,3 +126,77 @@ def test_part_letters_and_numbers():
     ex = Extraction()
     x._part("that is part of the record. PART OF THE RECORD", "", ex)
     assert "part" not in ex.fields
+
+
+STACKED_CAPTION = """                                                                  386
+ 1   SUPREME COURT OF THE STATE OF NEW YORK
+     COUNTY OF QUEENS : CIVIL TERM : PART 14
+ 2   ----------------------------------------X
+     J.R., an infant by her mother and natural
+ 3   Guardian, JANE ROE, and JANE ROE, Individually,
+ 4                                              Index No.
+                               Plaintiff,       712345/21
+ 5
+              -against-
+ 6                                              JURY TRIAL
+ 7   SAM POE, M.D.,
+ 8                             Defendant.
+     ----------------------------------------X
+ 9                             Supreme Courthouse
+                               88-11 Sutphin Boulevard
+10                             Jamaica, New York  11435
+                               October 20, 2026
+"""
+
+
+def test_an_index_number_under_its_label_with_a_short_year():
+    """'Index No.' on one line, the number on the next after 'Plaintiff,', and a two-digit year (712345/21): read
+    as labelled (the user's transcript of 2026-10-21 got none: the label wasn't next to it, and a number without
+    one needed a four-digit year). The courthouse's ZIP code on the same page is no index number."""
+    ex = RegexExtractor(PROFILE).extract(Ingested("t.pdf", "pdf", text=STACKED_CAPTION))
+    assert best(ex, "index_no") == "712345/2021"
+    assert max(c.confidence for c in ex.fields["index_no"]) >= 0.9
+    lone = RegexExtractor(PROFILE).extract(ingest_text("The minutes of 712345/21, please.", "e.txt"))
+    assert best(lone, "index_no") == "712345/2021"  # (unlabelled, the year short: still read, less surely)
+    for no in ("Call 555-1234/21 today.", "On 10/21/2026 at 2:30.", "Box 12345-21."):
+        assert not RegexExtractor(PROFILE).extract(ingest_text(no, "e.txt")).fields.get("index_no"), no
+
+
+def test_index_number_patterns_of_the_users_own():
+    """Settings -> Options -> Index numbers (the user, 2026-10-21: the patterns should be the user's to change):
+    a pattern of theirs finds what the app's own don't, as surely as a labelled number; one that can't be used
+    (not a regular expression, no number and year groups) is left out and says why."""
+    from minute_filler.extract_regex import index_pattern_problem, index_patterns
+    text = "Re: Roe v. Poe, CV-012345-25/QU, the minutes of 6/3."
+    assert not RegexExtractor(PROFILE).extract(ingest_text(text, "e.txt")).fields.get("index_no")
+    ex = RegexExtractor(PROFILE, index_patterns_=[r"CV-(\d{6})-(\d{2})/QU"]).extract(ingest_text(text, "e.txt"))
+    assert best(ex, "index_no") == "12345/2025" and ex.fields["index_no"][0].confidence == 0.95
+    named = RegexExtractor(PROFILE, index_patterns_=[r"(?P<year>\d{2})/QU-(?P<number>\d{5})"])
+    assert best(named.extract(ingest_text("File 25/QU-54321.", "e.txt")), "index_no") == "54321/2025"
+    assert index_pattern_problem(r"CV-(\d{6})-(\d{2})") == ""
+    assert index_pattern_problem(r"CV-(\d{6}").startswith("not a regular expression")
+    assert index_pattern_problem(r"CV-\d{6}-(\d{2})") == "it needs two groups in parentheses: the number, then the year"
+    assert len(index_patterns(["(", r"(\d+)/(\d+)", "", 5])) == 1
+
+
+PATTERN = r"CV-(\d{6})-(\d{2})/QU"  # (a pattern of the user's: Civil Court's docket numbers)
+
+
+def test_index_number_patterns_in_the_settings_window(qt, monkeypatch):
+    """Options -> Index numbers: what is wrong with a pattern as it is typed, what they find in a line to try them
+    on, a pattern that can't be used keeping the window open (it would be lost), and the good ones saved."""
+    from minute_filler.gui.dialogs import SettingsDialog
+    warned = []
+    monkeypatch.setattr(qt.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+    dlg = SettingsDialog(Settings.load())
+    assert "The app's own patterns only" in dlg.o_index_note.text()
+    dlg.o_index.setPlainText(PATTERN + "\n" + r"Docket (\d+")
+    assert dlg.o_index_note.text().startswith("⚠ line 2: not a regular expression")
+    dlg.accept()
+    assert warned and "Line 2" in warned[0] and Settings.load().index_patterns == []
+    dlg.o_index.setPlainText(PATTERN + "\n\n")
+    dlg.o_index_try.setText("the minutes of CV-012345-25/QU, please")
+    assert dlg.o_index_note.text() == "Finds 12345/2025"
+    dlg.accept()
+    assert Settings.load().index_patterns == [PATTERN]
+    assert SettingsDialog(Settings.load()).o_index.toPlainText() == PATTERN

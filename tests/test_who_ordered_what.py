@@ -124,6 +124,16 @@ def test_the_card_lists_every_attorney_of_every_day(window, tmp_path):
     assert window.orders_card.isHidden()
 
 
+def test_the_last_column_keeps_its_heading_however_narrow_the_card(window, tmp_path):
+    """Squeezed into what was left of a narrow card, "Your pages billed" showed no heading (the user's screenshot,
+    2026-10-21): it is as wide as its heading at least."""
+    two_days(window, tmp_path)
+    t = window.orders
+    window.resize(500, window.height())
+    window._show_orders()
+    assert t.columnWidth(BILLED) >= t.horizontalHeader().sectionSizeHint(BILLED)
+
+
 def test_generate_all_warns_about_a_day_not_decided(window, tmp_path, monkeypatch):
     from PySide6 import QtWidgets
     first, second = two_days(window, tmp_path)

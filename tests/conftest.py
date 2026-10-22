@@ -10,10 +10,18 @@ import pytest
 @pytest.fixture(autouse=True)
 def isolated_appdata(tmp_path, monkeypatch):
     """Keep tests away from the real %APPDATA% settings, rate sheets and records, and from the real
-    Documents folder (where the records' CSV copies go)."""
+    Documents folder (where the records' CSV copies go). A test that undid it (monkeypatch.undo() undoes every
+    fixture's patches, this one's too) fails: it may have written to the real records (made-up invoices went into
+    the user's records.db that way, 2026-10-21)."""
+    real = {k: os.environ.get(k) for k in ("APPDATA", "USERPROFILE", "HOME")}
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    yield
+    # (a test may point them at another temporary folder of its own: only the real ones are a leak)
+    if any(real[k] and os.environ.get(k) == real[k] for k in real):
+        pytest.fail("the test undid the isolation of %APPDATA% (monkeypatch.undo()?): it may have written to the "
+                    "real settings or records", pytrace=False)
 
 
 def pytest_configure(config):

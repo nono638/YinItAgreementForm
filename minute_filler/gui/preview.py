@@ -427,8 +427,8 @@ class PreviewDialog(QDialog):
 
 COPY_TIP = "Put all of it on the clipboard as text, a line for each charge, to paste into an e-mail"
 SAVES_TIP = ("Generate saves the math as PDFs next to the invoices, so it is there when someone asks later:\n"
-             "each invoice's (to send that firm) and one for all of them (to look back at the job).\n"
-             "Also in Settings → Invoice.")
+             "each firm's own (only what that firm owes, to send it) and one of everyone's (every firm's\n"
+             "amounts, to look back at the job). Also in Settings → Invoice.")
 
 
 class MathSaves(QWidget):
@@ -577,7 +577,9 @@ def math_view(made: list, heading: str, s: Settings | None = None) -> QWidget:
 class MathDialog(QDialog):
     """How the amounts of the invoices just made were reached, charge by charge, in tables (a MathView: by
     invoice, or the firms side by side). OK closes it; Copy all puts it on the clipboard; Save as PDF... saves
-    the layout shown (starting in `folder`, the invoices' folder); "Don't show this anymore" sets
+    the layout shown (starting in `folder`, the invoices' folder): everyone's amounts, or, from its menu when
+    there are several firms, only what one firm owes (invoice_math.explain's one_firm, to send that firm: the
+    user, 2026-10-21); "Don't show this anymore" sets
     Settings.show_math off at once (and saves the settings). Under the math, which of it Generate saves with the
     invoices (MathSaves) and, after a Generate, what it saved this time (`saved`, the PDFs). `live`: the
     invoices not made yet, as the main window's Who pays what card and the Invoice panel's link show them (no
@@ -628,7 +630,19 @@ class MathDialog(QDialog):
         copy.setToolTip(COPY_TIP)
         copy.clicked.connect(self._copy)
         save = QPushButton("Save as PDF…")
-        save.clicked.connect(self._save)
+        if self._firms_apart():  # (everyone's, or one firm's own: a menu)
+            menu = QMenu(save)
+            whole = menu.addAction(f"Everyone's ({len(made)} invoices)…" if len(made) > 1 else "Everyone's…")
+            whole.setToolTip("Every firm's amounts: to look back at the job")
+            whole.triggered.connect(lambda: self._save())
+            for i, (f, number) in enumerate(made):
+                act = menu.addAction(f"Only {self._who(i)}'s" + (f" (invoice {number})" if number else "") + "…")
+                act.triggered.connect(lambda _=False, k=i: self._save(k))
+            menu.setToolTipsVisible(True)
+            save.setMenu(menu)
+            save.setToolTip("Everyone's amounts, or only what one firm owes (to send that firm)")
+        else:
+            save.clicked.connect(lambda: self._save())
         ok = QPushButton("OK")
         ok.setObjectName("primary")
         ok.setDefault(True)
@@ -656,8 +670,23 @@ class MathDialog(QDialog):
         self.view.copy()
         self.note.setText("Copied.")
 
-    def default_name(self) -> str:
-        """'Invoice 2026-0012 - the math.pdf' ('Invoices 2026-0012 to 2026-0013 - ...' for several)."""
+    def _firms_apart(self) -> bool:
+        """Save as PDF... offers one firm's own: there are several invoices, or one shares pages ordered at
+        different speeds with firms its math names (invoice_math.split_pages)."""
+        from ..invoice_math import split_pages
+        return len(self.made) > 1 or bool(self.made and any(len(x.firms) > 1 for x in split_pages(self.made)))
+
+    def _who(self, i: int) -> str:
+        """Whom invoice i bills, as the menu and the file's name say it: 'Dana Smith (Smith Law)'."""
+        from ..invoice_math import _who
+        return _who(self.made[i][0]) or "(no attorney)"
+
+    def default_name(self, firm: int | None = None) -> str:
+        """'Invoice 2026-0012 - the math.pdf' ('Invoices 2026-0012 to 2026-0013 - ...' for several); one firm's
+        own (firm: its invoice's place): 'Invoice 2026-0012 - Dana Smith (Smith Law) - the math.pdf'."""
+        if firm is not None:
+            number = self.made[firm][1]
+            return f"{f'Invoice {number}' if number else 'Invoice'} - {self._who(firm)} - the math.pdf"
         numbers = [n for _, n in self.made if n]  # (none yet: the live math of the main window)
         if len(numbers) == 1:
             name = f"Invoice {numbers[0]}"
@@ -665,17 +694,20 @@ class MathDialog(QDialog):
             name = f"Invoices {numbers[0]} to {numbers[-1]}" if numbers else "Invoice"
         return f"{name} - the math.pdf"
 
-    def _save(self) -> None:
-        """Save as PDF...: asks where, then saves it there."""
-        from ..invoice_math import to_pdf
+    def _save(self, firm: int | None = None) -> None:
+        """Save as PDF...: asks where, then saves it there: the math as shown (everyone's), or with firm (its
+        invoice's place in made) only what that firm owes, in the layout shown."""
+        from ..invoice_math import explain, to_pdf
         from ..pdfout import safe_filename
         folder = self.folder or self.s.records_folder()
-        p, _ = QFileDialog.getSaveFileName(self, "Save the math", str(Path(folder) / safe_filename(self.default_name())),
-                                           "PDF (*.pdf)")
+        p, _ = QFileDialog.getSaveFileName(self, "Save the math",
+                                           str(Path(folder) / safe_filename(self.default_name(firm))), "PDF (*.pdf)")
         if not p:
             return
         try:
-            out = to_pdf(self.html, Path(p))
+            html_text = self.html if firm is None else \
+                explain([self.made[firm]], self.view.layout_key, one_firm=True)[0]
+            out = to_pdf(html_text, Path(p))
         except Exception as e:
             log_error("could not save the math", e)
             QMessageBox.warning(self, "Not saved", f"The PDF could not be saved ({type(e).__name__}: {e}).")

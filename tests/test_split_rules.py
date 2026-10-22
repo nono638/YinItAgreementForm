@@ -545,11 +545,13 @@ def test_no_invoice_made_no_rule_kept(s, monkeypatch):
     def locked(*a, **k):
         raise PermissionError("the invoice is open in another program")
 
-    monkeypatch.setattr(batch, "generate", locked)
     job = excerpt_example()
-    batch.fill_jobs([job], s, outputs=["invoice"])
+    # (a context of its own, never monkeypatch.undo(): that undoes conftest's too, and the records went to the
+    # user's real database)
+    with monkeypatch.context() as m:
+        m.setattr(batch, "generate", locked)
+        batch.fill_jobs([job], s, outputs=["invoice"])
     assert "PermissionError" in job.error and job.split_rule == ""
-    monkeypatch.undo()
     batch.fill_jobs([job], s, outputs=["invoice"])  # (made this time: kept)
     assert job.split_rule == "make_whole"
 

@@ -755,6 +755,14 @@ class Ledger:
             else []
         return rows[0][0] or "" if rows else ""
 
+    def invoice_origins(self) -> list[tuple[str, str, str]]:
+        """(index number, Activity.origin, Activity.ts) of each invoice made, oldest first, those in the trash
+        left out: the split rule a trial was first billed by is the one its later days are billed by
+        (batch.trial_split_rules)."""
+        rows = self._rows("SELECT index_no, origin, ts FROM activity WHERE kind='invoice' AND deleted IS NULL "
+                          "ORDER BY ts, id")
+        return [(r[0] or "", r[1] or "", r[2] or "") for r in rows]
+
     def is_empty(self) -> bool:
         """True when nothing was ever recorded (no invoice, nothing made, no number given)."""
         return not any(self._rows(f"SELECT 1 FROM {t} LIMIT 1") for t in ("invoices", "activity", "used_numbers"))

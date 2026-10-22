@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QDialog, QHBoxLayout, QHeaderView, QLabel, QMenu, QMessageBox, QPushButton,
@@ -242,8 +242,16 @@ class ExcerptsWindow(QDialog):
         t.clear()
         t.setColumnCount(len(heads))
         t.setHorizontalHeaderLabels(heads)
+        from ..batch import trial_marks
+        from .badges import TAG_HEIGHT, badge_icon, badge_size
+        from .zoom import z
+        marks = trial_marks(self.group[0], self.group) if self.group else {}  # (each firm's tag, as elsewhere)
+        t.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))
         for c, a in enumerate(firms):
-            t.horizontalHeaderItem(FIRST_FIRM + c).setToolTip(" - ".join(x for x in (a.name, a.firm) if x))
+            head = t.horizontalHeaderItem(FIRST_FIRM + c)
+            head.setToolTip(" - ".join(x for x in (a.name, a.firm) if x))
+            if marks.get(a.key()) is not None:
+                head.setIcon(badge_icon(marks[a.key()], z(TAG_HEIGHT)))
         t.setRowCount(len(self.runs))
         first = FIRST_FIRM + len(firms)
         for r, run in enumerate(self.runs):
@@ -334,7 +342,9 @@ class ExcerptsWindow(QDialog):
             lines.append(f"{swatch}{who}{' only' if alone else ''}: {pages} pp. - "
                          + (f"costs {costs}" if alone else f"each of the {len(keys)} pays {costs}"))
         order = {sp.name: i for i, sp in enumerate(self.s.sheet().speeds)}  # (cheapest first: the last, fastest)
-        billed = next((d.job.split_rule for d in self.days if d.job.split_rule), "")  # (as it was billed, if so)
+        # (as it was billed, if so, or as an earlier day of its trial was: Job.trial_rule)
+        billed = next((d.job.split_rule for d in self.days if d.job.split_rule), "") or \
+            next((d.job.trial_rule for d in self.days if d.job.trial_rule), "")
         rule = courthouses.split_rule(billed or self.s.invoice_split_rule)
         for i, (pairs, pages, each) in enumerate(p.ordered_groups, len(p.groups)):
             who = " + ".join(f"{names.get(k, k)} ({sp})" for k, sp in pairs)

@@ -403,6 +403,33 @@ DELIVERY_WORDS = {
 _SPEED_CONF = {"Expedited": 0.8, "Daily": 0.75, "Immediate": 0.75, "Regular": 0.7}
 
 
+def index_pattern_problem(pattern: str) -> str:
+    """Why an index number pattern of the user's (Settings.index_patterns) can't be used, "" when it can: it must
+    be a regular expression that finds the number and the year, as two groups in parentheses in that order
+    ('Docket\\s+(\\d+)/(\\d+)'), or named (?P<number>...) and (?P<year>...)."""
+    try:
+        rx = re.compile(pattern, re.I)
+    except re.error as e:
+        return f"not a regular expression the app can read ({e})"
+    if {"number", "year"} <= set(rx.groupindex) or rx.groups >= 2:
+        return ""
+    return "it needs two groups in parentheses: the number, then the year"
+
+
+def index_patterns(patterns) -> list[re.Pattern]:
+    """The user's index number patterns that can be used (index_pattern_problem), compiled; the others are left
+    out (the Settings window says why before saving them)."""
+    return [re.compile(p, re.I) for p in patterns or () if isinstance(p, str) and p.strip()
+            and not index_pattern_problem(p)]
+
+
+def _index_parts(m: re.Match) -> tuple[str, str]:
+    """(number, year) a pattern of the user's found: its named groups, else its first two."""
+    if "number" in m.re.groupindex and "year" in m.re.groupindex:
+        return m.group("number") or "", m.group("year") or ""
+    return m.group(1) or "", m.group(2) or ""
+
+
 class RegexExtractor:
     """Proposes values for the form fields from the text of one document, using patterns only.
 
@@ -412,12 +439,15 @@ class RegexExtractor:
     (kind, is_invoice, is_transcript, is_caption_doc) for the field methods, so call it once per
     document, not from two threads at once.
     """
-    def __init__(self, profile: Profile | None = None, title_case: bool = True):
+    def __init__(self, profile: Profile | None = None, title_case: bool = True, index_patterns_=()):
         """profile: the reporter's own details, which are skipped when reading attorneys.
         title_case: turn ALL-CAPS names into Title Case.
+        index_patterns_: the user's own index number patterns (Settings.index_patterns), tried as well as the
+        app's: one that can't be used is left out (index_pattern_problem).
         """
         self.profile = profile or Profile()
         self.title_case = title_case
+        self.own_index = index_patterns(index_patterns_)
         self.own_emails = {e.lower() for e in re.findall(EMAIL_RE, self.profile.email or "")}
         self.own_phones = {re.sub(r"\D", "", self.profile.phone or "")[-10:]} - {""}
         # per-document facts, set by extract() (a field method called on its own sees no document)
@@ -508,6 +538,9 @@ class RegexExtractor:
         state ('New York, New York 10007-2015', 'N.Y. 11415-2010') is skipped.
         A letter the court writes after the year ('712345/2021E') is left out, as norm_index and the
         records write index numbers.
+        A caption often stacks them: 'Index No.' ending a line, the number at the end of the next one or the one
+        after, past the party's word ('Plaintiff,       712345/21'): 0.9. A lone pair with a two-digit year needs
+        a slash ('712345/21', as a court writes it; '12345-21' could be anything): unlabeled_conf less a little.
         """
         labeled = re.compile(
             r"\b(?:index|ind\.?|docket|file|calendar\s+index)\s*(?:no\.?|number|num\.?|#)?\s*[:.#]?\s*"
@@ -516,6 +549,19 @@ class RegexExtractor:
             v = norm_index(m.group(1), m.group(2))
             if v:
                 ex.add("index_no", v, SRC_REGEX, 0.95)
+        stacked = re.compile(
+            r"\b(?:index|docket)\s*(?:no\.?|number|num\.?|#)[ \t]*:?[ \t]*\n(?:[^\n]*\n)?[^\n]*?"
+            r"(?<![\d$.,/-])(\d{5,7})[ \t]*(?:[-/]|[ \t]+of[ \t]+)[ \t]*(\d{4}|\d{2})[A-Z]?[ \t]*$", re.I | re.M)
+        for m in stacked.finditer(text):
+            v = norm_index(m.group(1), m.group(2))
+            if v:
+                ex.add("index_no", v, SRC_REGEX, 0.9)
+        for rx in self.own_index:  # (the user's own, Settings -> Options: as sure as a labelled one)
+            for m in rx.finditer(text):
+                num, yr = (re.sub(r"\D", "", x) for x in _index_parts(m))
+                v = norm_index(num, yr) if num and yr else None
+                if v:
+                    ex.add("index_no", v, SRC_REGEX, 0.95)
         for m in re.finditer(r"\bNo\.?\s*:?\s*(\d{4,7})\s*[-/]\s*((?:19|20)\d{2})[A-Z]?\b", text):
             v = norm_index(m.group(1), m.group(2))
             if v:
@@ -526,6 +572,10 @@ class RegexExtractor:
             v = norm_index(m.group(1), m.group(2))
             if v:
                 ex.add("index_no", v, SRC_REGEX, unlabeled_conf)
+        for m in re.finditer(r"(?<![\d$.,/-])(\d{5,7})[ \t]*/[ \t]*(\d{2})(?![\d/-])", text):
+            v = norm_index(m.group(1), m.group(2))
+            if v:
+                ex.add("index_no", v, SRC_REGEX, unlabeled_conf * 0.8)
 
     # ----- court and county
     def _court_county(self, head: str, text: str, ex: Extraction) -> None:

@@ -53,6 +53,10 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("partial transcript", ("exc-table",)),
     ("exerpt for one firm", ("exc-table",)),
     ("one firm wants daily the other regular", ("exc-speeds",)),
+    ("parties is 3 but only two firms named, no invoice", ("exc-speeds",)),
+    ("send one firm only its own math", ("inv-math",)),
+    ("the program didn't extract the docket number", ("check-index",)),
+    ("how many pages did each reporter write", ("run-who-transcribed", "run-overview")),
     # Records
     ("check came in", ("rec-paid",)),
     ("transcipt sent box", ("rec-boxes",)),

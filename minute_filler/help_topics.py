@@ -258,7 +258,7 @@ asks whether to include one.</p>
 one job, such as the days of a trial, are added up.</p>
 """),
     T("check-index", CHECK, "Index numbers checked", "index number missing mismatch don't match different keep together "
-      "move job of its own case number",
+      "move job of its own case number not read didn't extract wasn't found blank empty pattern regex regular expression docket slash dash own format",
       """
 <p>A document with no index number gets a note under the job list, and a ⚠ on its row when its job has several
 documents.</p>
@@ -270,6 +270,13 @@ documents.</p>
 </ul>
 <p>A title page listing several index numbers (cases tried together) is fine: a document with one of them belongs
 with it.</p>
+<p><b>Your own patterns.</b> The app reads index numbers written with a slash or a dash, a two- or four-digit year,
+labelled or not, and under an <i>Index No.</i> label on the line above ("712345/2021", "712345-21", "Index No.
+712345/21"). For another way of writing them, add a pattern of your own in Settings → Options → <b>Index
+numbers</b>, one per line: a regular expression that finds the number and the year as two groups in parentheses,
+in that order. <code>Docket\\s*#?\\s*(\\d{5,7})\\s*/\\s*(\\d{2,4})</code> finds "Docket # 712345/21". Yours are tried as
+well as the app's own, and count as surely as a number after "Index No.". The box under them says what is wrong with
+one as you type it, and what they find in a line you paste to try them on.</p>
 """),
     T("check-suggestions", CHECK, "Suggestions as you type",
       "autocomplete autofill complete suggest court part judge attorney firm name typing remember",
@@ -655,9 +662,10 @@ $1.25 · $5.75 a page</i>).</p>
 <p>It is the first tab of the preview, and behind the links under Who pays what and in the Invoice panel. With
 previews off it comes in a window after saving: <b>Copy all</b>, <b>Save as PDF…</b> (for an attorney who asks) or
 <b>Don't show this anymore</b> (Settings → Options → <i>Show the math of each invoice</i> turns it back on).</p>
-<p><b>Generate saves it</b> as PDFs next to the invoices: each invoice's ("… - the math.pdf", to send that firm),
-and one for all of them. Which is chosen under the math itself and in Settings → Invoice → <i>Save the
-math</i>.</p>
+<p><b>Generate saves it</b> as PDFs next to the invoices: each firm's own ("… - the math.pdf", to send that
+firm), which shows only what that firm owes, and everyone's in one, every firm's amounts, to look back at the job.
+Which is saved (both, either or none) is chosen under the math itself and in Settings → Invoice → <i>Save the
+math</i>. <b>Save as PDF…</b> in the math's window does the same: everyone's, or only one firm's.</p>
 """),
     T("inv-rounding", INVOICE, "Rounding", "rounding round cents fraction of a cent exact price a page by hand calculator",
       """
@@ -730,9 +738,13 @@ the firms</i>).</p>
 <p>Example (10 pages, no index): one firm orders Daily, one Immediate. The original is billed at Immediate, $7.60 a
 page. The Daily firm pays $6.50 ÷ 2 = $3.25 of it plus its own copies: $57.50. The Immediate firm pays the rest,
 $4.35, plus its own: $72.50.</p>
-<p>The math of an invoice says how it was divided, and what each firm on those pages pays a page. A job once
-invoiced keeps the way it was divided: made again, or opened again from Records, it is billed the same way, whatever
-Split invoices says by then.</p>
+<p>The math of an invoice says how it was divided, and what each firm on those pages pays a page. A trial is
+billed one way throughout: once a day of it is invoiced, every later day of the same index number is divided the
+same way, and a job made again or opened again from Records is billed as it was, whatever Split invoices says by
+then.</p>
+<p>Every party on such pages must be named. When <i>Parties</i> counts more than the firms ticked and they ordered
+different speeds, the app can't tell what the others pay: no invoice is made for that day until you tick the missing
+firm (with its speed) or change Parties, and Generate lights up the Parties box to show where.</p>
 <p>A firm whose speeds differ by day gets an agreement ticking both speeds, with <i>see below</i> on the rate line.
 For now, at most two different speeds may share the same pages: a run with three holds the invoice, with the reason
 shown.</p>
@@ -1050,6 +1062,17 @@ and unticks when one did. Once you click it, it stays as you set it until New jo
 column for one reporter; the <b>By Reporter</b> sheet totals each reporter's takes and pages.</li>
 </ul>
 <p>Run sheets are saved in <i>Documents\\YinIt Run Sheets</i> (Settings → Options → Folders).</p>
+"""),
+    T("run-who-transcribed", RUNSHEET, "Who transcribed what",
+      "who transcribed what wrote which pages reporter pages each day trial totals review save copy export",
+      """
+<p>The <b>Who transcribed what</b> card, under Who ordered what, lists every take of every day of the trial shown,
+read from the initials at the foot of the pages: the day, the reporter, the printed pages, how many, and the
+witnesses who took the stand or stepped down. Above it, what each reporter wrote in all (<i>These 3 days: Pat
+Reporter 144 pp. · DS 76 pp.</i>). It is there whenever a day of the trial has a transcript, whatever outputs are
+ticked.</p>
+<p><b>Save a copy…</b> saves the table as an Excel workbook or a CSV file. For the full record, kept and added to day
+after day, tick <b>Run sheet</b> and Generate: the trial's <a href="topic:run-overview">run sheet</a>.</p>
 """),
     T("run-reporters", RUNSHEET, "Reporters' initials and names", "initials reporter names ds = dana run sheet reporters "
       "title page",

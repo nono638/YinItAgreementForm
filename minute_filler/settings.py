@@ -355,12 +355,13 @@ MATH_LAYOUTS = {
     "invoice": "By invoice",
     "firms": "Firms side by side",
 }
-# Which PDFs of the math Generate saves with the invoices (invoice_math.save_math): key -> label. "Each
-# invoice's" can go to the firm that asks; "one for all" is the reporter's own, to look back at the whole job
+# Which PDFs of the math Generate saves with the invoices (invoice_math.save_math): key -> label. "Each firm's
+# own" shows only what that firm owes, to send it when it asks; "everyone's" is the reporter's own, every firm's
+# amounts, to look back at the whole job (the user, 2026-10-21)
 MATH_SAVES = {
-    "both": "Each invoice's, and one for all of them",
-    "each": "Each invoice's",
-    "all": "One for all the invoices",
+    "both": "Each firm's own, and everyone's in one",
+    "each": "Each firm's own (only what it owes)",
+    "all": "Everyone's, in one PDF",
     "off": "Don't save it",
 }
 # What "Show granular detail" can add to an invoice: key -> label
@@ -503,6 +504,9 @@ class Settings:
     flatten: bool = False
     open_after: bool = True
     title_case_names: bool = True     # "HONORABLE MARIA T. ALVAREZ" -> "Maria T. Alvarez"
+    # the user's own index number patterns (Settings -> Options -> Index numbers), regular expressions tried as well
+    # as the app's own: each finds the number and the year (extract_regex.index_pattern_problem)
+    index_patterns: list = field(default_factory=list)
 
     # Output
     form_choice: str = "ucs"          # "ucs", "clean" or "original" (see fill.FORMS)
@@ -1023,6 +1027,7 @@ class Settings:
             s.save_math = "both"
         s.invoice_detail_items = [k for k in s.invoice_detail_items if isinstance(k, str) and k in DETAIL_ITEMS]
         s.excerpt_hidden_speeds = [k for k in s.excerpt_hidden_speeds if isinstance(k, str)]
+        s.index_patterns = [x for x in s.index_patterns if isinstance(x, str) and x.strip()]             if isinstance(s.index_patterns, list) else []
         # an answer about two firms: [key, key, same, name, name]; a row saved by 2.2.0 ([key, key, same]) gets
         # blank names
         s.firm_answers = [r[:3] + [x if isinstance(x, str) else "" for x in (r[3:5] + ["", ""])[:2]]

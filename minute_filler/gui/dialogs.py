@@ -243,6 +243,7 @@ class SettingsDialog(QDialog):
                                "Also Ctrl + and Ctrl − in the window, or Ctrl and the mouse wheel;\n"
                                "Ctrl 0 goes back to 100 %.")
         f.addRow("Zoom", self.o_zoom)
+        self._index_patterns_rows(f, settings)
         self.o_fuzzy_numbers = QCheckBox("Fuzzy search matches numbers loosely too")
         self.o_fuzzy_numbers.setToolTip("Records → the search box's Fuzzy box. Ticked: numbers are matched like words, "
                                         "so \"2026-0001\" also finds 2026-0002.\nUnticked: a word with a digit in "
@@ -344,9 +345,9 @@ class SettingsDialog(QDialog):
             self.i_save_math.addItem(label, key)
         self.i_save_math.setCurrentIndex(max(0, self.i_save_math.findData(settings.save_math)))
         self.i_save_math.setToolTip("How each amount was reached, saved as PDFs next to the invoices when Generate "
-                                    "makes them:\neach invoice's (\"... - the math.pdf\", to send that firm) and one "
-                                    "for all of them (to look back at the job).\nThe same choice is under the math "
-                                    "itself, in the preview and its window.")
+                                    "makes them:\neach firm's own (\"... - the math.pdf\", only what that firm owes, "
+                                    "to send it) and everyone's in one\n(every firm's amounts, to look back at the "
+                                    "job). The same choice is under the math itself, in the preview and its window.")
         f.addRow("Save the math", self.i_save_math)
         self.i_email = QCheckBox("Each party also gets an e-mailed copy (Email column of the rate sheet)")
         self.i_email.setChecked(settings.invoice_include_email)
@@ -1052,13 +1053,68 @@ class SettingsDialog(QDialog):
                 self.tabs.setCurrentIndex(i)
                 return
 
+    def _index_patterns_rows(self, f: QFormLayout, settings: Settings) -> None:
+        """Options -> Index numbers: the user's own index number patterns (Settings.index_patterns), one per line,
+        tried as well as the app's own (the user, 2026-10-21: they should be the user's to change), what is wrong
+        with one as it is typed, and a box to try them on a line of text."""
+        self.o_index = QPlainTextEdit("\n".join(settings.index_patterns))
+        self.o_index.setPlaceholderText(r"e.g.  Docket\s*#?\s*(\d{5,7})\s*/\s*(\d{2,4})")
+        self.o_index.setToolTip(INDEX_PATTERNS_TIP)
+        self.o_index.setFixedHeight(z(64))
+        self.o_index_try = QLineEdit()
+        self.o_index_try.setPlaceholderText("Try them on: a line from a document, e.g. Docket # 712345/21")
+        self.o_index_note = QLabel("")
+        self.o_index_note.setWordWrap(True)
+        self.o_index_note.setObjectName("muted")
+        self.o_index.textChanged.connect(self._index_patterns_check)
+        self.o_index_try.textChanged.connect(self._index_patterns_check)
+        box = QVBoxLayout()
+        box.setContentsMargins(0, 0, 0, 0)
+        for wid in (self.o_index, self.o_index_try, self.o_index_note):
+            box.addWidget(wid)
+        f.addRow("Index numbers", box)
+        self._index_patterns_check()
+
+    def _index_lines(self) -> list[str]:
+        """The patterns typed, one per line, blank lines left out."""
+        return [x.strip() for x in self.o_index.toPlainText().splitlines() if x.strip()]
+
+    def _index_patterns_check(self) -> None:
+        """Under the patterns: what is wrong with each that can't be used, else what they find in the text to try
+        them on (with the app's own: 'Finds 712345/2021')."""
+        from ..extract_regex import RegexExtractor, index_pattern_problem
+        from ..ingest import ingest_text
+        lines = self._index_lines()
+        bad = [f"⚠ line {i}: {why}" for i, x in enumerate(lines, 1) if (why := index_pattern_problem(x))]
+        text = self.o_index_try.text().strip()
+        if bad:
+            note = "\n".join(bad)
+        elif text:
+            ex = RegexExtractor(index_patterns_=lines).extract(ingest_text(text, "try.txt"))
+            found = sorted({c.value for c in ex.fields.get("index_no", [])})
+            note = f"Finds {', '.join(found)}" if found else "Finds no index number in it."
+        else:
+            note = (f"{len(lines)} pattern{'s' if len(lines) != 1 else ''} of yours, tried as well as the app's "
+                    "own." if lines else "The app's own patterns only (they read 712345/2021, 712345-21, "
+                    "Index No. 712345/21 and the like).")
+        self.o_index_note.setText(note)
+
     def accept(self):
         """Copies every control into the Settings object, saves it to disk and closes. A blank file name
         pattern or invoice number format keeps the old one. Reporter lines that cannot be read are left out,
-        with a warning that lists them. The file is written even over a settings file that couldn't be read
+        with a warning that lists them. An index number pattern that can't be used keeps the window open, saying
+        why (it would be lost). The file is written even over a settings file that couldn't be read
         (Settings.save(force=True)); when it can't be written the user is told, and the dialog closes all the
         same."""
+        from ..extract_regex import index_pattern_problem
+        bad = [f"Line {i}: {why}" for i, x in enumerate(self._index_lines(), 1) if (why := index_pattern_problem(x))]
+        if bad:
+            self.tabs.setCurrentIndex(next(i for i in range(self.tabs.count()) if self.tabs.tabText(i) == "Options"))
+            QMessageBox.warning(self, "Index number patterns", "These index number patterns can't be used:\n\n"
+                                + "\n".join(bad) + "\n\nCorrect them or delete them (Options → Index numbers).")
+            return
         s, p = self.s, self.s.profile
+        s.index_patterns = self._index_lines()
         p.name, p.title = self.p_name.text().strip(), self.p_title.text().strip()
         p.address1, p.address2 = self.p_addr1.text().strip(), self.p_addr2.text().strip()
         p.phone, p.fax, p.email = self.p_phone.text().strip(), self.p_fax.text().strip(), self.p_email.text().strip()
@@ -1396,6 +1452,15 @@ class SpeedDialog(QDialog):
         return [cb.currentData() or "" for cb in self.combos]
 
 
+INDEX_PATTERNS_TIP = (
+    "Your own index number patterns, one per line: regular expressions the app tries as well as its own.\n"
+    "Each finds the number and the year as two groups in parentheses, in that order (or named\n"
+    "(?P<number>...) and (?P<year>...)). Capitals don't matter. A number found by one of yours counts as\n"
+    "surely as one after \"Index No.\".\n\n"
+    "Docket\\s*#?\\s*(\\d{5,7})\\s*/\\s*(\\d{2,4})   finds  Docket # 712345/21\n"
+    "CV-(\\d{6})-(\\d{2})/QU   finds  CV-012345-25/QU")
+
+
 class SplitSpeedsDialog(QDialog):
     """Asks the speed each firm of a split order ordered at (firms that ordered the same pages commit to one:
     courthouses.speed_upfront), for the firms whose speed isn't set yet (batch.speeds_to_ask): the case's name
@@ -1405,9 +1470,12 @@ class SplitSpeedsDialog(QDialog):
     loosely ("Expedited" is "Expedite"). MainWindow._ask_split_speeds keeps the answers (Job.speeds); "Go back"
     makes nothing."""
 
-    def __init__(self, asks: list, speeds: list[tuple[str, str]], button: str = "Generate", parent=None):
+    def __init__(self, asks: list, speeds: list[tuple[str, str]], button: str = "Generate", parent=None,
+                 marks: dict | None = None, dark: bool = False):
         """asks: batch.SpeedAsk each; speeds: the rate sheet's, (label, name) each, cheapest first; button: the
-        button pressed ("Generate", "Generate all"), named on OK ("Generate all with these speeds")."""
+        button pressed ("Generate", "Generate all"), named on OK ("Generate all with these speeds"); marks: each
+        firm's mark by its key (batch.trial_marks), its tag and shade before its name (dark: the dark theme's)."""
+        from .badges import badge_html
         super().__init__(parent)
         self.setWindowTitle("Which speed did each firm order?")
         self.setMinimumWidth(z(620))
@@ -1439,6 +1507,9 @@ class SplitSpeedsDialog(QDialog):
                                       a.shared_with or "(its speed on its other pages)")):
                 lab = QLabel(text)
                 lab.setTextFormat(Qt.PlainText)
+                if c == 1 and (marks or {}).get(a.key) is not None:
+                    lab.setTextFormat(Qt.RichText)
+                    lab.setText(badge_html(marks[a.key], text, dark))
                 lab.setWordWrap(True)
                 grid.addWidget(lab, r, c)
             cb = QComboBox()

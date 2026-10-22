@@ -221,6 +221,31 @@ def load(window, path):
         time.sleep(0.01)
 
 
+def test_the_billed_line_is_the_whole_invoices_on_every_day_of_it(window, tmp_path):
+    """Two days of one case, billed on one invoice by Generate all: the Billed line counts both days' pages (a line
+    per day when hovered), the same whichever day is shown (the user, 2026-10-21: it said the day's own, though the
+    invoice is both days')."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    window.add_files([str(transcript_pdf(tmp_path / "Roe 6-3-2026.pdf", 6, initials=[PR, PR, DS, DS, DS, PR])),
+                      str(transcript_pdf(tmp_path / "Roe 6-4-2026.pdf", 4, date="June 4, 2026",
+                                         initials=[PR, DS, PR, PR]))])
+    import time
+    from PySide6 import QtWidgets
+    end = time.time() + 20
+    while time.time() < end and (window.work or len(window.jobs) < 2 or not all(j.docs for j in window.jobs)):
+        QtWidgets.QApplication.processEvents()
+        time.sleep(0.01)
+    window.output_boxes["invoice"].setChecked(True)
+    seen = []
+    for job in window.jobs:
+        window._select_job(job)
+        window._refresh_outputs()
+        seen.append((window.inv_pages_info.text(), window.inv_pages_info.toolTip()))
+    assert seen[0] == seen[1]
+    assert " ".join(seen[0][0].split()) == "One invoice for 2 days: you wrote 6 of 10 total pages"  # (wrapped)
+    assert seen[0][1] == "6/3/2026: 3 of 6 pages\n6/4/2026: 3 of 4 pages"
+
+
 def test_the_invoice_panel_shows_my_pages_and_asks_whose(window, tmp_path, monkeypatch):
     from minute_filler.gui.dialogs import PagesOwnerDialog
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -365,3 +390,43 @@ def test_enter_in_the_excerpts_table_keeps_the_window_open(qt, tmp_path, s):
     assert w.isVisible() and changed
     assert [(r.start, r.end) for r in w.runs] == [(1, 4), (5, 10), (11, 30)]
     w.close()
+
+
+def test_who_transcribed_what_lists_each_reporters_pages_of_the_trial(window, tmp_path, monkeypatch):
+    """The Who transcribed what card (the user, 2026-10-21: in the window, to review and save): every take of
+    both days, the same whichever day is shown, each reporter's total, and Save a copy... as a workbook or CSV."""
+    import csv
+    import time
+    from openpyxl import load_workbook
+    from PySide6 import QtWidgets
+    from minute_filler.gui.main_window import TAKE_COLS
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    window.add_files([str(transcript_pdf(tmp_path / "Roe 6-3-2026.pdf", 6, initials=[PR, PR, DS, DS, DS, PR])),
+                      str(transcript_pdf(tmp_path / "Roe 6-4-2026.pdf", 4, date="June 4, 2026",
+                                         initials=[PR, DS, PR, PR]))])
+    end = time.time() + 20
+    while time.time() < end and (window.work or len(window.jobs) < 2 or not all(j.docs for j in window.jobs)):
+        QtWidgets.QApplication.processEvents()
+        time.sleep(0.01)
+    shown = []
+    for job in window.jobs:
+        window._select_job(job)
+        window._update_status()
+        t = window.takes
+        shown.append([[t.item(r, c).text() for c in range(len(TAKE_COLS))] for r in range(t.rowCount())])
+    assert not window.takes_card.isHidden() and shown[0] == shown[1]
+    rows = shown[0]
+    me = "Pat"  # (the user's own pages, named as on the run sheet: runsheet.reporter_label)
+    assert [r[:2] for r in rows] == [["6/3/2026", me], ["6/3/2026", "DS"], ["6/3/2026", me],
+                                     ["6/4/2026", me], ["6/4/2026", "DS"], ["6/4/2026", me]]
+    assert sum(int(r[3]) for r in rows) == 10
+    assert window.takes_info.text() == "These 2 days: Pat 6 pp. · DS 4 pp."
+    for name, filt in (("w.xlsx", "Excel workbook (*.xlsx)"), ("w.csv", "CSV file (*.csv)")):
+        monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName",
+                            lambda *a, n=name, f=filt: (str(tmp_path / n), f))
+        window._save_takes()
+    ws = load_workbook(tmp_path / "w.xlsx").active
+    assert [c.value for c in ws[1]] == TAKE_COLS and ws.cell(2, 2).value == me and ws.cell(2, 4).value == 2
+    with open(tmp_path / "w.csv", encoding="utf-8-sig") as f:
+        lines = list(csv.reader(f))
+    assert lines[0] == TAKE_COLS and lines[-1] == ["Each reporter", "Pat 6 pp. · DS 4 pp."]

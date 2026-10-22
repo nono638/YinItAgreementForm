@@ -8,9 +8,9 @@ for each charge (its pages, the rate, what it costs, how it is paid, what this f
 for each set of firms billed for the same work and each speed, with a column per firm. It also gives the same as
 plain text, a line per charge, for the clipboard and an e-mail. The tables come from rows() and _foot() of each
 quote, the plain text from _line() and _sum(): the same charges worded twice, so a change of wording goes in both.
-Generate saves it as PDFs next to the invoices it made (save_math, as Settings.save_math says: each invoice's,
-to send the firm that asks, and one for all of them, to look back at the job), so the answer is still there
-when the question comes months later.
+Generate saves it as PDFs next to the invoices it made (save_math, as Settings.save_math says: each firm's own,
+to send the firm that asks, which shows only what that firm owes (explain's one_firm), and one of everyone's, to
+look back at the job), so the answer is still there when the question comes months later.
 
 How a charge is paid is said in three plain phrases: "Each firm splits this cost" (the original and the judge's
 index of pages ordered together, divided between the firms that ordered each page), "Each firm pays for its
@@ -605,6 +605,7 @@ class PayRow:
     pages: int
     how: str
     prices: list[tuple[str, Decimal, Decimal]]  # (speed, what it pays, a page)
+    key: str = ""  # its Attorney.key() ("" for a blank Bill To): the window marks the firm by it (firm_marks)
 
 
 def who_pays(firms: list[FirmInvoice]) -> list[PayRow]:
@@ -619,7 +620,8 @@ def who_pays(firms: list[FirmInvoice]) -> list[PayRow]:
         if any(q.mixed for q in f.quotes):
             how += " (at different speeds)"
         name = f.atty.label() if f.atty is not None else "(no attorney)"
-        out.append(PayRow(name, f.opts.pages, how, [(q.speed, q.per_party, q.per_page) for q in f.quotes]))
+        out.append(PayRow(name, f.opts.pages, how, [(q.speed, q.per_party, q.per_page) for q in f.quotes],
+                          f.atty.key() if f.atty is not None else ""))
     return out
 
 
@@ -700,6 +702,11 @@ class SplitSection:
         """'60 pages ordered by Alex B. Counsel (Daily) and Dana Smith (Immediate)'."""
         return f"{_pages(self.pages)} ordered by {_with([(p.who, p.speed) for p in self.firms])}"
 
+    def own(self) -> SplitSection:
+        """The section as the math sent to its first firm shows it (explain's one_firm): that firm's row alone,
+        its label still naming who shared the pages (the invoice's own lines name them too)."""
+        return _OwnSection(self.pages, self.firms[:1], self.unnamed, self.label)
+
     @property
     def total(self) -> Fraction:
         return sum((p.total for p in self.firms), Fraction(0))
@@ -713,6 +720,16 @@ class SplitSection:
         more = "1 more party" if self.unnamed == 1 else f"{self.unnamed} more parties"
         return (f"Also on these pages: {more}, counted by Parties but not named. Each firm's invoice takes "
                 f"{'it' if self.unnamed == 1 else 'them'} to order that firm's speed.")
+
+
+@dataclass
+class _OwnSection(SplitSection):
+    """A SplitSection with one firm's row (SplitSection.own): the label of the whole, no firms together."""
+    whole: str = ""
+
+    @property
+    def label(self) -> str:
+        return self.whole
 
 
 def _stretch_sections(f: FirmInvoice) -> list[SplitSection]:
@@ -781,15 +798,16 @@ def split_pages(made: list[tuple[FirmInvoice, str]]) -> list[SplitSection]:
 
 def _split_plain(sections: list[SplitSection]) -> list[str]:
     """split_pages as the plain text says it: 'Alex B. Counsel, at Daily: Original $3.25 + Copy $1.25 + ... =
-    $7.625 a page', and what the firms pay together."""
+    $7.625 a page', and what the firms pay together (not for one firm's own: SplitSection.own)."""
     out = []
     for sec in sections:
         out.append(f"  {sec.label}:")
         for p in sec.firms:
             bits = " + ".join(f"{charge} {money_exact(a)}" for charge, a in p.charges)
             out.append(f"    {p.who}, at {p.speed}: {bits} = {money_exact(p.total)} a page")
-        out.append(f"    Together: {money_exact(sec.total)} a page; for the {_pages(sec.pages)}: "
-                   f"{money_exact(_d(sec.total * sec.pages))}")
+        if not isinstance(sec, _OwnSection):
+            out.append(f"    Together: {money_exact(sec.total)} a page; for the {_pages(sec.pages)}: "
+                       f"{money_exact(_d(sec.total * sec.pages))}")
         if sec.note:
             out.append(f"    {sec.note}")
     return out
@@ -797,7 +815,7 @@ def _split_plain(sections: list[SplitSection]) -> list[str]:
 
 def _split_tables(sections: list[SplitSection]) -> list[str]:
     """split_pages as tables: for each stretch a row per firm, a column per charge and what it pays a page in
-    all, then the firms together."""
+    all, then the firms together (not for one firm's own: SplitSection.own)."""
     parts = []
     for sec in sections:
         charges = list(dict.fromkeys(c for p in sec.firms for c, _ in p.charges))
@@ -808,9 +826,10 @@ def _split_tables(sections: list[SplitSection]) -> list[str]:
             out.append(_cells([(_e(p.who), "left"), (_e(p.speed), "left")]
                               + [(money_exact(mine[c]) if c in mine else "—", "right") for c in charges]
                               + [(f"<b>{money_exact(p.total)}</b>", "right")]))
-        out.append(f"<tr><td colspan='{len(charges) + 2}' align='right'><b>Together, a page (× {sec.pages:,} "
-                   f"= {money_exact(_d(sec.total * sec.pages))})</b></td>"
-                   f"<td align='right'><b>{money_exact(sec.total)}</b></td></tr>")
+        if not isinstance(sec, _OwnSection):
+            out.append(f"<tr><td colspan='{len(charges) + 2}' align='right'><b>Together, a page (× "
+                       f"{sec.pages:,} = {money_exact(_d(sec.total * sec.pages))})</b></td>"
+                       f"<td align='right'><b>{money_exact(sec.total)}</b></td></tr>")
         out.append("</table>")
         if sec.note:
             out.append(f"<p class='muted'>{_e(sec.note)}</p>")
@@ -823,25 +842,34 @@ SPLIT_EXACT = ("The prices a page here are exact; each invoice rounds its own pr
                "each firm pays above).")
 
 
-# The heading of split_pages in the math
+# The heading of split_pages in the math (OWN_HEADING in the math of one firm's invoice, sent to that firm)
 SPLIT_HEADING = "Who pays what a page, on pages ordered together at different speeds"
+OWN_HEADING = "What this firm pays a page, on pages ordered together at different speeds"
 
 
-def explain(made: list[tuple[FirmInvoice, str]], layout: str = "invoice") -> tuple[str, str]:
+def explain(made: list[tuple[FirmInvoice, str]], layout: str = "invoice",
+            one_firm: bool = False) -> tuple[str, str]:
     """(html, plain text) of the math of each invoice: (FirmInvoice, its number) pairs, the number "" for one
     not made yet. layout: "invoice" (a table for each invoice and speed) or "firms" (a table for each set of
     firms and speed, a column per firm); the plain text is the same for both. Pages ordered together at different
-    speeds get a section of their own after the invoices, what each firm on them pays a page (split_pages)."""
+    speeds get a section of their own after the invoices, what each firm on them pays a page (split_pages).
+    one_firm: the math of one invoice, to send that firm, shows only what that firm owes (the user, 2026-10-21):
+    of those pages, its own row alone (SplitSection.own), not the other firms' nor the firms together."""
+    if one_firm:
+        made = made[:1]
     parts = _by_firms(made) if layout == "firms" else _by_invoice(made)
     plain = _plain(made)
     split = split_pages(made)
+    if one_firm:
+        split = [sec.own() for sec in split]
     if split:
         rounded = any(q.page_rounded for f, _ in made for q in f.quotes)
-        parts.append(f"<h2>{_e(SPLIT_HEADING)}</h2>")
+        heading = OWN_HEADING if one_firm else SPLIT_HEADING
+        parts.append(f"<h2>{_e(heading)}</h2>")
         if rounded:
             parts.append(f"<p class='muted'>{_e(SPLIT_EXACT)}</p>")
         parts += _split_tables(split)
-        plain += [SPLIT_HEADING] + ([f"  {SPLIT_EXACT}"] if rounded else []) + _split_plain(split) + [""]
+        plain += [heading] + ([f"  {SPLIT_EXACT}"] if rounded else []) + _split_plain(split) + [""]
     check = together(made)
     if check:
         parts.append("<h2>All the firms together</h2>")
@@ -890,7 +918,8 @@ def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", lay
     """Saves the math of the invoices one Generate just made ((FirmInvoice, number, its file) each), as
     Settings.save_math says (settings.MATH_SAVES), in Settings.math_layout: "each", a PDF next to each invoice,
     named after it ("Invoice 2026-0012 - Jane Roe v. X.Y. Holding Corporation - Alex B. Counsel - the math.pdf"),
-    to send the firm that asks; "all", one for all of them next to the first ("Invoices 2026-0012 to 2026-0013 -
+    to send the firm that asks, showing only what that firm owes (explain's one_firm); "all", one for all of them
+    (everyone's amounts) next to the first ("Invoices 2026-0012 to 2026-0013 -
     Jane Roe v. X.Y. Holding Corporation - the math.pdf"), to look back at the whole job; "both" (but one invoice
     alone gets only its own: the other would say the same); "off", none. Invoices made in another reporter's name
     (Whose pages...) get "all of them" apart from the user's ("Invoices DS-2026-0001 to DS-2026-0002 - ..."):
@@ -903,16 +932,16 @@ def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", lay
         return []
     out = []
 
-    def keep(of: list, path: Path) -> None:
-        """Saves the math of these (FirmInvoice, number) as `path`, or a name beside it."""
+    def keep(of: list, path: Path, one_firm: bool = False) -> None:
+        """Saves the math of these (FirmInvoice, number) as `path`, or a name beside it (one_firm: explain's)."""
         try:
-            out.append(to_pdf(explain(of, layout)[0], unique_path(path)))
+            out.append(to_pdf(explain(of, layout, one_firm)[0], unique_path(path)))
         except Exception as e:
             log_error("could not save the math of an invoice", e)
 
     if save in ("each", "both"):
         for f, number, path in made:
-            keep([(f, number)], path.with_name(path.stem + MATH_SUFFIX))
+            keep([(f, number)], path.with_name(path.stem + MATH_SUFFIX), one_firm=True)
     for reporter in dict.fromkeys(f.opts.reporter for f, _, _ in made):
         theirs = [x for x in made if x[0].opts.reporter == reporter]
         if save == "all" or (save == "both" and len(theirs) > 1):

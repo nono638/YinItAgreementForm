@@ -271,6 +271,10 @@ class Job:
     # a job billed one way stays billed that way, made again or opened again from the records, whatever Settings
     # says later (the user, 2026-10-21). "" = not billed yet: as Settings -> Invoice -> Split invoices says.
     split_rule: str = ""
+    # The split rule an earlier invoice of this trial (its index number) was billed by, from the records
+    # (trial_split_rules), set by whoever prices it: every day of a trial is billed the same way, whatever Settings
+    # says later (the user, 2026-10-21). Not kept with its records: they say it. "" = no day of it billed yet.
+    trial_rule: str = ""
     runsheet_to: str | None = None  # the run sheet to add to; "" = a new one; None = as Settings say
     # one reporter wrote this case's transcripts: no run sheet for it, though the box is ticked for other cases
     # (set by the window while it ticks the box itself, see MainWindow._auto_runsheet)
@@ -642,14 +646,36 @@ class Job:
     def invoice_hold(self) -> str:
         """Why no invoice is made for this job until the user checks something ("" when it can be made):
         Excerpts... rows that no longer fit, whose pages to bill (Whose pages...), or more speeds on the same
-        pages than the courthouse bills for now (speed_problems)."""
+        pages than the courthouse bills for now (speed_problems), or parties not named on pages ordered at
+        different speeds (unnamed_problem)."""
         if self.portions_problem():
             return self.portions_check()
         why = self.ownership_problem()
         if why:
             return f"Whose pages… needs choosing ({why})"
         too_many = self.speed_problems()
-        return f"The speeds need checking ({too_many[0]})" if too_many else ""
+        if too_many:
+            return f"The speeds need checking ({too_many[0]})"
+        return self.unnamed_problem()
+
+    def unnamed_problem(self) -> str:
+        """A Parties number above the firms ticked, while those firms ordered the day at different speeds ("" when
+        not): the parties not named have no speed, so what each firm pays of the one original can't be worked out
+        (the user, 2026-10-21: the reporter decides, not the app). "Parties says 3, but 2 firms are named and they
+        ordered different speeds: ...". A day split under Excerpts... counts the firms that ordered, not Parties."""
+        if not self.parties or self.valid_portions() is not None:
+            return ""
+        keys = self.ticked_keys()
+        if self.parties <= len(keys) or len(keys) < 2:
+            return ""
+        speeds = {speed_key(sp) for sp in (self.speed_of(k) for k in keys) if sp}
+        if len(speeds) < 2:
+            return ""
+        more = self.parties - len(keys)
+        who = "the other party pays" if more == 1 else f"the other {more} parties pay"
+        return (f"Parties says {self.parties}, but {len(keys)} firms are named and they ordered different speeds, so "
+                f"what {who} can't be worked out: tick {'it' if more == 1 else 'them'} in the attorney table with "
+                f"{'its' if more == 1 else 'their'} speed, or set Parties to {len(keys)}")
 
     def invoice_pages(self) -> int:
         """The pages to bill: the Pages field when typed in (with a transcript or without one: a caption page
@@ -819,13 +845,14 @@ class Job:
                            show=self.invoice_show, detail=self.invoice_detail, orders=self.invoice_orders(),
                            skip=self.billed_keys(), my_pages=self.invoice_pages(),
                            total_pages=self.transcript_pages(), reporters=self.reporters_text(),
-                           typed=self.pages_typed(), split_rule=self.split_rule)
+                           typed=self.pages_typed(), split_rule=self.split_rule or self.trial_rule)
 
     def settle_split_rule(self, s: Settings) -> None:
         """Its invoices are being made: the split rule they are priced by is the job's from now on (split_rule),
-        so made again or opened again later it is billed the same way. One it has already is kept."""
+        so made again or opened again later it is billed the same way. One it has already is kept; else its
+        trial's (trial_rule: an earlier day's invoice), else Settings'."""
         if not self.split_rule:
-            rule = courthouses.split_rule(s.invoice_split_rule)
+            rule = courthouses.split_rule(self.trial_rule or s.invoice_split_rule)
             self.split_rule = rule.key if rule is not None else ""
 
     def reporter_pages(self, docs: list[Doc] | None = None) -> dict[str, int]:
@@ -1405,6 +1432,29 @@ def billed_split_rule(origin: str, ledger) -> str:
     return recorded_split_rule(value, ledger.invoiced_from(origin) if value is None else "")
 
 
+def trial_split_rules(ledger) -> dict[str, str]:
+    """The split rule each trial was first billed by, by its index number (index_key): that of its earliest
+    invoice whose rule is known (billed_split_rule; one recorded without its origin, before 2.9.0's rules, by the
+    courthouse's first), for Job.trial_rule. A trial is billed one way, day after day (the user, 2026-10-21).
+    ledger: records.Ledger."""
+    out: dict[str, str] = {}
+    for number, origin, ts in ledger.invoice_origins():
+        key = index_key(number)
+        if not key or key in out:
+            continue
+        rule = billed_split_rule(origin, ledger) if origin else recorded_split_rule(None, ts)
+        if rule:
+            out[key] = rule
+    return out
+
+
+def note_trial_rules(jobs: list[Job], rules: dict[str, str]) -> None:
+    """Gives each job its trial's split rule (Job.trial_rule) from trial_split_rules, "" for a trial not billed
+    yet."""
+    for job in jobs:
+        job.trial_rule = rules.get(index_key(job.case.get("index_no") or ""), "")
+
+
 def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
     """A job as it was when a file was made from it (origin: Activity.origin, read from JSON), without its
     documents: the window reads those again (origin["sources"]) when they are still there. Each field comes
@@ -1796,7 +1846,7 @@ def read_loaders(loaders: list[Callable[[], Ingested]], names: list[str], s: Set
                  paths: list[str] | None = None, progress: Progress | None = None) -> tuple[list[Doc], list[str]]:
     """read_docs for any inputs (files, pasted text, images): each loader returns the Ingested document.
     One input that can't be read doesn't stop the others; it gets a message instead."""
-    extractor = RegexExtractor(s.profile, s.title_case_names)
+    extractor = RegexExtractor(s.profile, s.title_case_names, s.index_patterns)
     paths = paths or [""] * len(loaders)
     docs, errors = [], []
     for i, (load, name, path) in enumerate(zip(loaders, names, paths)):
@@ -1993,6 +2043,34 @@ def _first_day(job: Job) -> tuple:
     return _date_key(days[0]) if days else (9999,)
 
 
+def trial_days(job: Job, jobs: list[Job]) -> list[Job]:
+    """The days of job's trial among `jobs`: every job of the same case (the same index number, or a matching
+    caption, as invoice_groups joins them), earliest day first; job itself whatever it says."""
+    i = ident(job.case)
+    days = sorted([j for j in jobs if j is job or (i and same_case(i, ident(j.case)))], key=_first_day)
+    return days if any(j is job for j in days) else days + [job]
+
+
+def trial_takes(job: Job, jobs: list[Job], s: Settings) -> list:
+    """Who transcribed what on job's trial: the takes of every transcript of its days (trial_days), as the run
+    sheet has them (Job.runsheet_opts: runsheet.Row, a reporter's run of pages each), earliest first, each
+    reporter named alike on every day (runsheet.name_rows)."""
+    rows = [r for j in trial_days(job, jobs) for r in j.runsheet_opts(s).rows]
+    rows.sort(key=lambda r: (r.day or date.max, r.start if r.start is not None else -1))
+    name_rows(rows)
+    return rows
+
+
+def trial_marks(job: Job, jobs: list[Job]) -> dict:
+    """The marks of the firms of job's trial (firm_marks: plaintiffs 1, 2, defense A, B, others 001), by
+    Attorney.key(): every job among `jobs` of the same case (the same index number, or a matching caption, as
+    invoice_groups joins them), earliest day first, so a firm keeps its mark whichever day is shown."""
+    from .firm_marks import mark_of, marks
+    attorneys = [a for j in trial_days(job, jobs) for a in j.case.attorneys]
+    given = marks(attorneys)
+    return {a.key(): m for a in attorneys if (m := mark_of(a, given)) is not None}
+
+
 def invoice_groups(jobs: list[Job], s: Settings) -> list[list[Job]]:
     """The jobs that share an invoice, earliest day first. With Settings.invoice_joint, every day of one case
     (the same index number, or a matching caption); otherwise each job alone. Jobs with no pages to bill (no
@@ -2123,7 +2201,8 @@ def joint_invoice(group: list[Job]) -> tuple[CaseInfo, InvoiceOpts]:
 
     opts.email, opts.index, opts.show = own("invoice_email"), own("invoice_index"), own("invoice_show")
     opts.detail = any(j.invoice_detail for j in group)  # ticked on any day of the invoice
-    opts.split_rule = next((j.split_rule for j in group if j.split_rule), "")  # (a day billed already: its rule)
+    # (a day billed already: its rule; else an earlier invoice of the trial's)
+    opts.split_rule = next((j.split_rule for j in group if j.split_rule), "") or         next((j.trial_rule for j in group if j.trial_rule), "")
     opts.parties = next((j.parties for j in group if j.parties), 0) or max(1, len(case.attorneys))
     # an attorney whose invoice for these days a stopped run made already (on every one of them) isn't billed
     # again; when a day was added since, it is, as its invoice now covers that day too
@@ -2231,8 +2310,9 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             ran_sheet = "runsheet" in want  # (written above, for its case)
             want = [o for o in want if o != "runsheet"]
             origin = job_origin(job)  # (the other files' record: billed by nothing yet should the invoice fail)
-            if "invoice" in want:
-                job.settle_split_rule(s)  # (billed this way now, and so again: Job.split_rule)
+            if "invoice" in want:  # (billed this way now, and so again: Job.split_rule; as its trial was before)
+                note_trial_rules([job], trial_split_rules(ledger))
+                job.settle_split_rule(s)
             sheet_made = list(job.saved) if ran_sheet else []
             job.saved = sheet_made + [
                 p for p in generate(job.case, s, out_dir_for(job, s), want, job.invoice_sets(), ledger,
@@ -2309,6 +2389,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             continue
         rules_were = [job.split_rule for job in g]  # (put back when no invoice comes of it)
         try:
+            note_trial_rules(g, trial_split_rules(ledger))  # (as an earlier invoice of the trial was billed)
             for job in g:  # (billed this way now, and so again: Job.split_rule; a day billed already keeps its own)
                 job.split_rule = job.split_rule or next((j.split_rule for j in g if j.split_rule), "")
                 job.settle_split_rule(s)
