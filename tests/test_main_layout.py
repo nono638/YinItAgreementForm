@@ -34,3 +34,20 @@ def test_the_cards_follow_the_job_and_say_what_is_in_them(window):
     assert titles == {"case": "Case", "attorneys": "Attorneys: tick who ordered", "details": "Speed, pages and dates",
                       "orders": "Who ordered what", "pays": "Who pays what", "takes": "Who transcribed what"}
     assert window.orders_edit.text() == "Excerpts…"
+
+
+def test_a_badge_is_a_pill_only_for_a_value_to_look_at(window):
+    """Where a value came from is said quietly ("found", "PDF", "default"...: grey, no pill); a value the AI or the
+    records gave, or one the reader wasn't sure of, keeps a coloured pill, as its field is marked to look at."""
+    from minute_filler.gui.theme import QSS
+    from minute_filler.models import FieldState
+    court = window.rows["court"]
+    for st, loud in [(FieldState("Supreme", "regex", 0.9), False), (FieldState("Supreme", "default", 1.0), False),
+                     (FieldState("Supreme", "you", 1.0), False), (FieldState("Supreme", "regex", 0.5), True),
+                     (FieldState("Supreme", "AI", 0.9), True), (FieldState("Supreme", "records", 0.9), True)]:
+        court.set_state(st)
+        assert court.badge.property("loud") is loud, st
+        assert court.badge.text()
+    base = next(line for line in QSS.splitlines() if line.startswith("QLabel#badge {"))
+    assert "border: 1px solid transparent" in base and "font-weight" not in base
+    assert 'QLabel#badge[src="regex"]' not in QSS  # (a source's colour is the loud pill's only)

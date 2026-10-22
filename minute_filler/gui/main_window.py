@@ -678,6 +678,8 @@ class FieldRow(QWidget):
         self.badge.setToolTip(BADGE_TIPS.get(st.source, ""))
         review = st.value and st.source != SRC_USER and (st.confidence < 0.6 or st.source in (SRC_AI, SRC_RECORDS))
         self.edit.setProperty("review", bool(review))
+        # a pill only for a value to look at (the AI's, the records', a guess): "found" on every field drowned them
+        self.badge.setProperty("loud", bool(review))
         self.edit.setProperty("missing", self.key in REQUIRED_KEYS and not st.value and self.show_missing)
         others = [a for a in st.alternatives if a != st.value]
         menu = self.alts.menu()
@@ -3537,6 +3539,7 @@ class MainWindow(QMainWindow):
         src = f.source if f.value else ""
         self.speed_badge.setText(badge_word(src))
         self.speed_badge.setProperty("src", src)
+        self.speed_badge.setProperty("loud", src == SRC_AI)
         self.speed_badge.setToolTip({SRC_USER: "Chosen by you for this job",
                                      SRC_DEFAULT: "Picked by the rule in Settings → Invoice"}.get(src, ""))
         repolish(self.speed_badge)

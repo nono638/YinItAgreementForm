@@ -125,15 +125,15 @@ QLabel#status[state="ok"] { background: {ok_bg}; color: {ok}; font-weight: 600; 
 QLabel#status[state="warn"] { background: {warn_bg}; color: {warn}; font-weight: 600; }
 QLabel#status[state="busy"] { background: {sel}; color: {accent}; font-weight: 600; }
 
-QLabel#badge { border-radius: 8px; padding: 1px 7px; font-size: 8pt; font-weight: 600; border: 1px solid {border}; }
-QLabel#badge[src="regex"] { color: {regex}; }
-QLabel#badge[src="PDF"] { color: {pdf}; }
-QLabel#badge[src="AI"] { color: {ai}; }
-QLabel#badge[src="default"] { color: {default}; }
-QLabel#badge[src="derived"] { color: {derived}; }
-QLabel#badge[src="records"] { color: {records}; }
-QLabel#badge[src="you"] { color: {you}; }
-QLabel#badge[src=""] { color: transparent; border: 1px solid transparent; }
+QLabel#badge { border-radius: 8px; padding: 1px 7px; font-size: 8pt; color: {muted}; border: 1px solid transparent; }
+QLabel#badge[loud="true"] { font-weight: 600; border: 1px solid {review}; background: {review_bg}; }
+QLabel#badge[loud="true"][src="regex"] { color: {regex}; }
+QLabel#badge[loud="true"][src="PDF"] { color: {pdf}; }
+QLabel#badge[loud="true"][src="AI"] { color: {ai}; }
+QLabel#badge[loud="true"][src="default"] { color: {default}; }
+QLabel#badge[loud="true"][src="derived"] { color: {derived}; }
+QLabel#badge[loud="true"][src="records"] { color: {records}; }
+QLabel#badge[src=""] { color: transparent; border: 1px solid transparent; background: transparent; }
 
 QListWidget, QTableWidget, QTableView, QTreeView {
   background: {card}; border: 1px solid {border}; border-radius: 8px; gridline-color: {border};

@@ -226,8 +226,9 @@ always highlighted, and Generate asks you to confirm it;</li>
 <li><b>worked out</b>: from the other details (the delivery date from the speed, say);</li>
 <li><b>you</b>: typed by you. A value you type is never changed by the app.</li>
 </ul>
-<p><b>Amber fields are guesses</b>: check them. When the documents read a field more than one way, a button beside
-it says how many (<i>2 more ▾</i>) and lists them to pick from.</p>
+<p>The badge is small grey text, so that the ones to look at stand out: <b>amber fields are guesses</b> (the AI's, the
+records', or a value the app wasn't sure of), and their badge is an amber pill. Check them. When the documents read
+a field more than one way, a button beside it says how many (<i>2 more ▾</i>) and lists them to pick from.</p>
 """),
     T("check-status", CHECK, "What still needs a look", "status warning missing check review required top right ⚠ problems",
       """
