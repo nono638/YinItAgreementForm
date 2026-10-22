@@ -121,4 +121,9 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     # 2.8.2
     ("where is the invoice i made for another reporter", ("rec-overview", "inv-reporters")),
     ("i cant see my colleagues invoices in records", ("rec-overview", "inv-reporters")),
+    # the main window laid out as the job goes (2026-10-22)
+    ("sort the jobs oldest first", ("batch-job-list",)),
+    ("hide the day of the week", ("batch-job-list",)),
+    ("where did the invoice options go", ("inv-panel", "make-outputs")),
+    ("list of everything i still need to fix", ("check-status",)),
 ]

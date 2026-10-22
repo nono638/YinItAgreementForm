@@ -104,7 +104,8 @@ then (<a href="topic:make-preview">more</a>).</li>
 </ol>
 """),
     T("start-window", START, "The main window at a glance",
-      "layout screen parts drop zone job list form cards status records button yin yang recent jobs",
+      "layout screen parts each part what for drop zone job list form cards status records button yin yang recent "
+      "jobs",
       """
 <ul>
 <li><b>The drop zone</b> (top left): drop documents on it, or anywhere in the window. Once a document is read it
@@ -182,7 +183,7 @@ documents.</p>
     T("input-email", INPUT, "E-mails and pasted text", "paste email message text extract outlook eml clipboard",
       """
 <p>Paste the e-mail into the text box and click <b>Extract from text</b>. A saved <code>.eml</code> file can be
-dropped like a document. Once a job is loaded the box is one line, <i>Paste an e-mail or notes…</i>, so the job
+dropped like a document. Once a document is read the box is one line, <i>Paste an e-mail or notes…</i>, so the job
 list has the room: click in it (or paste) to open it again.</p>
 <p>The sender of an e-mail is ticked as ordering (a transcript's attorneys are not: it lists who appeared). A page
 count read from an e-mail is shown, but not billed until you type it in <i>Est. number of pages</i>.</p>
@@ -231,7 +232,8 @@ always highlighted, and Generate asks you to confirm it;</li>
 records', or a value the app wasn't sure of), and their badge is an amber pill. Check them. When the documents read
 a field more than one way, a button beside it says how many (<i>2 more ▾</i>) and lists them to pick from.</p>
 """),
-    T("check-status", CHECK, "What still needs a look", "status warning missing check review required top right ⚠ problems",
+    T("check-status", CHECK, "What still needs a look", "status warning missing check review required top right ⚠ problems "
+      "before you generate list everything still to do fix",
       """
 <p>The status at the top right of the window counts what the job on screen still needs and names the first, such
 as <i>⚠ 1 missing, 2 to check: Index Number is missing ›</i>:</p>
@@ -308,7 +310,7 @@ Excerpts…, so you can tell the firms apart at a glance.</p>
 <p>Two rows that may be one firm are asked about (<a href="topic:check-same-firm">more</a>).</p>
 """),
     T("check-same-firm", CHECK, "Are these one firm?", "same firm not the same duplicate merge join forget remember "
-      "firms you answered",
+      "firms you answered twice shows up two rows",
       """
 <p>When two rows only <i>may</i> be one firm ("Smith Law" and "Smith Law Group", or "Mr. Smith" and Dana Smith of
 Smith Law), they are not joined without asking. The Attorneys card asks <i>Are these one firm?</i>: <b>Same
@@ -334,12 +336,12 @@ typed a number.</p>
 of it as you tick attorneys (<i>(2)</i>; its tooltip says it in words, <i>Will generate 2 minute agreement
 forms</i>, and with several jobs <i>(2 · all 6)</i> counts what Generate all makes too).</p>
 <ul>
-<li><b>Options ▾</b> holds each output's settings, kept for every job: which agreement form and how it is signed,
+<li><b>Options ▾</b> holds each output's standing choices, kept for every job: which agreement form and how it is signed,
 the MOFR's Civil or Criminal box, what to do when the case has a run sheet already.</li>
 <li>The invoice's choices are this job's own: they are in the <b>Invoice</b> card of the form, above Who ordered what
 (<a href="topic:inv-panel">more</a>).</li>
-<li><b>Generate</b> (Ctrl+Enter), the big button at the right of the row, makes the job on screen. With the days of
-a case loaded it says which day, <i>Generate 6/4/2026 only</i>.</li>
+<li><b>Generate</b> (Ctrl+Enter), the big button at the right of the row, makes the job on screen. For a day of a
+case it says which, <i>Generate 6/4/2026 only</i>.</li>
 <li><b>Generate all</b> (Ctrl+Shift+Enter) makes every ticked job in the list on the left, and says how many,
 <i>Generate all 3 days</i> (<a href="topic:batch-generate-all">more</a>).</li>
 </ul>
@@ -429,7 +431,7 @@ without asking.</li>
 output with its own folder, and the run sheet, keep theirs.</li>
 </ul>
 """),
-    T("make-file-names", MAKE, "File names", "file name pattern rename placeholders today date attorney number",
+    T("make-file-names", MAKE, "File names", "file name pattern rename change placeholders today date attorney number",
       """
 <p>Each kind of file is named by a pattern of placeholders, which you can change:</p>
 <ul>
@@ -1014,7 +1016,8 @@ hour the next day, then the next business day: made Friday at 6 PM, dated Monday
 """),
     # -------------------------------------------------------------------------------------------------- Rate sheets
     T("rates-sheets", RATES, "Rate sheets: your prices",
-      "rate sheet prices price list rates csv excel city private template sample rates add new sheet folder edit",
+      "rate sheet prices price list rates csv excel city private template sample rates add new sheet folder edit "
+      "what goes in",
       """
 <p>Prices come from rate sheets: small CSV files you can edit in Excel. Open their folder with <b>File → Open rate
 sheets folder</b> (it is <code>%APPDATA%\\YinItAgreementForm\\Rate Sheets</code>, or a folder you choose in
@@ -1143,7 +1146,7 @@ of its own, left unticked.</li>
 <p>Each job has a row: its case, date, <i>Day</i> (the day of the week), <i>Pages</i> (the transcript's own, without
 the word index) and <i>Yours</i> (the pages you wrote; <b>?</b> until it can tell). Hover over a job for its full
 name, index number and documents.</p>
-<p>The list is <b>by date, oldest first</b>, whatever order the documents came in, and the earliest day is shown
+<p>The list is <b>by date, oldest first</b>, whatever order the documents were read in, and the earliest day is shown
 first. <b>Click a heading</b> to sort by it (a date as a date, pages as numbers); click it again for the other way.
 Your choice is kept. A job's documents stay in the order they were read. Right-click the headings (or View →
 <i>Show the day of the week in the job list</i>) to hide or show <i>Day</i>.</p>
