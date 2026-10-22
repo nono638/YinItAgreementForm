@@ -272,3 +272,107 @@ def test_the_outputs_row_fits_the_smallest_window(window, qt, tmp_path, zoom):
         page = window.page_scroll
         assert page.widget().minimumSizeHint().width() <= page.viewport().width(), width
         assert (window.foot_row2.indexOf(window.gen_box) >= 0) is below, width
+
+
+def test_the_result_cards_look_like_results_and_the_report_starts_folded(window):
+    """Who pays what and Who transcribed what show results to read, not fields to fill: a look of their own (a
+    tint, in both themes); Who transcribed what (a report, its totals on its folded line) starts folded, and so it
+    is for a settings file of before (v16)."""
+    from minute_filler.gui.theme import DARK, LIGHT, QSS
+    from minute_filler.settings import Settings
+    assert window.pays_card.property("result") is True and window.takes_card.property("result") is True
+    assert not window.cards["case"].property("result")
+    assert 'QFrame#card[result="true"]' in QSS and all("result_bg" in t for t in (LIGHT, DARK))
+    assert window.cards["takes"].body.isHidden()
+    assert Settings().folded_cards == ["takes"]
+    assert "takes" in Settings.from_dict({"settings_version": 15, "folded_cards": ["case"]}).folded_cards
+    assert Settings.from_dict({"settings_version": 16, "folded_cards": []}).folded_cards == []  # (unfolded since)
+
+
+def test_the_paste_box_is_one_line_once_a_job_is_loaded(window, qt, tmp_path):
+    """Once a job is loaded the paste box is one line, "Paste an e-mail or notes…", without its label and Extract
+    from text, so the job list has the room (the user, 2026-10-22); text in it opens it again, and New job too."""
+    from minute_filler.gui.main_window import PASTE_SLIM
+    from test_sweep_270 import counsel, one_day
+    assert not window.paste_label.isHidden() and not window.extract_btn.isHidden()
+    one_day(window, qt, tmp_path, [counsel()])
+    window._size_drop()
+    assert window.paste_label.isHidden() and window.extract_btn.isHidden()
+    assert window.paste.placeholderText() == PASTE_SLIM and window.paste.maximumHeight() < 60
+    window.paste.setPlainText("Please send the minutes of 6/4/2026.")
+    assert not window.paste_label.isHidden() and not window.extract_btn.isHidden()
+    window.paste.setPlainText("")
+    assert window.paste_label.isHidden()
+    window.new_job()
+    window._size_drop()
+    assert not window.paste_label.isHidden() and window.paste.maximumHeight() > 1000
+
+
+# ------------------------------------------------------------------ the job list: sorted, and its Day column
+
+def days_read_newest_first(window, tmp_path):
+    """Four days of a case read 10/21, 10/20, 10/19, 10/14 (a folder can come in that way), with pages 87, 109,
+    145, 120: the jobs in that order."""
+    from helpers import transcript_pdf
+    from test_job_list import wait
+    files = [transcript_pdf(tmp_path / f"d{i}.pdf", pages=n, date=d) for i, (n, d) in enumerate(
+        [(8, "October 21, 2026"), (10, "October 20, 2026"), (14, "October 19, 2026"), (12, "October 14, 2026")])]
+    window.add_files([str(f) for f in files], batch=True)
+    wait(window, lambda: len(window.jobs) == 4 and all(j.docs for j in window.jobs))
+
+
+def shown(window, col=1) -> list[str]:
+    lst = window.job_list
+    return [lst.topLevelItem(i).text(col) for i in range(lst.topLevelItemCount())]
+
+
+def test_the_job_list_is_by_date_oldest_first_and_sorts_by_any_heading(window, tmp_path, make_window):
+    """The days in the order of the calendar, whatever order they were read in, and the earliest shown first (the
+    user, 2026-10-22: newest first was the wrong way round, and the headings couldn't be clicked); a heading sorts
+    by it, as dates and numbers (10 before 8 the other way round as text), and the choice is kept."""
+    from PySide6.QtCore import Qt
+    from minute_filler.gui.main_window import JOB_DATE, JOB_PAGES
+    from minute_filler.settings import Settings
+    days_read_newest_first(window, tmp_path)
+    assert [j.case.get("dates") for j in window.jobs][0] == "10/21/2026"  # (read newest first)
+    assert shown(window) == ["10/14/2026", "10/19/2026", "10/20/2026", "10/21/2026"]
+    assert window.cur.case.get("dates") == "10/14/2026"
+    assert window.job_list.header().sectionsClickable()
+    window.job_list.sortByColumn(JOB_DATE, Qt.DescendingOrder)
+    assert shown(window) == ["10/21/2026", "10/20/2026", "10/19/2026", "10/14/2026"]
+    window.job_list.sortByColumn(JOB_PAGES, Qt.AscendingOrder)
+    assert shown(window, JOB_PAGES) == ["8", "10", "12", "14"]  # (as numbers: "10" < "8" as text)
+    assert Settings.load().job_sort == ["Pages", "ascending"]
+    window._refresh_jobs()  # (rebuilt: sorted as chosen)
+    assert shown(window, JOB_PAGES) == ["8", "10", "12", "14"]
+    again = make_window(Settings.load())
+    assert again._job_sort() == (JOB_PAGES, Qt.AscendingOrder)
+
+
+def test_the_day_column_says_the_weekday_and_can_be_hidden(window, tmp_path, make_window):
+    from minute_filler.gui.main_window import JOB_DAY
+    from minute_filler.settings import Settings
+    days_read_newest_first(window, tmp_path)
+    assert shown(window, JOB_DAY) == ["Wed", "Mon", "Tue", "Wed"]  # (10/14, 10/19, 10/20, 10/21/2026)
+    assert not window.job_list.isColumnHidden(JOB_DAY)
+    # (as wide as "Wed": sized by Qt, each column kept room for the sort arrow and the case name got 2 letters)
+    assert window.job_list.columnWidth(JOB_DAY) < 60
+    window._show_weekday(False)
+    assert window.job_list.isColumnHidden(JOB_DAY) and not window.weekday_action.isChecked()
+    assert Settings.load().job_weekday is False
+    assert make_window(Settings.load()).s.job_weekday is False
+
+
+def test_a_jobs_documents_stay_in_the_order_read_however_the_list_is_sorted(window, tmp_path):
+    from PySide6.QtCore import Qt
+    from minute_filler.gui.main_window import JOB_DATE
+    from test_job_list import EMAIL, wait
+    from helpers import transcript_pdf
+    window.add_files([str(transcript_pdf(tmp_path / "Roe 6-3-2026.pdf", pages=30))])
+    wait(window, lambda: len(window.cur.docs) == 1)
+    window.add_text(EMAIL)
+    wait(window, lambda: len(window.cur.docs) == 2)
+    row = window._job_item(window.cur)
+    for order in (Qt.AscendingOrder, Qt.DescendingOrder):
+        window.job_list.sortByColumn(JOB_DATE, order)
+        assert [row.child(i).text(0) for i in range(2)] == ["Roe 6-3-2026.pdf", "Pasted text 1"]

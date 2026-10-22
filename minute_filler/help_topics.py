@@ -182,7 +182,8 @@ documents.</p>
     T("input-email", INPUT, "E-mails and pasted text", "paste email message text extract outlook eml clipboard",
       """
 <p>Paste the e-mail into the text box and click <b>Extract from text</b>. A saved <code>.eml</code> file can be
-dropped like a document.</p>
+dropped like a document. Once a job is loaded the box is one line, <i>Paste an e-mail or notes…</i>, so the job
+list has the room: click in it (or paste) to open it again.</p>
 <p>The sender of an e-mail is ticked as ordering (a transcript's attorneys are not: it lists who appeared). A page
 count read from an e-mail is shown, but not billed until you type it in <i>Est. number of pages</i>.</p>
 <p>When an e-mail asks for another speed ("please send a daily copy"), the <i>Speed, pages and dates</i> card
@@ -1086,7 +1087,7 @@ column for one reporter; the <b>By Reporter</b> sheet totals each reporter's tak
 read from the initials at the foot of the pages: the day, the reporter, the printed pages, how many, and the
 witnesses who took the stand or stepped down. Above it, what each reporter wrote in all (<i>These 3 days: Pat
 Reporter 144 pp. · DS 76 pp.</i>). It is there whenever a day of the trial has a transcript, whatever outputs are
-ticked.</p>
+ticked. It starts folded, the totals on its line: click its heading to see every take.</p>
 <p><b>Save a copy…</b> saves the table as an Excel workbook or a CSV file. For the full record, kept and added to day
 after day, tick <b>Run sheet</b> and Generate: the trial's <a href="topic:run-overview">run sheet</a>.</p>
 """),
@@ -1137,11 +1138,15 @@ of its own, left unticked.</li>
 <p>Batches are read with the built-in rules and Windows' text recognition only: the AI helper is not used.</p>
 """),
     T("batch-job-list", BATCH, "The job list", "job list jobs left table marks check tick warning pages yours new job "
-      "undo clear",
+      "undo clear sort order oldest newest heading column day of the week weekday",
       """
-<p>Each job has a row: its case, date, <i>Pages</i> (the transcript's own, without the word index) and <i>Yours</i>
-(the pages you wrote; <b>?</b> until it can tell). Hover over a job for its full name, index number and
-documents.</p>
+<p>Each job has a row: its case, date, <i>Day</i> (the day of the week), <i>Pages</i> (the transcript's own, without
+the word index) and <i>Yours</i> (the pages you wrote; <b>?</b> until it can tell). Hover over a job for its full
+name, index number and documents.</p>
+<p>The list is <b>by date, oldest first</b>, whatever order the documents came in, and the earliest day is shown
+first. <b>Click a heading</b> to sort by it (a date as a date, pages as numbers); click it again for the other way.
+Your choice is kept. A job's documents stay in the order they were read. Right-click the headings (or View →
+<i>Show the day of the week in the job list</i>) to hide or show <i>Day</i>.</p>
 <ul>
 <li><b>✓</b> marks a job already made.</li>
 <li><b>⚠</b> marks one that failed or needs a look: something required is missing, nobody is ticked, Whose pages… or

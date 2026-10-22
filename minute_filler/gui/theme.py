@@ -10,7 +10,7 @@ LIGHT = {
     "bg": "#e3e7ee", "card": "#ffffff", "border": "#b9c0cc", "text": "#141a26", "muted": "#4d5566",
     "input": "#ffffff", "input_border": "#9aa3b2", "accent": "#2563eb", "accent_hover": "#1d4ed8",
     "accent_text": "#ffffff", "hover": "#e8ecf3", "review": "#d97706", "review_bg": "#fff6e5",
-    "ok": "#15803d", "ok_bg": "#dcf2e3", "warn_bg": "#fdeccc", "warn": "#8a4f00", "drop_bg": "#f3f6fc",
+    "ok": "#15803d", "ok_bg": "#dcf2e3", "warn_bg": "#fdeccc", "warn": "#8a4f00", "drop_bg": "#f3f6fc", "result_bg": "#eef2f8",
     "regex": "#15803d", "pdf": "#0f766e", "ai": "#6d28d9", "default": "#4d5566", "derived": "#0369a1", "you": "#141a26",
     "sel": "#d3e1fd", "header_bg": "#d5dbe5", "card_title": "#1e3a8a",
     "records": "#0f5f56", "records_bg": "#e3f3ef", "records_border": "#5fae9f", "records_hover": "#cdeae3",
@@ -21,7 +21,7 @@ DARK = {
     "bg": "#0c0e12", "card": "#1f232c", "border": "#4a5262", "text": "#eceef3", "muted": "#b2b9c6",
     "input": "#12151b", "input_border": "#5b6477", "accent": "#4b8df8", "accent_hover": "#2f74e8",
     "accent_text": "#ffffff", "hover": "#2c3240", "review": "#f5a524", "review_bg": "#33280f",
-    "ok": "#4ade80", "ok_bg": "#133021", "warn_bg": "#382c10", "warn": "#f7cb74", "drop_bg": "#171b23",
+    "ok": "#4ade80", "ok_bg": "#133021", "warn_bg": "#382c10", "warn": "#f7cb74", "drop_bg": "#171b23", "result_bg": "#181c24",
     "regex": "#4ade80", "pdf": "#5eead4", "ai": "#c9adff", "default": "#b2b9c6", "derived": "#7dd3fc", "you": "#eceef3",
     "sel": "#29406a", "header_bg": "#171a21", "card_title": "#9cc0ff",
     "records": "#a7f0e1", "records_bg": "#12312d", "records_border": "#2f7d70", "records_hover": "#184139",
@@ -34,6 +34,8 @@ QSS = """
 QMainWindow, QDialog { background: {bg}; }
 QWidget#central, QScrollArea, QScrollArea > QWidget > QWidget { background: {bg}; }
 QFrame#card { background: {card}; border: 1px solid {border}; border-radius: 10px; }
+/* a card that shows a result to read, not a form to fill (Who pays what, Who transcribed what) */
+QFrame#card[result="true"] { background: {result_bg}; }
 QLabel#title { font-size: 16pt; font-weight: 600; }
 QLabel#subtitle, QLabel#muted { color: {muted}; }
 QLabel#section { font-size: 11pt; font-weight: 700; color: {card_title}; }
@@ -52,7 +54,7 @@ QLabel#problem { color: {review}; font-weight: 600; }
 QLabel#speedAsk { background: {warn_bg}; color: {warn}; border-radius: 6px; padding: 4px 8px; font-weight: 600; }
 QLabel#pagesWarn { background: {warn_bg}; color: {warn}; border-radius: 6px; padding: 3px 8px; font-weight: 600; }
 QLabel#dateWarn { background: {warn_bg}; color: {warn}; border-radius: 6px; padding: 3px 8px; font-weight: 600; }
-QLabel#payTable { background: {drop_bg}; border: 1px solid {border}; border-radius: 8px; padding: 6px 10px; }
+QLabel#payTable { background: transparent; border: none; padding: 2px 0px; }
 
 QLineEdit, QPlainTextEdit, QComboBox, QSpinBox {
   background: {input}; border: 1px solid {input_border}; border-radius: 6px; padding: 5px 8px;

@@ -53,7 +53,7 @@ RATE_SHEETS_OK_KEPT = 20  # how many incomplete rate sheets used anyway are reme
 LOCAL = ("window_geometry", "recent_files", "update_checked", "update_version", "update_page", "recap_month",
          "recap_year", "welcomed",
          "signature_image", "opened_year", "new_year_day", "rate_sheets_ok", "window_splits", "folded_cards",
-         "sheet_days_kept")
+         "sheet_days_kept", "job_sort", "job_weekday")
 # What says who the user is: left out of a settings file exported "without my details" (for a colleague), and
 # kept as it is when such a file is imported. The invoice's payment text (who to pay, and how) is left out
 # with them. The folders are among them: their paths name the user's Windows account.
@@ -511,7 +511,7 @@ class Settings:
     # Output
     form_choice: str = "ucs"          # "ucs", "clean" or "original" (see fill.FORMS)
     include_instructions: bool = True  # keep the UCS form's instructions page (page 2)
-    settings_version: int = 15        # bumped when from_dict must change something in older files
+    settings_version: int = 16        # bumped when from_dict must change something in older files
     output_dir: str = ""              # blank = next to the first input file, else Documents\Minute Agreements
     output_dirs: dict = field(default_factory=dict)  # a folder for one output (key of OUTPUTS); none = as above
     # each case's files in a folder of its own inside the one above ("...\Minute Agreements\712345-2021"), named
@@ -612,9 +612,14 @@ class Settings:
     show_yin: bool = True
     window_geometry: str = ""
     # the main window's divider ("left": the job list above the paste box) as QSplitter.saveState() in base64
-    # (an "outer" one, above the Outputs box when it had panels, is kept but not used); the cards folded
+    # (an "outer" one, above the Outputs box when it had panels, is kept but not used); the cards folded (Who
+    # transcribed what at first: a report, its totals on its folded line)
     window_splits: dict = field(default_factory=dict)
-    folded_cards: list = field(default_factory=list)
+    folded_cards: list = field(default_factory=lambda: ["takes"])
+    # the job list: the heading it is sorted by and which way ([name, "ascending" or "descending"]: by date,
+    # oldest first, at first), and whether it shows the day of the week (its Day column)
+    job_sort: list = field(default_factory=lambda: ["Date", "ascending"])
+    job_weekday: bool = True
     zoom: float = 1.0                 # Ctrl + / Ctrl - zoom (1.0 = 100 %), on top of the Windows display scaling
     recent_files: list = field(default_factory=list)  # documents and folders opened, newest first (Open recent)
     preview_before_saving: bool = True  # Generate shows the files as pictures first; saved only on Save
@@ -1106,6 +1111,10 @@ class Settings:
         s.recent_files = [p for p in s.recent_files if isinstance(p, str) and p.strip()][:RECENT_MAX]
         s.window_splits = {k: v for k, v in s.window_splits.items() if isinstance(k, str) and isinstance(v, str)}
         s.folded_cards = list(dict.fromkeys(k for k in s.folded_cards if isinstance(k, str)))
+        if not (len(s.job_sort) == 2 and all(isinstance(x, str) for x in s.job_sort)):
+            s.job_sort = ["Date", "ascending"]
+        if version < 16 and "takes" not in s.folded_cards:  # v16: Who transcribed what starts folded
+            s.folded_cards.append("takes")
         s.records_count = s.records_count.strip()
         s.settings_version = cls.settings_version
         return s

@@ -1,8 +1,9 @@
 """The list on the left of the window (off screen): a row per job (of a batch, or the job on screen alone) with
-its case, date, the transcript's own pages and the user's; under a job of several documents a row per document;
-the tick of each job of a batch, a click on a document's row showing its job, a job's documents folded away
-staying so, and right-click's Move to a job of its own, Remove from job and Remove this job. Also Job.your_pages
-(the Yours column) without the window. Made-up documents only."""
+its case, date, day of the week, the transcript's own pages and the user's; under a job of several documents
+a row per document; the tick of each job of a batch, a click on a document's row showing its job, a job's
+documents folded away staying so, and right-click's Move to a job of its own, Remove from job and Remove this
+job. Also Job.your_pages (the Yours column) without the window. Made-up documents only.
+(The list's sorting and its Day column: tests/test_main_layout.py.)"""
 import os
 import time
 
@@ -13,7 +14,7 @@ QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 from PySide6.QtCore import Qt  # noqa: E402
 
 from helpers import invoice_text, page_numbered_transcript, pat_settings, transcript_pdf  # noqa: E402
-from minute_filler.gui.main_window import JOB_DATE, JOB_PAGES, JOB_YOURS  # noqa: E402
+from minute_filler.gui.main_window import JOB_COLS, JOB_DATE, JOB_PAGES, JOB_YOURS  # noqa: E402
 
 EMAIL = """From: Dana Smith <dsmith@smithlaw.example>
 Sent: Wednesday, June 3, 2026 4:12 PM
@@ -46,7 +47,7 @@ def wait(win, until, seconds=30):
 
 
 def cells(item) -> list[str]:
-    return [item.text(c) for c in range(4)]
+    return [item.text(c) for c in range(len(JOB_COLS))]
 
 
 def row_of(win, job):
@@ -61,8 +62,8 @@ def test_two_days_are_a_row_each_with_their_pages(window, tmp_path):
     lst = window.job_list
     first, second = (row_of(window, j) for j in window.jobs)
     assert lst.topLevelItemCount() == 2 and window.jobs_label.text().startswith("Jobs: 2")
-    assert cells(first)[JOB_DATE:] == ["6/3/2026", "30", "30"]  # (Pat Reporter's alone: every page is yours)
-    assert cells(second)[JOB_DATE:] == ["6/4/2026", "24", "24"]
+    assert cells(first)[JOB_DATE:] == ["6/3/2026", "Wed", "30", "30"]  # (Pat Reporter's alone: every page is yours)
+    assert cells(second)[JOB_DATE:] == ["6/4/2026", "Thu", "24", "24"]
     assert first.text(0).endswith("Jane Roe v. X.Y. Holding Corporation")
     assert "712345/2021" in first.toolTip(0) and "712345/2021" in first.toolTip(JOB_YOURS)  # (hover for the rest)
     assert first.childCount() == second.childCount() == 0 and not lst.rootIsDecorated()  # (one document each)
@@ -100,14 +101,15 @@ def test_a_job_of_two_documents_lists_them_and_moves_one_out(window, tmp_path):
     assert lst.topLevelItemCount() == 1 and window.jobs_label.text() == "This job"
     row = row_of(window, window.cur)
     assert row.childCount() == 2 and row.isExpanded() and lst.rootIsDecorated()
-    assert cells(row.child(0)) == ["Roe 6-3-2026.pdf", "6/3/2026", "30", "30"]
-    assert cells(row.child(1)) == ["Pasted text 1", "e-mail", "", ""]
+    assert cells(row.child(0)) == ["Roe 6-3-2026.pdf", "6/3/2026", "Wed", "30", "30"]
+    assert cells(row.child(1)) == ["Pasted text 1", "e-mail", "", "", ""]
     assert row.child(1).toolTip(0).startswith("From: Dana Smith")  # (the text read from it)
     email = window.cur.docs[1]
     window._remove_doc(window.cur, email, own_job=True)  # right-click → Move to a job of its own
     assert len(window.jobs) == 2 and window.jobs[1].docs == [email]
     assert lst.topLevelItemCount() == 2 and all(lst.topLevelItem(i).childCount() == 0 for i in range(2))
-    assert lst.topLevelItem(1).text(JOB_DATE) == "6/3/2026" and lst.topLevelItem(1).text(JOB_YOURS) == ""
+    moved = row_of(window, window.jobs[1])  # (the list is sorted by date, then case: not in the order read)
+    assert moved.text(JOB_DATE) == "6/3/2026" and moved.text(JOB_YOURS) == ""
     window._remove_job(window.jobs[1])  # right-click → Remove this job
     assert len(window.jobs) == 1 and lst.topLevelItemCount() == 1
 

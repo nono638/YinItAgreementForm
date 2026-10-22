@@ -229,11 +229,11 @@ def test_a_folded_card_sums_itself_up_with_a_warning_and_is_kept(window, tmp_pat
     summary = window.cards["case"].summary
     assert window.cards["case"].body.isHidden() and not window.cards["case"].isHidden()
     assert summary.full().startswith("Jane Roe") and "712345" in summary.full()
-    assert Settings.load().folded_cards == ["case"]
+    assert "case" in Settings.load().folded_cards
     window.rows["index_no"].choose("")
     assert summary.full().startswith("⚠ ")
     window._fold_card(window.cards["case"], False)
-    assert Settings.load().folded_cards == []
+    assert "case" not in Settings.load().folded_cards
 
 
 # ------------------------------------------------------------------ new pieces

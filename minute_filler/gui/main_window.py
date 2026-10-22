@@ -65,13 +65,13 @@ import textwrap
 import time
 from calendar import monthrange
 from copy import deepcopy
-from datetime import MAXYEAR, MINYEAR, date, timedelta
+from datetime import MAXYEAR, MINYEAR, date, datetime, timedelta
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEvent, QPoint, QRect, QSignalBlocker, QSize, QStringListModel, Qt, QThreadPool, QTimer
-from PySide6.QtGui import QActionGroup, QColor, QKeySequence, QMovie, QShortcut
+from PySide6.QtGui import QActionGroup, QColor, QFont, QFontMetrics, QKeySequence, QMovie, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemDelegate, QAbstractItemView, QApplication, QBoxLayout, QCheckBox, QComboBox, QCompleter, QFileDialog,
     QFormLayout, QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox,
@@ -185,13 +185,15 @@ ORDER_TIPS = {  # the headings' tooltips
                          "yours (or those chosen under Whose pages…)",
 }
 # the list of jobs on the left: a row per job, and under a job of several documents a row per document
-JOB_COLS = ["Case / file", "Date", "Pages", "Yours"]
-JOB_DATE, JOB_PAGES, JOB_YOURS = 1, 2, 3
+JOB_COLS = ["Case / file", "Date", "Day", "Pages", "Yours"]
+JOB_DATE, JOB_DAY, JOB_PAGES, JOB_YOURS = 1, 2, 3, 4
 JOB_TIPS = {
     "Case / file": "One job per case and date. Click a job to check or edit it; untick the ones \"Generate all\"\n"
                    "should leave out. A job read from several documents lists them under it: right-click one to\n"
                    "see its text, move it to a job of its own or remove it.",
-    "Date": "The date of the minutes (a document's own date, or what kind of document it is)",
+    "Date": "The date of the minutes (a document's own date, or what kind of document it is). Click a heading\n"
+            "to sort the list by it, again to sort it the other way.",
+    "Day": "The day of the week of the job's date (right-click the headings, or View, to hide it)",
     "Pages": "The transcript's own pages (the word index after them left out)",
     "Yours": "The pages you wrote (those with your initials; every page when you wrote it alone,\n"
              "or when no page has initials).\n"
@@ -199,6 +201,49 @@ JOB_TIPS = {
              "? = can't tell yet: your initials aren't set (Settings → My info), or Whose pages…\n"
              "hasn't said whose the first pages are.",
 }
+JOB_SORT_ROLE = Qt.UserRole + 20  # what a row sorts by in each column (MainWindow._job_sort_key)
+
+
+class JobItem(QTreeWidgetItem):
+    """A job's row in the list, sorted by what its cells mean (their keys in JOB_SORT_ROLE: MainWindow._job_sort_key),
+    not by their text: a date as a date (9/3/2026 before 10/14/2026), pages as numbers (87 before 109)."""
+
+    def __lt__(self, other) -> bool:
+        tree = self.treeWidget()
+        col = tree.sortColumn() if tree is not None else 0
+        a, b = self.data(col, JOB_SORT_ROLE), other.data(col, JOB_SORT_ROLE)
+        return super().__lt__(other) if a is None or b is None else a < b
+
+
+class DocItem(QTreeWidgetItem):
+    """A document's row under its job: in the order the documents were read (its JOB_SORT_ROLE), whichever way the
+    list is sorted."""
+
+    def __lt__(self, other) -> bool:
+        a, b = self.data(0, JOB_SORT_ROLE), other.data(0, JOB_SORT_ROLE)
+        if a is None or b is None:
+            return super().__lt__(other)
+        tree = self.treeWidget()
+        # (sorted the other way, Qt asks whether other < self: answered so that the order read stays)
+        down = tree is not None and tree.header().sortIndicatorOrder() == Qt.DescendingOrder
+        return a > b if down else a < b
+
+
+def _first_day(text: str) -> date | None:
+    """The first date written in text ("6/3/2026, 6/4/2026" -> 6/3/2026); None when there is none."""
+    found = [d for _, _, d in find_dates(text or "")]
+    try:
+        return datetime.strptime(found[0], "%m/%d/%Y").date() if found else None
+    except ValueError:
+        return None
+
+
+def _weekday(text: str) -> str:
+    """The day of the week of the first date in text ("Wed" for 6/3/2026); "" without one."""
+    day = _first_day(text)
+    return day.strftime("%a") if day else ""
+
+
 # the Who ordered what row of a day nobody is ticked on, when other days of its case have attorneys ticked
 NOBODY_DAY = "⚠ nobody ticked on this day: no invoice for the case until you tick who ordered it"
 # how the Who ordered what card's rows are billed: its ? button's (the card says only which day it shows)
@@ -766,6 +811,10 @@ class FieldRow(QWidget):
 IDLE_STATUS = "Drop a document to begin…"
 COMPACT_BELOW = 960  # before the window is shown: window height (px at 100 % zoom) under which the drop zone is small
 DROP_TEXT = "Drop documents here"
+# the paste box's grey text: an example while it is open, a line to click once a job is loaded (_fit_paste)
+PASTE_HINT = ("e.g. \"Please send the minutes for Smith v. Jones, Index 712345/2024, before Justice Lopez on 9/14/2026, "
+              "expedited…\"")
+PASTE_SLIM = "Paste an e-mail or notes…"
 DROP_MORE_TEXT = "Drop more here, or"  # (the slim drop zone, Browse... beside it: the column is narrow)
 
 
@@ -1290,9 +1339,16 @@ class MainWindow(QMainWindow):
         for c, name in enumerate(JOB_COLS):
             self.job_list.headerItem().setToolTip(c, JOB_TIPS[name])
         hh = self.job_list.header()
-        hh.setSectionsClickable(False)
+        # a click on a heading sorts the list by it, again the other way (by date, oldest first, at first:
+        # _job_sort; sorted in _refresh_job_labels); a right-click shows or hides the Day column
+        hh.setSectionsClickable(True)
+        hh.setSortIndicatorShown(True)
+        hh.setSortIndicator(*self._job_sort())
+        hh.sortIndicatorChanged.connect(self._job_sort_changed)
+        hh.setContextMenuPolicy(Qt.CustomContextMenu)
+        hh.customContextMenuRequested.connect(self._job_header_menu)
         hh.setStretchLastSection(False)
-        hh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(QHeaderView.Fixed)  # (as wide as their text: _fit_job_columns)
         hh.setSectionResizeMode(0, QHeaderView.Stretch)
         self.job_list.setUniformRowHeights(True)
         self.job_list.setAllColumnsShowFocus(True)
@@ -1325,24 +1381,26 @@ class MainWindow(QMainWindow):
         self.index_note.setVisible(False)
         tl.addWidget(self.index_note)
         self.left_split.addWidget(top)
-        bottom = QWidget()
+        # (one line once a job is loaded, while it is empty and not typed in: _fit_paste)
+        self.paste_pane = bottom = QWidget()
         bl = QVBoxLayout(bottom)
         bl.setContentsMargins(0, 4, 0, 0)
         bl.setSpacing(8)
-        lbl = QLabel("…or paste an e-mail or notes")
+        self.paste_label = lbl = QLabel("…or paste an e-mail or notes")
         lbl.setObjectName("fieldLabel")
         bl.addWidget(lbl)
         self.paste = QPlainTextEdit()
-        self.paste.setPlaceholderText("e.g. \"Please send the minutes for Smith v. Jones, Index 712345/2024, "
-                                      "before Justice Lopez on 9/14/2026, expedited…\"")
+        self.paste.setPlaceholderText(PASTE_HINT)
         sized(self.paste, "setMinimumHeight", 52)
+        self._paste_slim = False
         # it takes the room left over, but doesn't ask for any: otherwise the left column's scroll area counts
         # its preferred 190 px and shows a scroll bar in a window with room to spare
         self.paste.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         self.paste.textChanged.connect(self._update_header_buttons)
+        self.paste.textChanged.connect(self._fit_paste)
         self.paste.setProperty("help_topic", "input-email")
         bl.addWidget(self.paste, 1)
-        pb = QPushButton("Extract from text")
+        self.extract_btn = pb = QPushButton("Extract from text")
         pb.clicked.connect(self._extract_paste)
         bl.addWidget(pb)
         self.left_split.addWidget(bottom)
@@ -1778,6 +1836,7 @@ class MainWindow(QMainWindow):
         # Who pays what: each invoice in short, right under the ticks that change it, kept up to date as
         # attorneys, speeds, Parties, Peripherals or Excerpts change (shown when an invoice is to be made)
         self.pays_card, cl = folding("Who pays what", "pays")
+        self.pays_card.setProperty("result", True)  # (a result to read, not a form to fill: a look of its own)
         self.pays_title = self.pays_card.heading
         self.pays_title.setToolTip(PAYS_TIP.format(**_who_splits(self.s)))
         self.pays = QLabel("")
@@ -1796,6 +1855,7 @@ class MainWindow(QMainWindow):
         # Who transcribed what: each reporter's pages of every day of the trial, from the initials on its pages
         # (the user, 2026-10-21: to review in the window, and save; the run sheet has every take in full)
         self.takes_card, cl = folding("Who transcribed what", "takes")
+        self.takes_card.setProperty("result", True)
         self.takes_info = QLabel("")
         self.takes_info.setObjectName("muted")
         self.takes_info.setWordWrap(True)
@@ -2007,6 +2067,10 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction("Fold all &cards", lambda: self._fold_all(True))
         m.addAction("&Unfold all cards", lambda: self._fold_all(False))
+        self.weekday_action = m.addAction("Show the &day of the week in the job list",
+                                          lambda: self._show_weekday(self.weekday_action.isChecked()))
+        self.weekday_action.setCheckable(True)
+        self.weekday_action.setChecked(self.s.job_weekday)
         m.addSeparator()
         self.yin_action = m.addAction("Show the &yin-yang", lambda: self._show_yin(self.yin_action.isChecked()))
         self.yin_action.setCheckable(True)
@@ -2833,8 +2897,8 @@ class MainWindow(QMainWindow):
                         # file dropped meanwhile was read first and took them in)
                         if split_rule and not j.split_rule and any(d is e for d in docs for e in j.docs):
                             j.split_rule = split_rule
-                    if self.cur not in self.jobs:
-                        self.cur = self.jobs[0]
+                    if self.cur not in self.jobs:  # (the first of the list: the earliest day, at first)
+                        self.cur = self._jobs_in_list_order()[0]
                     self._auto_runsheet()
                     self._refresh_jobs()
                     self._show_job()
@@ -2928,6 +2992,79 @@ class MainWindow(QMainWindow):
             return self.jobs
         return [self.cur] if self.cur.docs else []
 
+    def _job_sort(self) -> tuple[int, Qt.SortOrder]:
+        """The column and the way the job list is sorted (Settings.job_sort): by date, oldest first, until the user
+        clicks a heading (the user, 2026-10-22: a trial's days came newest first, as the documents were read)."""
+        name, way = (list(self.s.job_sort) + ["", ""])[:2]
+        col = JOB_COLS.index(name) if name in JOB_COLS else JOB_DATE
+        return col, Qt.DescendingOrder if way == "descending" else Qt.AscendingOrder
+
+    def _job_sort_changed(self, col: int, order: Qt.SortOrder) -> None:
+        """A heading clicked: the list sorted by it, kept for next time (Settings.job_sort)."""
+        if 0 <= col < len(JOB_COLS):
+            self._set_opt("job_sort", [JOB_COLS[col], "descending" if order == Qt.DescendingOrder else "ascending"])
+            self._fit_job_columns()  # (the arrow is in another column now)
+
+    def _job_sort_key(self, job: Job, col: int) -> tuple:
+        """What a job sorts by in the list's column col: its first date (Date and Day; a job without one after
+        those with one), its pages (Pages, Yours; blank after numbers) or its case (Case / file); then its date,
+        its case and the order it was read in, so two jobs alike keep that order."""
+        day = _first_day(job.case.get("dates"))
+        when = (0, day.toordinal()) if day else (1, 0)
+        case = (job.case.get("case_name") or job.title() or "").lower()
+        order = self.jobs.index(job) if job in self.jobs else len(self.jobs)
+        if col in (JOB_PAGES, JOB_YOURS):
+            has = bool(job.transcripts()) or job.pages_typed()
+            n = (job.transcript_pages() if job.transcripts() else None) if col == JOB_PAGES else \
+                (job.your_pages() if has else None)
+            return ((0, n) if n is not None else (1, 0)) + when + (case, order)
+        if col == 0:
+            return (case,) + when + (order,)
+        return when + (case, order)
+
+    def _jobs_in_list_order(self) -> list[Job]:
+        """The jobs in the order the list shows them (_job_sort): the first is the one shown after a batch is read
+        or a job is taken out of it."""
+        col, order = self._job_sort()
+        return sorted(self.jobs, key=lambda j: self._job_sort_key(j, col), reverse=order == Qt.DescendingOrder)
+
+    def _fit_job_columns(self) -> None:
+        """The job list's Date, Day, Pages and Yours as wide as their text (the widest cell, or the heading, with
+        its arrow for the column sorted by), the case taking the rest: sized by Qt, every column kept room for the
+        sort arrow, and the case's name was cut to two letters in a column 360 pixels wide."""
+        lst = self.job_list
+        hh = lst.header()
+        bold = QFont(hh.font())
+        bold.setBold(True)  # (the headings are bold: the style sheet's QHeaderView::section)
+        heads, cells = QFontMetrics(bold), lst.fontMetrics()
+        rows = []
+        for i in range(lst.topLevelItemCount()):
+            top = lst.topLevelItem(i)
+            rows += [top] + [top.child(k) for k in range(top.childCount())]
+        for c in (JOB_DATE, JOB_DAY, JOB_PAGES, JOB_YOURS):
+            arrow = z(16) if c == hh.sortIndicatorSection() else 0
+            need = max([cells.horizontalAdvance(r.text(c)) for r in rows] +
+                       [heads.horizontalAdvance(JOB_COLS[c]) + arrow])
+            lst.setColumnWidth(c, need + z(16))
+
+    def _show_weekday(self, on: bool) -> None:
+        """The job list's Day column shown or hidden (right-click on its headings, or View), kept for next time
+        (Settings.job_weekday)."""
+        self.job_list.setColumnHidden(JOB_DAY, not on)
+        if hasattr(self, "weekday_action"):
+            self.weekday_action.setChecked(on)
+        if self.s.job_weekday != on:
+            self._set_opt("job_weekday", on)
+
+    def _job_header_menu(self, pos) -> None:
+        """Right-click on the job list's headings: Day of the week, shown or not."""
+        menu = QMenu(self)
+        act = menu.addAction("Day of the week")
+        act.setCheckable(True)
+        act.setChecked(self.s.job_weekday)
+        act.toggled.connect(self._show_weekday)
+        menu.exec(self.job_list.header().mapToGlobal(pos))
+
     def _job_of(self, item: QTreeWidgetItem | None) -> Job | None:
         """The job of a row of the list: its own, or the job of a document's row; None when it is gone."""
         if item is None:
@@ -3005,9 +3142,10 @@ class MainWindow(QMainWindow):
         self._collapsed &= set(self.jobs)
         lst = self.job_list
         blocked = lst.blockSignals(True)
+        lst.setSortingEnabled(False)  # (sorted once the rows are filled in: _refresh_job_labels)
         lst.clear()
         for job in self._shown_jobs():
-            item = QTreeWidgetItem(lst, [""] * len(JOB_COLS))
+            item = JobItem(lst, [""] * len(JOB_COLS))
             item.setData(0, self._JOB, job)
             for c in (JOB_PAGES, JOB_YOURS):
                 item.setTextAlignment(c, Qt.AlignRight | Qt.AlignVCenter)
@@ -3040,9 +3178,10 @@ class MainWindow(QMainWindow):
         blocked = lst.blockSignals(True)
         was_child = lst.currentItem() is not None and lst.currentItem().parent() is item
         item.takeChildren()
-        for d in docs:
-            child = QTreeWidgetItem(item, [""] * len(JOB_COLS))
+        for n, d in enumerate(docs):
+            child = DocItem(item, [""] * len(JOB_COLS))
             child.setData(0, self._DOC, d)
+            child.setData(0, JOB_SORT_ROLE, n)  # (in the order read, however the list is sorted)
             for c in (JOB_PAGES, JOB_YOURS):
                 child.setTextAlignment(c, Qt.AlignRight | Qt.AlignVCenter)
         item.setData(0, self._DOCS, keys)
@@ -3069,27 +3208,32 @@ class MainWindow(QMainWindow):
         multi = len(self.jobs) > 1
         lst = self.job_list
         blocked = lst.blockSignals(True)  # setting the ticks must not look like the user clicking them
+        lst.setSortingEnabled(False)  # (a row moving while the rows are set would be missed: sorted at the end)
         pages_shown = False
-        for i in range(lst.topLevelItemCount()):
-            item = lst.topLevelItem(i)
+        for item in [lst.topLevelItem(i) for i in range(lst.topLevelItemCount())]:
             job = self._job_of(item)
             if job is None:
                 continue
             has = bool(job.transcripts()) or job.pages_typed()
             pages_shown |= has
             yours = job.your_pages()
-            cells = {0: self._job_text(job), JOB_DATE: self._job_date(job),
+            cells = {0: self._job_text(job), JOB_DATE: self._job_date(job), JOB_DAY: _weekday(job.case.get("dates")),
                      JOB_PAGES: str(job.transcript_pages()) if job.transcripts() else "",
                      JOB_YOURS: ("?" if yours is None else str(yours)) if has else ""}
             tip = self._job_tip(job)
             for c, text in cells.items():
                 item.setText(c, text)
                 item.setToolTip(c, tip)
+            for c in range(len(JOB_COLS)):
+                item.setData(c, JOB_SORT_ROLE, self._job_sort_key(job, c))
             if multi:
                 item.setCheckState(0, Qt.Checked if job.include else Qt.Unchecked)
             self._label_docs(job, item)
         lst.setColumnHidden(JOB_PAGES, not pages_shown)
         lst.setColumnHidden(JOB_YOURS, not pages_shown)
+        lst.setColumnHidden(JOB_DAY, not self.s.job_weekday)
+        lst.setSortingEnabled(True)  # (sorted by the heading chosen: _job_sort, _job_sort_key)
+        self._fit_job_columns()
         lst.blockSignals(blocked)
         if not multi:
             self.jobs_label.setText("This job")
@@ -3138,12 +3282,12 @@ class MainWindow(QMainWindow):
                    if id(d) in odd else "")
             if id(d) in transcripts:
                 yours = job.your_pages_of(d)
-                cells = [job.day_text(d) or "transcript", str(transcript_pages(d.ing)),
+                cells = [job.day_text(d) or "transcript", _weekday(job.day_text(d)), str(transcript_pages(d.ing)),
                          "?" if yours is None else str(yours)]
             else:
-                cells = [_kind_word(d), "", ""]
+                cells = [_kind_word(d), "", "", ""]
             child.setText(0, ("⚠ " if why else "") + d.ing.name)
-            for c, text in zip((JOB_DATE, JOB_PAGES, JOB_YOURS), cells):
+            for c, text in zip((JOB_DATE, JOB_DAY, JOB_PAGES, JOB_YOURS), cells):
                 child.setText(c, text)
             text = d.ing.text[:1500] or "(no text)"
             if d.ing.ocr_used:
@@ -3269,7 +3413,7 @@ class MainWindow(QMainWindow):
             # job goes, as with Remove this job, rather than stay in the list empty
             self.jobs.remove(job)
             if self.cur not in self.jobs:
-                self.cur = self.jobs[0]
+                self.cur = self._jobs_in_list_order()[0]
         self._auto_runsheet()
         self._refresh_jobs()
         self._show_job()
@@ -3284,7 +3428,7 @@ class MainWindow(QMainWindow):
         if not self.jobs:
             self.jobs = [Job()]
         if self.cur not in self.jobs:
-            self.cur = self.jobs[0]
+            self.cur = self._jobs_in_list_order()[0]
         self._auto_runsheet()
         self._refresh_jobs()
         self._show_job()
@@ -6528,6 +6672,7 @@ class MainWindow(QMainWindow):
         text."""
         slim = len(self.jobs) > 1 or any(j.docs for j in self.jobs)
         self.drop.set_slim(slim)
+        self._fit_paste()
         if slim:
             return
         scroll = getattr(self, "left_scroll", None)
@@ -6542,6 +6687,39 @@ class MainWindow(QMainWindow):
         need = left.heightForWidth(width) if left.hasHeightForWidth() else left.minimumSizeHint().height()
         if max(need, left.minimumSizeHint().height()) > scroll.viewport().height():
             self.drop.set_compact(True)
+
+    def _fit_paste(self) -> None:
+        """The paste box is one line once a job is loaded, while it is empty and not typed in ("Paste an e-mail or
+        notes…", without its label and Extract from text: the job list gets the room; the user, 2026-10-22), as the
+        drop zone is one slim row then; a click in it, or text pasted, opens it again, and New job too."""
+        if not hasattr(self, "paste_pane"):
+            return
+        slim = (any(j.docs for j in self.jobs) and not self.paste.toPlainText().strip()
+                and not self.paste.hasFocus())
+        was = self._paste_slim
+        if slim == was:
+            return
+        self._paste_slim = slim
+        self.paste_label.setVisible(not slim)
+        self.extract_btn.setVisible(not slim)
+        self.paste.setPlaceholderText(PASTE_SLIM if slim else PASTE_HINT)
+        if slim:
+            line = self.paste.fontMetrics().lineSpacing() + z(14)
+            self.paste.setMinimumHeight(line)
+            self.paste.setMaximumHeight(line)
+            self.paste.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # (one line: no bar beside it)
+            self.paste_pane.setMaximumHeight(line + z(6))
+            total = sum(self.left_split.sizes())
+            if total > 0:  # (the divider keeps the pane's old height otherwise: the room goes to the list)
+                self.left_split.setSizes([max(total - line - z(6), 1), line + z(6)])
+        else:
+            self.paste.setMinimumHeight(z(52))
+            self.paste.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.paste.setMaximumHeight(16777215)  # (QWIDGETSIZE_MAX)
+            self.paste_pane.setMaximumHeight(16777215)
+            if was:  # (opened again: the divider placed again for the box open, _place_left_split)
+                self._left_mode = None
+                QTimer.singleShot(0, self, lambda: self._place_left_split(len(self.jobs) > 1))
 
     def _size_drop_later(self):
         """_size_drop once Qt has laid the window out (sizes measured before that are not the final ones). The
@@ -6827,6 +7005,7 @@ class MainWindow(QMainWindow):
         apply_theme(self.app, self.s.theme)
         zooming.reapply()
         self.drop.rezoom()
+        self._paste_slim = None  # (its one line is taller or shorter now: _fit_paste sizes it again)
         self._place_pairs()
         QTimer.singleShot(0, self._place_pairs)  # again once the new sizes are laid out
         self._fit_minimum()
@@ -6895,6 +7074,8 @@ class MainWindow(QMainWindow):
         if t == QEvent.DragLeave and getattr(self, "drop", None) is not None and isinstance(obj, QWidget) \
                 and obj.window() is self:
             self.drop._hover(False)  # (left a text box: lit again by the next part of the window it is over)
+        if t in (QEvent.FocusIn, QEvent.FocusOut) and obj is getattr(self, "paste", None):
+            QTimer.singleShot(0, self, self._fit_paste)  # (clicked in: open; left empty: one line again)
         if t == QEvent.FocusOut and obj is getattr(self, "att_edits", {}).get(3) and self._att_typed(3):
             self._att_detail_edited(3)  # (only when typed in: an address the AI filled meanwhile isn't wiped)
         if e.type() == QEvent.Wheel and e.modifiers() & Qt.ControlModifier:
