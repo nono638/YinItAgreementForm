@@ -16,8 +16,9 @@ fields" button, removed in 1.3.1); one run sheet with the 4 takes of each day; a
 libraries only the window uses are in the build (the Records' Fuzzy and Regex searches, HEIC photos, the look
 for a newer version, printing, The math as a PDF, the moving yin-yang, the Help search's word table and typo
 fixing, the tick in ticked boxes), and so is the code the courthouse names by "module:name" (each output's maker,
-rules and window panel, and the split rules billing firms at different speeds: the spec's hiddenimports). Exit code
-1 if something is off.
+rules and window panel, and the split rules billing firms at different speeds: the spec's hiddenimports). Last, the
+build itself holds no records, invoices, settings or logs, and no file of the app's own that git doesn't track.
+Exit code 1 if something is off.
 """
 import csv
 import json
@@ -160,6 +161,24 @@ if not started or f"version {__version__} " not in started[-1]:
     problems.append(f"the built program is not version {__version__} (rebuild?)")
 if log.count("ERROR"):
     problems.append("the log has errors")
+# The build ships no one's records, invoices or settings. The spec copies folders by pattern (rate_sheets/*.csv,
+# templates/*.xlsx, forms/*.pdf), so a real invoice or rate sheet saved in one of them would ship: every file of
+# the app's own in the build must be one git tracks. Checked after the runs, so a file the program wrote into its
+# own folder is caught too.
+tracked = set(subprocess.run(["git", "ls-files", "-z", "minute_filler"], cwd=ROOT, capture_output=True, text=True,
+                             check=True).stdout.split("\0"))
+internal = exe.parent / "_internal"
+untracked = sorted(p.relative_to(internal).as_posix() for p in (internal / "minute_filler").rglob("*")
+                   if p.is_file() and p.relative_to(internal).as_posix() not in tracked)
+private = sorted(p.relative_to(exe.parent).as_posix() for p in exe.parent.rglob("*")
+                 if p.name.lower() in ("records.db", "settings.json", "invoices.csv", "activity.csv")
+                 or p.suffix.lower() in (".db", ".sqlite", ".log") or "-wal" in p.name or "-shm" in p.name
+                 or p.name in ("YinIt Records", "YinIt Run Sheets"))
+print("  build's own files:", "all tracked" if not untracked else untracked, "| records or settings:", private or "none")
+if untracked:
+    problems.append(f"the build has files git doesn't track (someone's own?): {untracked}")
+if private:
+    problems.append(f"the build has records, settings or logs in it: {private}")
 if problems:
     print("\n".join("PROBLEM: " + p for p in problems) + f"\n(files in {run})")
 else:
