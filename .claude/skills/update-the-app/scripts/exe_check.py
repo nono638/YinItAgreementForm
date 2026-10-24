@@ -9,7 +9,7 @@ P.R.). The inputs are two days of one trial (a transcript each, June 3 and June 
 Smith: PR and DS at the foot of the pages) and an e-mail about another case. Expected: the built version, no
 errors in the log; for each day a minute agreement, a MOFR, the run sheet and the joint invoice (with its math
 saved next to it, marked "YinIt math", as --math asks; the command line puts the files in OUTDIR, the run sheet
-in its own folder, and makes no case folders), the agreement and the MOFR being one each for both days
+too, and makes no case folders), the agreement and the MOFR being one each for both days
 (Settings.forms_per_case: listed under each day, as the one joint invoice for both days is) and the invoice
 billing Pat's own 10 of the 20 transcript pages, for one party, and has its amounts as fields (and no "Lock
 fields" button, removed in 1.3.1); one run sheet with the 4 takes of each day; and --selftest says the
@@ -116,7 +116,10 @@ else:
             or row.get("Date(s) of proceeding") != "6/3/2026, 6/4/2026":
         problems.append("the invoice should bill Pat's 10 of both days' 20 transcript pages (not the word index), "
                         "for one party")
-sheets = list((run / "home" / "Documents" / "YinIt Run Sheets").glob("*.xlsx"))
+# the run sheet goes with the case's other files (OUTDIR here), no longer to Documents\YinIt Run Sheets
+sheets = list((run / "out").rglob("*.xlsx"))
+if list((run / "home" / "Documents" / "YinIt Run Sheets").glob("*.xlsx")):
+    problems.append("the run sheet should be made with the case's files, not in Documents\\YinIt Run Sheets")
 if sheets:
     ws = load_workbook(sheets[0])["Run Sheet"]
     takes = [(ws.cell(r, 3).value, ws.cell(r, 6).value) for r in range(5, ws.max_row + 1)]

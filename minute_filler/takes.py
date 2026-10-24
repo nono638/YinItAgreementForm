@@ -2,9 +2,13 @@
 
 When reporters share a trial, each one puts their initials on every page they write ("ds"), on a line of
 its own at the foot of the page (or at the top). Pages in a row with the same initials are one take.
-Each page also carries its printed page number and, in most transcripts, a running head naming the
-witness ("J. Doe - Plaintiff - Direct") or "Proceedings". The word index printed after the
-transcript (the concordance, "1:360/25") is left out: its pages are not counted or billed.
+Each page also carries its printed page number and, in most transcripts, a running head ("J. Doe -
+Plaintiff - Direct", "Proceedings"), kept as printed: who was on the stand is not read from it (the heads are
+laid out differently from one transcript to the next). The word index printed after the transcript (the
+concordance, "1:360/25") is left out: its pages are not counted or billed.
+
+A page whose initials were misread, or that has none, can put pages in the wrong take: the user corrects where
+a take ends (fix_marks, moved_end), and the corrections count wherever the initials do.
 
 The title page lists the reporters by name ("DANA SMITH / Senior Court Reporters"), so the
 initials can usually be turned into a name.
@@ -13,12 +17,14 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 TOP, BOTTOM, HEAD = 0.12, 0.88, 0.075  # page margins, as parts of the page height
 _INITIALS = re.compile(r"^[A-Za-z]{2,3}$")
+# characters a workbook cell can't hold, which a PDF's text can have: left out of the running heads the run sheet
+# writes (one in a cell and Excel refuses the file)
+_CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _NUMBER = re.compile(r"^\d{1,5}$")
-_EXAM = re.compile(r"(?i)\b(?:re-?)?(?:direct|cross)\b|\bvoir\s+dire\b|\bexamination\b")  # "Redirect" too
 _INDEX_REF = re.compile(r"\b\d{1,2}:\d{1,5}/\d{1,2}\b")  # the word index: "1:360/25"
 _PAGE_LINE = re.compile(r"\b\d{1,5}:\d{1,2}\b")          # and "394:18"
 # a time of day, not a reference: "9:10 a.m.", "at 9:10", "about 9:10"
@@ -27,31 +33,13 @@ _TIME_BEFORE = re.compile(r"(?i)\b(?:at|about|around|until|till|by|from|to|betwe
 # a transcript's line number at the left edge ("1", "1    THE COURT:"); an index entry is "1 (5) 312:4;..."
 _LEFT_NUMBER = re.compile(r"(?m)^[ \t]{0,4}(\d{1,2})(?:[ \t]+(?!\(\d+\))\S|[ \t]*$)")
 LINE_NUMBERS = 8  # this many in a row (1, 2, 3...) at the left edge: a page of the transcript, not of its index
-_SWORN = re.compile(r"(?i)\bcalled\s+(?:as\s+a\s+witness|virtually|on\s+behalf)|\bduly\s+(?:sworn|affirmed)|"
-                    r"\ba\s+witness\s+(?:called|having)")
-_EXCUSED = re.compile(r"(?i)\bwitness\s+(?:was\s+|is\s+)?(?:excused|steps?\s+down|stepped\s+down|"
-                      r"left\s+the\s+(?:witness\s+)?(?:stand|box))")
 # The letters a name can carry after a comma ("SAM POE, DPM", "Pat Roe, Ph.D."), each as it is written:
-# extract_regex.smart_title keeps them so ("Dpm" would be wrong), and a witness's name is read and compared
-# without them (a podiatrist sworn in as "SAM POE, DPM, called as a witness" is Sam Poe, not "DPM")
+# extract_regex.smart_title keeps them so ("Dpm" would be wrong)
 CREDENTIALS = ("MD", "M.D.", "DO", "D.O.", "DPM", "D.P.M.", "DDS", "D.D.S.", "DMD", "D.M.D.", "DC", "D.C.",
                "OD", "O.D.", "DVM", "D.V.M.", "PhD", "Ph.D.", "PsyD", "Psy.D.", "EdD", "Ed.D.", "PharmD", "Pharm.D.",
                "RN", "R.N.", "LPN", "NP", "PA", "P.A.", "PA-C", "PT", "DPT", "OT", "LCSW", "LMSW", "CPA", "MPH",
                "MBA", "FACS", "F.A.C.S.", "FACOG", "BSN", "B.S.N.", "MSN", "M.S.N.", "APRN", "CRNA", "FNP", "FNP-C",
                "DNP", "LMHC", "LMFT")
-_CREDENTIAL = "(?i:" + "|".join(sorted((re.escape(c).replace(r"\.", r"\.\s?") for c in CREDENTIALS),
-                                       key=len, reverse=True)) + r")\.?(?![A-Za-z])"
-# "N U R S E   J O H N   D O E, a witness" / "JOHN SMITH, called as a witness" / "JOHN DOE, JR., called" /
-# "SAM POE, M.D., PH.D., called"
-# ("Mc"/"Mac" may keep their small letters: "MARY McDONALD")
-_WITNESS_NAME = re.compile(r"([A-Z](?:[A-Z .'\-]|(?<=\bM)c|(?<=\bM)a(?=c[A-Z])|(?<=\bMa)c){2,80}?"
-                           r"(?:\s*,?\s*(?:J\s?R|S\s?R|I\s?I\s?I|I\s?I|I\s?V)\b\s?\.?)?)"
-                           rf"\s*,\s*(?:{_CREDENTIAL},?\s*)*"
-                           r"(?:a\s+witness|called|after|having|who\s+was)")
-_SUFFIXES = {"jr", "sr", "ii", "iii", "iv", "md", "phd", "rn", "pa"}
-# a name's letters after its comma (", DPM", ", M.D., PH.D."), dropped before two names are compared: only after a
-# comma, as a witness can be named Do or Pa
-_AFTER_COMMA = re.compile(rf"(?:\s*,\s*{_CREDENTIAL})+\s*,?\s*$")
 # lines of a title page that are not a reporter's name
 _ROLE = re.compile(r"(?i)\b(?:attorneys?|for|esq|court|by|llp|llc|pc|p\.c|plaintiffs?|defendants?|justice|"
                    r"honorable|hon|judge|part|clerk|appearances?|index|county|supreme)\b|:")
@@ -69,14 +57,6 @@ class PageMark:
     number: int | None = None  # the printed page number
     initials: str = ""         # the reporter's initials, lower case ("" when not found)
     head: str = ""             # the running head ("J. Doe - Plaintiff - Direct", "Proceedings")
-    sworn: str = ""            # a witness was sworn in on this page: their name ("?" when it isn't readable)
-    excused: bool = False      # a witness stepped down on this page
-    sworn_first: bool = False  # both on this page, the swearing-in first (the one sworn in stepped down)
-
-    def witness(self) -> str:
-        """The witness named in the running head ("J. Doe"), or ""."""
-        parts = re.split(r"\s+-\s+", self.head)
-        return parts[0].strip() if len(parts) >= 2 and _EXAM.search(self.head) else ""
 
 
 @dataclass
@@ -85,9 +65,13 @@ class Take:
     initials: str
     start: int | None          # the printed number of its first page
     pages: int = 0
-    witness_start: list[str] = field(default_factory=list)  # witnesses who took the stand in it
-    witness_end: list[str] = field(default_factory=list)    # and who stepped down
     title_only: bool = False   # nothing but title pages
+    # the running heads of its pages as printed, each once ("Proceedings", "DIRECT - DEFENDANT - SAM POE"), the
+    # title pages' left out: shown as they are, as reading a witness from them goes wrong (the user, 2026-10-23)
+    heads: list[str] = field(default_factory=list)
+    last_head: str = ""        # the last running head printed in it, as printed (the run sheet's Witness End;
+    #                            Witness Start is heads[0], the first)
+    at: int = 0                # where its first page is in the marks (0 = the first page): see moved_end
 
 
 # ------------------------------------------------------------------ reading pages
@@ -118,13 +102,10 @@ def _page_number(lines: list, h: float, w: float) -> int | None:
     return None
 
 
-def scan_page(page, text: str | None = None) -> PageMark:
-    """Reads the page number, the initials, the running head and any swearing-in from one PDF page.
-    text: the page's plain text, if already read."""
+def scan_page(page) -> PageMark:
+    """Reads the page number, the initials and the running head of one PDF page."""
     h = page.rect.height or 792
     lines = _lines(page)
-    if text is None:
-        text = page.get_text()
     mark = PageMark()
     mark.number = _page_number(lines, h, page.rect.width or 612)
     # the initials: alone on their line, at the foot of the page (or at the top)
@@ -134,27 +115,7 @@ def scan_page(page, text: str | None = None) -> PageMark:
             break
     mark.head = " ".join(t for y0, y1, t, _x in lines if y0 < HEAD * h and not _NUMBER.match(t)
                          and not _INITIALS.match(t)).strip()
-    # the plain text keeps the spacing of a letter-spaced name ("J O H N   D O E")
-    body = "\n".join(_LINE_NO.sub("", l, count=1).rstrip() for l in text.splitlines() if l.strip())
-    m = _SWORN.search(body)
-    if m:
-        before = " ".join(body[max(0, m.start() - 160):m.end()].split("\n"))
-        names = list(_WITNESS_NAME.finditer(before))
-        mark.sworn = unspace(names[-1].group(1)) if names else "?"
-    ex = _EXCUSED.search(body)
-    mark.excused = bool(ex)
-    mark.sworn_first = bool(m and ex and m.start() < ex.start())
     return mark
-
-
-def unspace(name: str) -> str:
-    """'N U R S E   J O H N   D O E' -> 'NURSE JOHN DOE' (letter-spaced names, as
-    transcripts print a witness's name when they are sworn in); other names only lose extra spaces."""
-    name = name.strip()
-    words = re.split(r"\s{2,}", name)
-    if len(words) > 1 and re.search(r"\b[A-Z]\.? [A-Z]\.? [A-Z]\b", name):
-        return " ".join(w.replace(" ", "") for w in words)
-    return " ".join(name.split())
 
 
 def is_index_page(text: str) -> bool:
@@ -219,7 +180,7 @@ def read_pages(doc) -> list[PageFacts]:
         # a scanned page has no text either, but it is a page of the transcript: taken for blank, the scanned
         # pages after a typed cover page would all be left out of the count
         blank = len(text.strip()) < 20 and not page.get_images()
-        facts.append(PageFacts(scan_page(page, text), lined, index, blank, top))
+        facts.append(PageFacts(scan_page(page), lined, index, blank, top))
     return facts
 
 
@@ -422,80 +383,103 @@ def body_pages(marks: list[PageMark], page_count: int, count: PageCount | None =
 
 def find_takes(marks: list[PageMark], title_count: int = 1, front: str = "") -> list[Take]:
     """Groups the pages into takes. A page without initials belongs to the take it is in; a page without a
-    number is numbered on from the one before. Each take also lists the witnesses who took the stand and
-    stepped down in it, from the swearing-in and "witness excused" lines and the running heads. title_count:
-    how many title pages the transcript begins with. front: whose the pages before the first initials are, as
-    Whose pages... answered (batch.Job.front_owner: initials, or "none" for nobody's, a take of their own with
-    no reporter); without an answer they are the first reporter found's, as on a transcript one reporter wrote,
-    and as the invoice counts them on it."""
+    number is numbered on from the one before (page_numbers). Each take lists its running heads as printed
+    (Take.heads, each once, the title pages' left out, and last_head), less any character a workbook cell can't
+    hold and a page number printed on the head's own line. title_count: how many title pages the transcript
+    begins with. front: whose the pages before the first initials are, as Whose pages... answered
+    (batch.Job.front_owner: initials, or "none" for nobody's, a take of their own with no reporter); without an
+    answer they are the first reporter found's, as on a transcript one reporter wrote, and as the invoice counts
+    them on it. marks: as the user corrected them, if they did (fix_marks)."""
     known = [m.initials for m in marks if m.initials]
     if not marks:
         return []
     fill = ("" if front == "none" else front) if front else known[0] if known else ""
     takes: list[Take] = []
-    witness = ""           # the witness on the stand, as far as the running heads tell ("": nobody)
-    stepped_down = ""      # the last witness to step down: a running head still naming them doesn't start them again
-    sworn_waiting = False  # sworn in, name still to come from the next running head
-    first_body = True
-    prev_no = None
-
-    def step_down(take: Take) -> None:
-        """The witness on the stand steps down in take, under the name they were sworn in by if it's them."""
-        nonlocal witness, stepped_down
-        if witness:
-            last = take.witness_start[-1] if take.witness_start else ""
-            take.witness_end.append(last if _same_person(witness, last) else witness)
-            stepped_down, witness = witness, ""
-
-    for i, m in enumerate(marks):
+    for i, (m, number) in enumerate(zip(marks, page_numbers(marks))):
         initials = m.initials or fill
         fill = initials
-        number = m.number if m.number is not None else (prev_no + 1 if prev_no is not None else None)
-        prev_no = number
         if not takes or takes[-1].initials != initials:
-            takes.append(Take(initials, number, title_only=i < title_count))
+            takes.append(Take(initials, number, title_only=i < title_count, at=i))
         take = takes[-1]
         take.pages += 1
         take.title_only = take.title_only and i < title_count
-        if i < title_count:
-            continue
-        head = m.witness()
-        if m.excused and m.sworn and not m.sworn_first:
-            step_down(take)  # the witness on the stand before the one sworn in on this page
-        if m.sworn:
-            name = m.sworn
-            if name == "?":  # not readable: the running head's, unless that is still the one who stepped down
-                name = head if head and not _same_person(head, stepped_down) else ""
-            sworn_waiting = not name
-            if name:
-                take.witness_start.append(name)
-                witness = name
-        elif head and not _same_person(head, witness) and not _same_person(head, stepped_down) and not first_body:
-            if sworn_waiting:  # the name of the witness sworn in on an earlier page
-                take.witness_start.append(head)
-            elif not _same_person(head, take.witness_start[-1] if take.witness_start else ""):
-                take.witness_start.append(head)
-            sworn_waiting = False
-            witness = head
-        elif head and first_body:
-            witness = head  # still on the stand from the day before
-        if m.excused and (m.sworn_first or not m.sworn):
-            step_down(take)
-        first_body = False
+        head = _own_number_off(" ".join(_CONTROL.sub("", m.head).split()), number) if i >= title_count else ""
+        if head:
+            take.heads.append(head)
+            take.last_head = head
     for t in takes:
-        t.witness_start = list(dict.fromkeys(t.witness_start))
-        t.witness_end = list(dict.fromkeys(t.witness_end))
+        t.heads = _each_once(t.heads)
     return takes
 
 
-def _same_person(a: str, b: str) -> bool:
-    """'J. Doe' and 'Nurse John Doe, Jr.' are the same witness: the same last word (less Jr., M.D. and such, and
-    the letters after a comma: 'Sam Poe, DPM' is Sam Poe, but 'Linh Do' is Do)."""
-    def last(s: str) -> str:
-        words = [re.sub(r"[^a-z]", "", w) for w in _AFTER_COMMA.sub("", s).lower().split()]
-        words = [w for w in words if w and w not in _SUFFIXES]
-        return words[-1] if words else ""
-    return bool(a and b) and last(a) != "" and last(a) == last(b)
+def _own_number_off(head: str, number: int | None) -> str:
+    """A running head without the page's own number printed on its line ("101 PROCEEDINGS" on page 101, or
+    "PROCEEDINGS 101"): the head would otherwise differ on every page and be listed once per page. Any other number
+    is the head's ("PROCEEDINGS - DAY 2", "VOLUME 3")."""
+    if number is None:
+        return head
+    return re.sub(rf"^{number}\s+(?=\S)|(?<=\S)\s+{number}$", "", head)
+
+
+def page_numbers(marks: list[PageMark]) -> list[int | None]:
+    """Each page's printed number; a page without one is numbered on from the one before (None before the first
+    number)."""
+    out: list[int | None] = []
+    for m in marks:
+        prev = out[-1] if out else None
+        out.append(m.number if m.number is not None else (prev + 1 if prev is not None else None))
+    return out
+
+
+def fix_marks(marks: list[PageMark], fixes: dict[int, str] | None) -> list[PageMark]:
+    """The pages with the user's corrections (batch.Doc.fixes: a page's place in marks -> the initials it is
+    counted for, set by Correct where this take ends): new PageMarks for the pages corrected, the others as they
+    are. marks itself is left as read."""
+    if not fixes:
+        return marks
+    return [replace(m, initials=fixes[i]) if i in fixes else m for i, m in enumerate(marks)]
+
+
+def moved_end(marks: list[PageMark], at: int, end: int, title_count: int = 1, front: str = "") -> dict[int, str]:
+    """What makes the take whose first page is marks[at] end on marks[end] (places in marks, as corrected so
+    far): the pages whose initials change, as fixes for fix_marks. Moved later, the pages after it up to `end`
+    become its reporter's (a take it covers whole is gone), and the page after `end`, when no initials are printed
+    on it, is pinned to the reporter it has now (else it and the unsigned pages after it would follow the take's
+    reporter too); moved earlier, its pages after `end` become the next take's. {} when it ends there already.
+    ValueError when there is no such take, it has no reporter, `end` is before its first page or past the last
+    page, or it is the transcript's last take moved earlier (no take after it to take its pages)."""
+    takes = find_takes(marks, title_count, front)
+    take = next((t for t in takes if t.at == at), None)
+    if take is None:
+        raise ValueError("no take starts on that page")
+    if not take.initials:
+        raise ValueError("whose these pages are isn't known (Whose pages... says)")
+    if not at <= end < len(marks):
+        raise ValueError("the take can't end there")
+    last = at + take.pages - 1
+    if end > last:
+        fixes = {i: take.initials for i in range(last + 1, end + 1)}
+        after = end + 1
+        if after < len(marks) and not marks[after].initials:
+            owner = next((t.initials for t in takes if t.at <= after < t.at + t.pages), "")
+            if owner:
+                fixes[after] = owner
+        return fixes
+    if end < last:
+        after = takes[takes.index(take) + 1] if take is not takes[-1] else None
+        if after is None:
+            raise ValueError("the transcript's last take ends on its last page")
+        return {i: after.initials for i in range(end + 1, last + 1)}
+    return {}
+
+
+def _each_once(heads: list[str]) -> list[str]:
+    """The heads in their order, each once, as first printed: 'PROCEEDINGS' and 'Proceedings' are one."""
+    out: dict[str, str] = {}
+    for h in heads:
+        h = " ".join(h.split())
+        out.setdefault(h.lower(), h)
+    return list(out.values())
 
 
 # ------------------------------------------------------------------ initials -> names

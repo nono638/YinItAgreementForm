@@ -7,16 +7,21 @@ sheet has a row per take, with the columns of the reporters' own Google Sheet:
   Ending Page No. | Witness Start | Witness End | Note
 
 The weekday, the take counts and the page numbers are formulas ("Don't write here"), so a row typed in or
-changed by hand is counted too. Filtering the Reporter column shows that reporter's pages (the total of the
-rows shown is at the top), and the "By Reporter" sheet adds up each reporter's takes and pages.
+changed by hand is counted too. Witness Start and Witness End get the first and the last running head printed
+in the take, as printed ("DIRECT - PLAINTIFF - JANE ROE"), or are left blank for the user
+(Settings.runsheet_witness): who was on the stand is not read from them. Filtering the Reporter column shows
+that reporter's pages (the total of the rows shown is at the top), and the "By Reporter" sheet adds up each
+reporter's takes and pages.
 
-There is one run sheet per case. A transcript's takes are added to the case's run sheet when there is one in
-the run sheets folder (or next to the transcript), found by index number or, since one trial can have
-several index numbers billed together, by case name; otherwise a new one is started. On a run sheet of this
-app, the rows already there stay in their order (with what was typed in them) and each new take goes before
-the first later one. A run sheet this app did not make (downloaded from Google Sheets, say) gets its rows
-added at the end, or on a row typed in ahead for that day, with its own formulas copied down; it is backed up
-first.
+There is one run sheet per case, kept in the case's own folder with its other files (or in the folder Settings
+-> Options -> Folders gives run sheets). A transcript's takes are added to the case's run sheet when there is
+one there, next to the transcript, in a folder the records list for the case's run sheets (a trial's days can
+go to different folders) or in Documents\\YinIt Run Sheets (where earlier versions kept them all): see
+sheet_folders. It is found by index number or, since one trial can have several index numbers billed together,
+by case name; otherwise a new one is started. On a run sheet of this app, the rows already there stay in their
+order (with what was typed in them) and each new take goes before the first later one. A run sheet this app did
+not make (downloaded from Google Sheets, say) gets its rows added at the end, or on a row typed in ahead for that
+day, with its own formulas copied down; it is backed up first.
 
 A run sheet made before the app was renamed (2.0) is still found and added to: its hidden "DjinnIt" sheet
 (OLD_META) is read, and replaced by a "YinIt" one when the run sheet is written again (meta_sheet, _meta).
@@ -38,12 +43,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .dates import us_date
-from .extract_regex import find_dates, norm_index, strip_line_numbers, tidy_name, title_page_count
+from .extract_regex import find_dates, norm_index, strip_line_numbers, title_page_count
 from .pdfout import safe_filename, unique_path
 from .log import error as log_error
 from .models import CaseInfo
 from .settings import Settings
-from .takes import TITLE_ONLY, body_pages, find_takes, reporter_label, title_reporters
+from .takes import TITLE_ONLY, body_pages, find_takes, fix_marks, reporter_label, title_reporters
 
 if TYPE_CHECKING:
     from .deliver import Making
@@ -51,6 +56,8 @@ if TYPE_CHECKING:
 SHEET, BY_REPORTER, META = "Run Sheet", "By Reporter", "YinIt"
 FORMAT = "YinIt run sheet 1"
 BACKUP = "(before YinIt)"  # a run sheet this app didn't make is first copied to "<name> (before YinIt).xlsx"
+OLD_FOLDER = "YinIt Run Sheets"  # under Documents: every run sheet's folder before they went with their case's files
+OLD_DJINNIT_FOLDER = "DjinnIt Run Sheets"  # and before the rename (2.0), when it couldn't be renamed (settings)
 # Run sheets made before the app was renamed (2.0): their hidden sheet, its format and the backup's name
 OLD_META, OLD_FORMAT, OLD_BACKUP = "DjinnIt", "DjinnIt run sheet", "(before DjinnIt)"
 HEAD_ROW, FIRST = 4, 5  # the column headings, the first take
@@ -79,13 +86,25 @@ class Row:
     reporter: str = ""
     pages: int | None = None
     start: int | None = None
+    # Witness Start and End: the first and last running head printed in the take, or "" (Settings.runsheet_witness
+    # "blank"); on a row read back from a run sheet, whatever is in those cells
     witness_start: str = ""
     witness_end: str = ""
     note: str = ""
     initials: str = ""  # as on the pages ("ds"); not a column of its own
     extra: dict = field(default_factory=dict)  # cells to the right of the run sheet's columns, kept with the row
     raw: dict = field(default_factory=dict)    # typed cells kept as they were (a formula, "TBD"), by column key
+    text: set = field(default_factory=set)     # the keys of raw kept as text, not formulas ("=TBD" typed as text)
     origin: int | None = None                  # the row it was on (its formulas are moved with it)
+    # its pages' running heads as printed (takes.Take.heads: "Proceedings, J. Doe - Plaintiff - Direct"): the Who
+    # transcribed what card's, not a column of the run sheet
+    heads: str = ""
+    # the transcript it is of (batch.Doc.key()) and where its first page is in that transcript's pages
+    # (takes.Take.at), for Correct where this take ends; "" and None for a row not read from a transcript
+    doc: str = ""
+    at: int | None = None
+    corrected: bool = False  # the user moved where it or the take before it ends (batch.Doc.fixes)
+    case: str = ""  # the case's short caption, for Who transcribed what when it shows several cases (batch.takes_of)
 
     def end(self) -> int | None:
         """The take's last page number, or None without a first page or page count."""
@@ -146,24 +165,36 @@ class Found:
 
 # ------------------------------------------------------------------ transcripts -> rows
 
-def rows_from(ing, day: date | None, s: Settings, front: str = "") -> list[Row]:
+def rows_from(ing, day: date | None, s: Settings, front: str = "", fixes: dict[int, str] | None = None) -> list[Row]:
     """The run sheet rows of one transcript PDF: a row per take. ing: the ingested PDF (its page marks,
     page count and text); day: the day the transcript is of; front: whose the pages before the first initials
-    are, as the invoice counts them (batch.Job.front_owner: initials, or "none"; see takes.find_takes). The
-    reporters are named as reporter_label says."""
+    are, as the invoice counts them (batch.Doc.front: Job.front_owner's initials, or "none"; see
+    takes.find_takes); fixes: the user's corrections of whose pages are whose (batch.Doc.fixes, see
+    takes.fix_marks). The reporters are named as reporter_label says; Witness Start and End are the first and last
+    heads printed in the take (Settings.runsheet_witness "headers") or blank. Each row has its take's heads (for
+    the card) and where it starts in the marks (Row.at)."""
     if not ing.marks:  # no initials or page numbers to read (a scan): one row for the whole transcript
         return [Row(day, "", transcript_pages(ing), ing.first_page_no, note=NOT_FOUND)]
     title_text, _ = strip_line_numbers(ing.text)
-    names = title_reporters("\n".join(title_text.split("\f")[:title_page_count(title_text)]))
-    takes = find_takes(ing.marks, title_page_count(title_text), front)
+    titles = title_page_count(title_text)
+    names = title_reporters("\n".join(title_text.split("\f")[:titles]))
+    takes = find_takes(fix_marks(ing.marks, fixes), titles, front)
+    heads = s.runsheet_witness == "headers"
     p = s.profile
     rows = []
     for t in takes:
         who = reporter_label(t.initials, names, s.reporter_names(), p.name, p.initials, s.title_case_names)
         note = TITLE_ONLY if t.title_only and len(takes) > 1 else "" if t.initials else NOT_FOUND
-        rows.append(Row(day, who, t.pages, t.start, "; ".join(tidy_name(w, s.title_case_names) for w in t.witness_start),
-                        "; ".join(tidy_name(w, s.title_case_names) for w in t.witness_end), note, t.initials))
+        rows.append(Row(day, who, t.pages, t.start, t.heads[0] if heads and t.heads else "",
+                        t.last_head if heads else "", note, t.initials, heads=", ".join(t.heads), at=t.at))
     return rows
+
+
+def title_page_total(ing) -> int:
+    """How many title pages a transcript begins with (extract_regex.title_page_count), as rows_from counts its
+    takes."""
+    title_text, _ = strip_line_numbers(ing.text)
+    return title_page_count(title_text)
 
 
 def name_rows(rows: list[Row], known: dict[str, str] | None = None) -> dict[str, str]:
@@ -255,10 +286,45 @@ def same_name(a: str, b: str) -> bool:
     return len(x) == len(y) == 2 and all(x) and x == y
 
 
-def runsheets_folder(s: Settings) -> Path:
-    """Where run sheets are kept: the run sheet's folder under Settings -> Options -> Folders, else
-    Documents/YinIt Run Sheets (see Settings.folder_for)."""
-    return s.folder_for("runsheet")
+def runsheets_folder(s: Settings, general: Path | str | None = None) -> Path:
+    """Where a new run sheet goes: the run sheet's folder under Settings -> Options -> Folders, else `general`,
+    the case's own folder where its other files go (batch.out_dir_for; see Settings.folder_for)."""
+    return s.folder_for("runsheet", general)
+
+
+def old_folder() -> Path:
+    """Documents\\YinIt Run Sheets, where earlier versions kept every case's run sheet: still looked in, so a
+    trial whose run sheet was started there gets the next days' takes on it too."""
+    return Path.home() / "Documents" / OLD_FOLDER
+
+
+def sheet_folders(s: Settings, general: Path | str | None, folders: list[Path],
+                  case: CaseInfo | None = None) -> list[Path]:
+    """The folders a case's run sheet is looked for in: where a new one would go (runsheets_folder), `folders`
+    (the transcripts' own), the folders of the case's run sheets the records list (recorded_folders: a trial's
+    days can go to different folders) and the old run sheets folders (old_folder, and Documents\\DjinnIt Run
+    Sheets when the rename left it there)."""
+    recorded = recorded_folders(case, s) if case is not None else []
+    return list(dict.fromkeys([runsheets_folder(s, general), *map(Path, folders), *recorded, old_folder(),
+                               Path.home() / "Documents" / OLD_DJINNIT_FOLDER]))
+
+
+def recorded_folders(case: CaseInfo, s: Settings) -> list[Path]:
+    """The folders of the run sheets the records list for this case (the same index number, or the same case
+    name; newest first): a trial's run sheet is found there whatever folder a later day's files go to (its days'
+    transcripts in different folders, a case folder named by date or "(2)"). [] when the records can't be read."""
+    from .deliver import ledger_for  # (deliver imports this module)
+    try:
+        made = ledger_for(s).activity(kind="runsheet")
+    except Exception as e:  # (the records locked or damaged: the other folders are still looked in)
+        log_error("could not read the records for the case's run sheet", e)
+        return []
+    out = []
+    for a in made:
+        if a.file_path and matches(Found(Path(a.file_path), a.case_name, index_numbers(a.index_no)),
+                                   case.get("case_name"), case.get("index_no")):
+            out.append(Path(a.file_path).parent)
+    return list(dict.fromkeys(out))
 
 
 def meta_sheet(wb) -> str | None:
@@ -383,9 +449,10 @@ def choose(case: CaseInfo, s: Settings, folders: list[Path], target: str | None)
 
 # ------------------------------------------------------------------ writing
 
-def new_path(case: CaseInfo, rows: list[Row], s: Settings) -> Path:
-    """A free file name for a new run sheet in the run sheets folder, from Settings.runsheet_filename_pattern
-    and the first day of the takes ("June 2026 712345-2021 Jane Roe v. Sam Poe - Run Sheet.xlsx")."""
+def new_path(case: CaseInfo, rows: list[Row], s: Settings, out_dir: Path | str | None = None) -> Path:
+    """A free file name for a new run sheet in runsheets_folder (out_dir: the case's own folder), from
+    Settings.runsheet_filename_pattern and the first day of the takes
+    ("June 2026 712345-2021 Jane Roe v. Sam Poe - Run Sheet.xlsx")."""
     days = [r.day for r in rows if r.day]
     first = min(days) if days else date.today()
     from .pdfout import short_caption
@@ -396,18 +463,20 @@ def new_path(case: CaseInfo, rows: list[Row], s: Settings) -> Path:
     except (KeyError, IndexError, ValueError, AttributeError, TypeError):  # a bad custom pattern
         name = f"Run Sheet - {case.get('index_no').replace('/', '-')}"
     name = re.sub(r"\s+", " ", name).strip(" -")
-    return unique_path(runsheets_folder(s) / (safe_filename(name or "Run Sheet") + ".xlsx"))
+    return unique_path(runsheets_folder(s, out_dir) / (safe_filename(name or "Run Sheet") + ".xlsx"))
 
 
-def add_takes(case: CaseInfo, opts: RunSheetOpts, s: Settings, folders: list[Path]) -> Path:
-    """Adds opts.rows to this case's run sheet (see choose) or a new one, and returns its path. folders: where
-    else to look besides the run sheets folder (the transcript's own folder). Sets opts.path, created, added,
+def add_takes(case: CaseInfo, opts: RunSheetOpts, s: Settings, folders: list[Path],
+              out_dir: Path | str | None = None) -> Path:
+    """Adds opts.rows to this case's run sheet (see choose) or a new one, and returns its path. out_dir: the
+    case's own folder, where a new one goes (unless Settings give run sheets a folder: runsheets_folder);
+    folders: where else to look (the transcript's own folder; see sheet_folders). Sets opts.path, created, added,
     skipped and added_pages. ValueError when there are no rows or the chosen file isn't a run sheet;
     SheetUnreadable when the case's run sheet can't be opened just now (nothing is started in its place)."""
     if not opts.rows:
         raise ValueError(NO_RUNSHEET)
     with _LOCK:  # one change at a time: the window and a batch may add to the same run sheet
-        path = choose(case, s, [runsheets_folder(s), *folders], opts.target)
+        path = choose(case, s, sheet_folders(s, out_dir, folders, case), opts.target)
         if path and not path.exists():  # chosen, then moved or deleted: a new one in its place
             path = None
         info = read_info(path, strict=True) if path else None
@@ -417,7 +486,7 @@ def add_takes(case: CaseInfo, opts: RunSheetOpts, s: Settings, folders: list[Pat
         if info and not info.ours:
             _append_theirs(path, opts)
         else:
-            path = path or new_path(case, opts.rows, s)
+            path = path or new_path(case, opts.rows, s, out_dir)
             opts.created = info is None
             _write_ours(path, case, opts, exists=info is not None)
         opts.path = path
@@ -510,15 +579,17 @@ def _read_ours(ws) -> list[Row]:
         if not isinstance(start, (int, float)) or isinstance(start, bool):  # a formula: the page after the row above
             start = prev_end + 1 if prev_end is not None else None
         day = to_date(v["date"])
-        # what was typed is written back as it was: a formula, or a date or page count that isn't one ("TBD")
-        raw = {k: v[k] for k in HAND if _is_formula(v[k])}
+        # what was typed is written back as it was: a formula, or a date or page count that isn't one ("TBD").
+        # (Text that starts with "=", a running head "== DIRECT ==" kept as text, is no formula: _as_text)
+        raw = {k: v[k] for k in HAND if _is_formula(v[k]) and ws.cell(r, COL[k]).data_type == "f"}
         if v["date"] not in (None, "") and day is None:
             raw["date"] = v["date"]
         if v["pages"] not in (None, "") and pages is None:
             raw["pages"] = v["pages"]
+        text = {k for k in raw if ws.cell(r, COL[k]).data_type != "f"}
         row = Row(day, str(v["reporter"] or ""), pages, int(start) if start is not None else None,
                   str(v["witness_start"] or ""), str(v["witness_end"] or ""), str(v["note"] or ""), extra=extra,
-                  raw=raw, origin=r)
+                  raw=raw, text=text, origin=r)
         prev_end = row.end() if row.end() is not None else prev_end
         rows.append(row)
     return rows
@@ -658,6 +729,9 @@ def _fill_sheet(ws, rows: list[Row], case_name: str, indexes: list[str], case: C
         first_of_day = row.day != prev_day
         for key, *_ in COLUMNS:
             cell = ws.cell(r, COL[key], values[key])
+            # (a formula the user typed, kept in raw, stays a formula; text, "=TBD" kept as text, stays text)
+            if key in HAND and (key not in row.raw or key in row.text):
+                _as_text(cell)
             cell.border = box
             if i % 2:
                 cell.fill = fill(BAND)
@@ -753,6 +827,13 @@ def _is_formula(v) -> bool:
     return isinstance(v, str) and v.startswith("=")
 
 
+def _as_text(cell) -> None:
+    """A cell whose text starts with "=" (a running head printed "== DIRECT EXAMINATION ==") is kept as text:
+    openpyxl would write it as a formula, a broken one Excel complains about."""
+    if _is_formula(cell.value):
+        cell.data_type = "s"
+
+
 def _append_theirs(path: Path, opts: RunSheetOpts) -> None:
     """Adds the new takes to a run sheet this app did not make, keeping its layout: each on a row typed in
     ahead for its day, else on the first empty row after the takes, with the look and formulas of the row
@@ -828,6 +909,7 @@ def _append_theirs(path: Path, opts: RunSheetOpts) -> None:
             if key in cols and value not in (None, "") and not (key == "date" and _is_formula(get(r, key))
                                                               and day_at(r) == row.day):
                 ws.cell(r, cols[key]).value = value
+                _as_text(ws.cell(r, cols[key]))
         if "start" in cols:
             cell = ws.cell(r, cols["start"])
             follows = ends.get(r - 1) is not None and row.start == ends[r - 1] + 1
@@ -858,8 +940,9 @@ class RunSheets:
 
     @staticmethod
     def make(m: Making) -> None:
-        """Adds the takes to the case's run sheet (add_takes), recorded with the pages of the takes added; a run
-        sheet that had every take already is left as it was, and not recorded."""
-        path = add_takes(m.case, m.runsheet, m.s, m.folders or [])
+        """Adds the takes to the case's run sheet (add_takes; a new one in the case's folder, m.out_dir), recorded
+        with the pages of the takes added; a run sheet that had every take already is left as it was, and not
+        recorded."""
+        path = add_takes(m.case, m.runsheet, m.s, m.folders or [], m.out_dir)
         if m.runsheet.created or m.runsheet.added:
             m.record("runsheet", path, count=m.runsheet.added_pages)  # the pages of the takes added

@@ -90,6 +90,9 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("keep adding days to the trial sheet", ("run-one-per-trial",)),
     ("another reporter made the run sheet", ("run-elsewhere",)),
     ("change the list of reporters names", ("run-reporters", "set-run-sheet")),
+    ("which folder is the run sheet saved in", ("run-overview", "set-run-sheet")),
+    ("a take is wrong the initials were misread", ("run-who-transcribed",)),
+    ("leave the witness columns blank", ("set-run-sheet", "run-overview")),
     # Batches
     ("do a whole folder at once", ("batch-folder",)),
     ("list of jobs on the left", ("batch-job-list",)),
@@ -125,6 +128,8 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     # the main window laid out as the job goes (2026-10-22)
     ("sort the jobs oldest first", ("batch-job-list",)),
     ("hide the day of the week", ("batch-job-list",)),
+    ("what happens if i uncheck a day", ("batch-job-list",)),
+    ("why is one of the jobs grey", ("batch-job-list",)),
     ("where did the invoice options go", ("inv-panel", "make-outputs")),
     ("list of everything i still need to fix", ("check-status",)),
 ]

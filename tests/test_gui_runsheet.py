@@ -1,7 +1,9 @@
 """The run sheet from the window (off screen): Generate and Generate all ask where the takes go when the case
 has one (once per trial), one run sheet counted per case, a run sheet open in Excel, the Settings → Run sheet tab
-(initials and reporter lines written different ways) and its folder, and work that ends while a question is on
-screen."""
+(initials and reporter lines written different ways, the Witness columns) and its folder, the run sheet in the
+case's folder and "Open the run sheet's folder", and work that ends while a question is on screen. Also a take
+corrected in Who transcribed what (double-click or right-click, the "Are you sure?" box, Undo), and a past job's
+corrections coming back with it."""
 import os
 from copy import deepcopy
 
@@ -216,6 +218,191 @@ def test_reporter_lines_written_other_ways(qt, monkeypatch):
     dlg.accept()
     assert s.reporter_names() == {"ds": "Dana", "kl": "Kim", "mt": "Maria", "pr": "Pat"}
     assert "Dana Smith - ds" in warned[0]
+
+
+def test_the_run_sheet_goes_in_the_cases_folder_and_its_link_opens_it(make_window, tmp_path, monkeypatch):
+    """Without a folder of its own (Settings → Options → Folders), Generate puts the run sheet in the case's own
+    folder with its other files. "Open the run sheet's folder" opens where it is; before there is one, the nearest
+    folder that is there (a case folder is not made for it)."""
+    import minute_filler.gui.main_window as mw
+    from minute_filler.runsheet import old_folder
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", lambda self: 0)
+    opened = []
+    monkeypatch.setattr(mw, "open_path", opened.append)
+    s = pat_settings()
+    s.use_ai = s.open_after = False
+    s.output_dir = str(tmp_path / "out")
+    s.outputs = ["runsheet"]
+    (tmp_path / "out").mkdir()
+    window = make_window(s)
+    window.add_files([str(transcript(tmp_path / "Transcript 6-3-2026 Roe v Poe.pdf"))])
+    wait(window, lambda: len(window.cur.docs) == 1)
+    assert window.rs_folder.text() == '<a href="open">Open the run sheet\'s folder</a>'
+    window._open_run_sheets_folder()
+    case = tmp_path / "out" / "712345-2021"
+    assert opened == [tmp_path / "out"] and not case.exists()
+    window.fill()
+    sheet, = case.glob("*.xlsx")
+    assert window.cur.saved == [sheet] and not old_folder().exists()
+    window._open_run_sheets_folder()
+    assert opened[-1] == case
+
+
+def test_a_take_is_corrected_in_who_transcribed_what(make_window, tmp_path, monkeypatch):
+    """Dana's first take really ends on page 315 (its initials misread as Pat's): double-click it, type 315 and say
+    yes in the "Are you sure?" box. The card shows the take corrected (✎), Yours in the job list follows, and Undo
+    puts the takes back as the initials say. Cancel changes nothing; the last take can't be moved earlier."""
+    from minute_filler.gui.main_window import JOB_YOURS
+    asked, answer = [], {"yes": True}
+
+    def exec_box(self):
+        asked.append(self.text())
+        yes = next((b for b in self.buttons() if self.buttonRole(b) == QtWidgets.QMessageBox.AcceptRole), None)
+        if yes is not None and answer["yes"]:
+            yes.click()
+        return 0
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", exec_box)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a: asked.append(a[2]))
+    typed = []
+    monkeypatch.setattr(QtWidgets.QInputDialog, "getInt", lambda *a, **k: typed.append(a) or (315, True))
+    s = pat_settings()
+    s.use_ai = s.open_after = False
+    s.output_dir = str(tmp_path / "out")
+    s.outputs = ["runsheet"]
+    window = make_window(s)
+    window.add_files([str(transcript(tmp_path / "Transcript 6-3-2026 Roe v Poe.pdf"))])
+    wait(window, lambda: len(window.cur.docs) == 1 and bool(window._take_rows))
+    takes = lambda: [(r.reporter, r.start, r.pages) for r in window._take_rows]
+    yours = lambda: window._job_item(window.cur).text(JOB_YOURS)
+    assert takes() == [("Pat", 310, 2), ("Dana", 312, 3), ("Pat", 315, 3), ("Dana", 318, 2)] and yours() == "5"
+    answer["yes"] = False
+    window.takes.cellDoubleClicked.emit(1, 0)
+    assert "starts on page 312 and ends on page 314" in typed[-1][2]
+    assert "Dana's take on 6/3/2026 will end on page 315 instead of 314: page 315 becomes Dana's (now Pat's)." \
+        in asked[-1] and "Your pages that day: 5 → 4." in asked[-1] and "Are you sure?" in asked[-1]
+    assert takes()[1] == ("Dana", 312, 3) and not window.cur.docs[0].fixes  # Cancel: nothing changed
+    answer["yes"] = True
+    window.takes.cellDoubleClicked.emit(1, 0)
+    assert takes() == [("Pat", 310, 2), ("Dana", 312, 4), ("Pat", 316, 2), ("Dana", 318, 2)] and yours() == "4"
+    assert window.takes.item(1, 2).text() == "pp. 312–315 ✎" and window.cur.docs[0].fixes == {5: "ds"}
+    assert window.takes.item(2, 2).text() == "pp. 316–317 ✎"  # (Pat's take starts later: changed too)
+    assert window.takes.item(0, 2).text() == "pp. 310–311" and window.takes.item(3, 2).text() == "pp. 318–319"
+    sheet = window.cur.runsheet_opts(s).rows
+    assert [r.pages for r in sheet] == [2, 4, 2, 2]
+    window._fix_take(window._take_rows[3])  # the last take
+    assert "last take" in asked[-1] and takes()[3] == ("Dana", 318, 2)
+    window._undo_take_fixes(window.cur, window.cur.docs[0])
+    assert takes()[1] == ("Dana", 312, 3) and yours() == "5" and not window.cur.docs[0].fixes
+    assert window.takes.item(1, 2).text() == "pp. 312–314"
+
+
+def test_correcting_a_take_acts_on_the_take_clicked_and_says_what_comes_of_it(make_window, tmp_path, monkeypatch):
+    """Right-click: a read that ended while the menu was open drew the card again, and the row number then named
+    another take. Dana's take made to reach Pat's next take: Dana's next take joins it, and the box says where it
+    ends then. A read that moved the transcript to another job while the box was open lost the yes."""
+    from minute_filler.batch import Job
+    asked, typed = [], []
+
+    def exec_box(self):
+        asked.append(self.text())
+        moved.get("do", lambda: None)()
+        yes = next((b for b in self.buttons() if self.buttonRole(b) == QtWidgets.QMessageBox.AcceptRole), None)
+        if yes is not None:
+            yes.click()
+        return 0
+    moved = {}
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", exec_box)
+    monkeypatch.setattr(QtWidgets.QInputDialog, "getInt", lambda *a, **k: typed.append(a) or (317, True))
+    s = pat_settings()
+    s.use_ai = s.open_after = False
+    s.output_dir = str(tmp_path / "out")
+    s.outputs = ["runsheet"]
+    window = make_window(s)
+    window.add_files([str(transcript(tmp_path / "Transcript 6-3-2026 Roe v Poe.pdf"))])
+    wait(window, lambda: len(window.cur.docs) == 1 and bool(window._take_rows))
+
+    import minute_filler.gui.main_window as mw
+
+    class Menu(mw.QMenu):  # (shown, a menu would wait for a click)
+        def exec(self, *a):
+            window._take_rows = window._take_rows[::-1]  # (drawn again meanwhile: row 1 is another take now)
+            self.actions()[0].trigger()
+    monkeypatch.setattr(mw, "QMenu", Menu)
+    doc = window.cur.docs[0]
+
+    def move():  # a read that ends while the box is open puts the transcript in a job of its own
+        window.cur.docs.remove(doc)
+        window.jobs.append(Job(docs=[doc]))
+    moved["do"] = move
+    window._takes_menu(window.takes.visualItemRect(window.takes.item(1, 0)).center())
+    assert "Dana's take on 6/3/2026 starts on page 312" in typed[-1][2]
+    assert ("will end on page 319 instead of 314: pages 315–317 become Dana's (now Pat's), and the next take of "
+            "Dana's, up to page 319, joins it.") in asked[-1]
+    assert doc.fixes == {5: "ds", 6: "ds", 7: "ds"}  # (corrected, in the job it is in now)
+
+
+def test_a_past_jobs_corrections_come_back_and_undo_stays_undone(make_window, tmp_path, monkeypatch):
+    """Opened again from the records, the job's documents get the takes as they were corrected; Undo then cleared
+    them, and the next merge put them back."""
+    import json
+    from minute_filler.batch import job_origin
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Yes)
+
+    def exec_box(self):
+        yes = next((b for b in self.buttons() if self.buttonRole(b) == QtWidgets.QMessageBox.AcceptRole), None)
+        if yes is not None:
+            yes.click()
+        return 0
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", exec_box)
+    s = pat_settings()
+    s.use_ai = s.open_after = False
+    s.output_dir = str(tmp_path / "out")
+    s.outputs = ["runsheet"]
+    window = make_window(s)
+    window.add_files([str(transcript(tmp_path / "Transcript 6-3-2026 Roe v Poe.pdf"))])
+    wait(window, lambda: len(window.cur.docs) == 1)
+    window.cur.docs[0].correct({5: "ds"})
+    origin = json.dumps(job_origin(window.cur))
+    assert window.open_past_job(origin) is True
+    wait(window, lambda: len(window.cur.docs) == 1)
+    doc = window.cur.docs[0]
+    assert doc.fixes == {5: "ds"} and window.cur.your_pages() == 4
+    window._undo_take_fixes(window.cur, doc)
+    window._remerge()
+    assert doc.fixes == {} and window.cur.your_pages() == 5
+
+
+def test_the_run_sheets_folder_of_a_job_that_names_no_case(make_window, tmp_path, monkeypatch):
+    """A blank job: the link opens the nearest folder that is there of where its files would go, and makes no case
+    folder ("No index number") for it."""
+    import minute_filler.gui.main_window as mw
+    opened = []
+    monkeypatch.setattr(mw, "open_path", opened.append)
+    s = pat_settings()
+    s.use_ai = s.open_after = False
+    s.output_dir = str(tmp_path / "out")
+    window = make_window(s)
+    window._open_run_sheets_folder()
+    assert opened == [tmp_path] and not (tmp_path / "out").exists()
+    s.runsheet_dir = str(tmp_path / "Sheets")  # a folder of their own: made and opened
+    window._open_run_sheets_folder()
+    assert opened[-1] == tmp_path / "Sheets" and (tmp_path / "Sheets").is_dir()
+
+
+def test_the_witness_columns_setting(qt):
+    """Settings -> Run sheet -> Witness Start / End: the first and last head printed in the take (the default), or
+    blank."""
+    from minute_filler.gui.dialogs import SettingsDialog
+    s = pat_settings()
+    assert s.runsheet_witness == "headers"
+    dlg = SettingsDialog(s)
+    assert dlg.r_witness.currentData() == "headers"
+    dlg.r_witness.setCurrentIndex(dlg.r_witness.findData("blank"))
+    dlg.accept()
+    assert s.runsheet_witness == "blank"
+    s.save()
+    from minute_filler.settings import Settings
+    assert Settings.load().runsheet_witness == "blank"
 
 
 def test_open_the_run_sheets_folder_before_there_is_one(qt, tmp_path, monkeypatch):

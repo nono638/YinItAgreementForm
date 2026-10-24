@@ -1,7 +1,8 @@
 """Who ordered what, spelled out: Job.order_lines gives a line per day and attorney with the pages it ordered
 (every page, or which excerpt), who shares them and how many of the user's pages that bills; an attorney not
 ticked on a day and a day still waiting for a choice say so. The window shows them in the "Who ordered what"
-card, and Generate all warns before billing a case with a day not decided. All names are made up."""
+card, and Generate all warns before billing a case with a day not decided. The invoices the days ticked come to
+(batch.bill_sets), and every card following the job list's ticks, not the day shown. All names are made up."""
 import os
 import time
 
@@ -71,6 +72,33 @@ def test_a_day_waiting_for_a_choice_says_so(tmp_path, s):
     job.page_basis[job.docs[0].key()] = "*"
     job.portions = [(3, [A, B]), (5, [A])]  # rows that no longer end on the day's pages
     assert all("Excerpts… needs checking" in l.note for l in job.order_lines())
+
+
+def test_bill_sets_are_the_invoices_to_make_and_those_made(tmp_path, s):
+    """batch.bill_sets, what the cards show of the days ticked: the invoice Generate all makes of a case's days
+    not invoiced yet, and each invoice made already with the days it billed (Job.invoice_set); a day whose invoice
+    is held, apart."""
+    from minute_filler.batch import bill_sets, new_invoice_set
+    paths = [transcript_pdf(tmp_path / f"d{n}.pdf", 10, date=f"June {n}, 2026") for n in (3, 4, 5, 8, 9)]
+    docs, _ = read_docs([str(p) for p in paths], s)
+    days = sorted(group(docs, s), key=lambda j: j.case.get("dates"))
+    d3, d4, d5, d8, d9 = days
+    for j in days:
+        j.case.attorneys = [alex()]
+
+    def ids(sets) -> list:
+        return [[days.index(j) for j in g] for g in sets]
+
+    d3.invoiced = d4.invoiced = True
+    d3.invoice_set = d4.invoice_set = new_invoice_set()  # billed together
+    d9.portions = [(5, [A])]  # rows that don't end on its pages: held until Excerpts... is checked
+    sets, held = bill_sets(days, s)
+    assert ids(sets) == [[0, 1], [2, 3]] and held == [d9]
+    d4.invoice_set = new_invoice_set()  # billed alone after all
+    assert ids(bill_sets(days, s)[0]) == [[0], [1], [2, 3]]
+    assert ids(bill_sets([d4, d8], s)[0]) == [[1], [3]]  # (only the days given: d3 is not ticked)
+    s.invoice_joint = False  # a day each
+    assert ids(bill_sets(days, s)[0]) == [[0], [1], [2], [3]]
 
 
 # ------------------------------------------------------------------ the window
@@ -267,10 +295,12 @@ def test_unticking_a_day_in_the_job_list_updates_the_card(window, tmp_path):
     assert {r[0] for r in rows_of(window)} == {"6/3/2026", "6/4/2026"}
     window.job_list.topLevelItem(window.jobs.index(second)).setCheckState(0, Qt.Unchecked)
     assert not second.include and {r[0] for r in rows_of(window)} == {"6/3/2026"}
-    assert "Generate all may bill it with other days" in window.orders_info.text()
+    assert window.orders_info.text() == "Unticked, so left out: 6/4/2026."
     window.job_list.topLevelItem(window.jobs.index(first)).setCheckState(0, Qt.Unchecked)  # the day shown: left out
     info = window.orders_info.text()
-    assert "unticked in the job list" in info and "may bill it" not in info and "Your pages billed" not in info
+    assert rows_of(window) == [] and window.orders.isHidden()  # (nothing ticked: no table, the line says so)
+    assert info == ("Unticked, so left out: 6/3/2026, 6/4/2026.  "
+                    "Nothing ticked in the job list: tick the days to see them here.")
     assert "Your pages billed" in window.orders_help.toolTip()  # (how the rows are billed: the ? beside it)
 
 
@@ -378,3 +408,19 @@ def test_the_job_list_marks_a_day_whose_invoice_is_held(window, tmp_path):
     window._update_status()
     assert not first.problems() and first.invoice_hold()
     assert window.job_list.topLevelItem(window.jobs.index(first)).text(0).startswith("⚠")
+
+
+def test_every_card_follows_the_ticks_not_the_day_shown(window, tmp_path):
+    """The user, 2026-10-23: the ticks in the job list say which days count. Every card shows those, whichever day
+    is shown, and leaves out a day unticked: Who transcribed what too (it showed every day of the trial), and the
+    Excerpts window."""
+    from PySide6.QtCore import Qt
+    first, second = two_days(window, tmp_path)
+    window.job_list.setCurrentItem(window._job_item(second))
+    assert window.cur is second and {r[0] for r in rows_of(window)} == {"6/3/2026", "6/4/2026"}
+    assert "for these 2 days" in window.pays.text() and window.takes_info.text().startswith("These 2 days")
+    assert window._excerpt_group() == [first, second]
+    window._job_item(first).setCheckState(0, Qt.Unchecked)
+    assert {r[0] for r in rows_of(window)} == {"6/4/2026"}
+    assert "for these 2 days" not in window.pays.text() and window.takes_info.text().startswith("This day")
+    assert window._excerpt_group() == [second]

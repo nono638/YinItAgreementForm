@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
 from .. import __version__, courthouses
 from ..models import Attorney, FIELD_LABELS
 from ..settings import (AGREEMENT_FALLBACKS, AI_TICKS, CASE_FOLDER_EXISTING, CASE_FOLDER_PATTERN, DETAIL_ITEMS,
-                        INDEX_RULES, INDEX_SHARED, MATH_SAVES, OUTPUT_FOLDERS, OUTPUTS, ROUNDINGS, SPEEDS,
-                        TURNAROUND_FROM, ReporterProfile,
+                        INDEX_RULES, INDEX_SHARED, MATH_SAVES, OUTPUT_FOLDERS, OUTPUTS, ROUNDINGS, RUNSHEET_WITNESS,
+                        SPEEDS, TURNAROUND_FROM, ReporterProfile,
                         TEXT_PLACEHOLDERS, TEXT_PLACES, TEXT_WHEN, Settings, clean_folder_pattern,
                         default_invoice_texts, reporter_key)
 from ..tracking import box_rows, rule_rows
@@ -496,7 +496,9 @@ class SettingsDialog(QDialog):
         intro.setObjectName("muted")
         intro.setWordWrap(True)
         f.addRow(intro)
-        where = QLabel("The run sheets' folder is under Options → Folders.")
+        where = QLabel("Each case's run sheet is saved in the case's own folder, with its other files, unless "
+                       "Options → Folders gives run sheets a folder of their own.")
+        where.setWordWrap(True)
         where.setObjectName("muted")
         f.addRow("Folder", where)
         self.r_existing = QComboBox()
@@ -507,6 +509,14 @@ class SettingsDialog(QDialog):
         self.r_existing.setToolTip("A run sheet is the case's when it has the same index number or the same case "
                                    "name\n(a trial with several index numbers is billed together).")
         f.addRow("When the case has one", self.r_existing)
+        self.r_witness = QComboBox()
+        for key, label in RUNSHEET_WITNESS.items():
+            self.r_witness.addItem(label, key)
+        self.r_witness.setCurrentIndex(max(0, self.r_witness.findData(settings.runsheet_witness)))
+        self.r_witness.setToolTip("What the run sheet's Witness Start and Witness End columns get: the first and "
+                                  "the last running head\nprinted at the top of the take's pages, as printed "
+                                  "(\"DIRECT - PLAINTIFF - JANE ROE\"), or nothing, for you to type in")
+        f.addRow("Witness Start / End", self.r_witness)
         self.r_pattern = QLineEdit(settings.runsheet_filename_pattern)
         self.r_pattern.setToolTip("Placeholders: {month} {year} (of the first day)  {case}  {index}  {date}")
         f.addRow("File name", self.r_pattern)
@@ -804,9 +814,9 @@ class SettingsDialog(QDialog):
         from ..models import CaseInfo
         from ..pdfout import CASE_FOLDER_PLACES, FOLDER_FORBIDDEN, case_folder_name
         self.o_case_folders = QCheckBox("A folder for each case, inside Save to")
-        self.o_case_folders.setToolTip("Each case's minute agreements, MOFR, invoices and their math go into a "
-                                       "folder of its own, named as below\n(\"...\\Minute Agreements\\712345-2021\")."
-                                       " An output with a folder of its own below, and the run sheet, keep theirs."
+        self.o_case_folders.setToolTip("Each case's minute agreements, MOFR, invoices, their math and its run sheet go "
+                                       "into a folder of its own, named as below\n(\"...\\Minute Agreements\\712345-2021\")."
+                                       " An output with a folder of its own below keeps it."
                                        "\nWhen your documents already sit in a folder of that name, it is used as "
                                        "it is (no \"712345-2021\" inside it).")
         self.o_case_folders.setChecked(settings.case_folders)
@@ -1185,6 +1195,7 @@ class SettingsDialog(QDialog):
         s.case_folder_pattern = clean_folder_pattern(self.o_case_pattern.text())
         s.case_folder_existing = self.o_case_existing.currentData()
         s.runsheet_existing = self.r_existing.currentData()
+        s.runsheet_witness = self.r_witness.currentData()
         s.runsheet_filename_pattern = self.r_pattern.text().strip() or s.runsheet_filename_pattern
         names, bad = self._reporter_names(self.r_names.toPlainText())
         s.reporters = {k: replace(self._details.get(k, ReporterProfile()), name=v) for k, v in names.items()}

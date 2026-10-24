@@ -1,8 +1,9 @@
 """The list on the left of the window (off screen): a row per job (of a batch, or the job on screen alone) with
 its case, date, day of the week, the transcript's own pages and the user's; under a job of several documents
 a row per document; the tick of each job of a batch, a click on a document's row showing its job, a job's
-documents folded away staying so, and right-click's Move to a job of its own, Remove from job and Remove this
-job. Also Job.your_pages (the Yours column) without the window. Made-up documents only.
+documents folded away staying so, an unticked job greyed and the hover text of the ticks and Yours, and
+right-click's Move to a job of its own, Remove from job and Remove this job. Also Job.your_pages (the Yours
+column) without the window. Made-up documents only.
 (The list's sorting and its Day column: tests/test_main_layout.py.)"""
 import os
 import time
@@ -125,6 +126,48 @@ def test_remove_from_job_takes_a_document_out(window, tmp_path):
     assert [d.ing.name for d in window.cur.docs] == ["t.pdf"] and row.childCount() == 0
     window._remove_doc(window.cur, window.cur.docs[0])  # its last document: no row left
     assert window.job_list.topLevelItemCount() == 0
+
+
+def test_an_unticked_job_is_greyed_and_the_list_says_what_ticks_and_yours_mean(window, tmp_path):
+    """The user, 2026-10-23: unticked should look it, "subtle, but something" (the theme's muted text, its
+    documents too, in the colour of the theme in use), and hovering says what a tick does and what Yours counts
+    (the pages with your initials at the foot of the page)."""
+    from PySide6.QtGui import QColor, QPalette
+    from minute_filler.gui.main_window import JOB_TIPS, TICK_TIP, TICKED_ROW, UNTICKED_ROW, YOURS_TIP
+    a = transcript_pdf(tmp_path / "day1.pdf", pages=30)
+    b = transcript_pdf(tmp_path / "day2.pdf", pages=24, date="June 4, 2026")
+    c = transcript_pdf(tmp_path / "day2 vol 2.pdf", pages=10, date="June 4, 2026")
+    window.add_files([str(a), str(b), str(c)])
+    wait(window, lambda: len(window.jobs) == 2 and sum(len(j.docs) for j in window.jobs) == 3)
+    one, two = sorted(window.jobs, key=lambda j: len(j.docs))
+    row = row_of(window, two)
+
+    def greyed(item) -> list:
+        return [item.data(c, Qt.ForegroundRole) for c in range(len(JOB_COLS))]
+
+    assert greyed(row) == [None] * len(JOB_COLS) and row.childCount() == 2
+    assert row.toolTip(0).startswith(TICKED_ROW) and row.toolTip(JOB_YOURS).startswith(YOURS_TIP)
+    assert row.child(0).toolTip(JOB_YOURS).startswith(YOURS_TIP)
+    row.setCheckState(0, Qt.Unchecked)
+    row = row_of(window, two)
+    muted = QtWidgets.QApplication.palette().color(QPalette.PlaceholderText)
+    assert all(b is not None and b.color() == muted for b in greyed(row) + greyed(row.child(1)))
+    assert greyed(row_of(window, one)) == [None] * len(JOB_COLS)
+    assert row.toolTip(0).startswith(UNTICKED_ROW)
+    assert "initials at the foot of the page" in JOB_TIPS["Yours"] and TICK_TIP in JOB_TIPS["Case / file"]
+    assert TICK_TIP in window.jobs_label.toolTip() and YOURS_TIP in window.jobs_label.toolTip()
+    app = QtWidgets.QApplication.instance()
+    was = app.palette()
+    try:  # another theme: greyed in its colour
+        pal = QPalette(was)
+        pal.setColor(QPalette.PlaceholderText, QColor("#123456"))
+        app.setPalette(pal)
+        QtWidgets.QApplication.processEvents()
+        assert greyed(row_of(window, two))[0].color() == QColor("#123456")
+    finally:
+        app.setPalette(was)
+    row_of(window, two).setCheckState(0, Qt.Checked)
+    assert greyed(row_of(window, two)) == [None] * len(JOB_COLS)
 
 
 def test_a_batch_of_e_mails_ticks_switches_and_folds(window, tmp_path):

@@ -13,7 +13,7 @@ from openpyxl import Workbook
 
 from minute_filler import settings as settings_mod
 from minute_filler.fill import is_generated
-from minute_filler.runsheet import FORMAT, META, _meta, meta_sheet, read_info
+from minute_filler.runsheet import FORMAT, META, _meta, meta_sheet, old_folder, read_info, sheet_folders
 from minute_filler.settings import Settings, settings_dir
 
 
@@ -46,7 +46,8 @@ def test_the_old_settings_folder_is_carried_over_and_the_documents_folders_renam
     assert Path(s.signature_image) == new / "signature.png" and s.signature()  # follows the folder
     assert (docs / "YinIt Records" / "kept.txt").exists() and not (docs / "DjinnIt Records").exists()
     assert (docs / "YinIt Run Sheets" / "kept.txt").exists()
-    assert s.records_folder() == docs / "YinIt Records" and s.folder_for("runsheet") == docs / "YinIt Run Sheets"
+    # (the run sheets there are still looked for: a trial's run sheet started there is added to)
+    assert s.records_folder() == docs / "YinIt Records" and old_folder() == docs / "YinIt Run Sheets"
     s.profile.name = "Changed"
     s.save()
     assert Settings.load().profile.name == "Changed"  # carried over once: not copied again
@@ -61,7 +62,8 @@ def test_a_documents_folder_that_cant_be_renamed_is_kept_where_it_is(monkeypatch
     settings_dir()
     s = Settings.load()
     assert s.records_folder() == docs / "DjinnIt Records"
-    assert s.folder_for("runsheet") == docs / "DjinnIt Run Sheets"  # its run sheets are still found
+    # not made the run sheets' folder (new ones go with each case's files), but its run sheets are still found
+    assert "runsheet" not in s.output_dirs and docs / "DjinnIt Run Sheets" in sheet_folders(s, docs / "case", [])
 
 
 def test_the_records_follow_the_renamed_folders():
@@ -135,7 +137,8 @@ def test_a_settings_file_exported_by_djinnit_names_the_renamed_folders(tmp_path)
 def test_a_new_user_gets_the_new_folders():
     s = Settings.load()
     assert settings_dir().name == "YinItAgreementForm" and s.show_yin is True
-    assert s.records_folder().name == "YinIt Records" and s.folder_for("runsheet").name == "YinIt Run Sheets"
+    assert s.records_folder().name == "YinIt Records" and old_folder().name == "YinIt Run Sheets"
+    assert s.folder_for("runsheet", Path("case")) == Path("case")  # a new run sheet goes with the case's files
     assert not (Path(os.environ["APPDATA"]) / "DjinnItAgreementForm").exists()
 
 

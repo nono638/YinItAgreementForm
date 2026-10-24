@@ -88,8 +88,9 @@ def carry_over(old: Path, new: Path) -> None:
     """The first start after a rename: a copy of the old settings folder (settings, rate sheets, records,
     signature, logs) becomes the new one; the old is left as it was. The folders under Documents named after
     the app (OLD_DOCUMENT_FOLDERS) are renamed too, and the paths kept in the settings and in the records follow
-    both. A folder that can't be renamed (open in another program) is kept where it is, named in the settings,
-    so nothing is lost.
+    both. A folder that can't be renamed (open in another program) is kept where it is, so nothing is lost: the
+    records' folder is named in the settings, and the run sheets' is still looked in for a case's run sheet
+    (runsheet.sheet_folders).
     The copy is made beside the new folder ("<name>.partial-<process id>") and renamed into place when done, so
     a start that stops half way, or another copy of the app starting at the same time, never finds half a folder.
     Files that can't be copied (a log open in another program) are left out; when the settings or the records
@@ -137,9 +138,8 @@ def carry_over(old: Path, new: Path) -> None:
     data = _repath(data, moved)
     if "YinIt Records" in stayed and not data.get("records_dir"):
         data["records_dir"] = stayed["YinIt Records"]
-    dirs = data.get("output_dirs") if isinstance(data.get("output_dirs"), dict) else {}
-    if "YinIt Run Sheets" in stayed and not dirs.get("runsheet") and not data.get("runsheet_dir"):
-        data["output_dirs"] = {**dirs, "runsheet": stayed["YinIt Run Sheets"]}
+    # (a run sheets folder that couldn't be renamed isn't made the run sheets' folder: new ones go with each case's
+    # files, and a trial's run sheet still in Documents\DjinnIt Run Sheets is found there, runsheet.sheet_folders)
     try:
         f.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except OSError:
@@ -302,6 +302,9 @@ INVOICE_PAYMENT_TEXT = (
     "The transcript is sent after the check clears.")
 RUNSHEET_FILENAME_PATTERN = "{month} {year} {index} {case} - Run Sheet"
 RUNSHEET_EXISTING = ("ask", "add", "new")  # when the case has a run sheet: ask / add to it / start a new one
+# the run sheet's Witness Start and End columns: the first and last running head printed in each take, as printed,
+# or blank for the user to fill in (the user, 2026-10-23: the heads by default, blank as a setting)
+RUNSHEET_WITNESS = {"headers": "The first and last header printed in the take", "blank": "Leave them blank"}
 # When a case's own folder (Settings.case_folders) is already there with files in it: key -> label
 CASE_FOLDER_EXISTING = {
     "ask": "Ask",
@@ -593,6 +596,7 @@ class Settings:
     # Run sheets (who wrote which pages of a trial; see runsheet.py)
     runsheet_filename_pattern: str = RUNSHEET_FILENAME_PATTERN
     runsheet_existing: str = "ask"    # one of RUNSHEET_EXISTING
+    runsheet_witness: str = "headers"  # a key of RUNSHEET_WITNESS
     # the other reporters, by initials: their name in the Reporter column and the details of the invoices made
     # for their pages ("ds": ReporterProfile(name="Dana", ...))
     reporters: dict = field(default_factory=dict)
@@ -795,8 +799,8 @@ class Settings:
 
     @property
     def runsheet_dir(self) -> str:
-        """The run sheets' own folder ("" = Documents\\YinIt Run Sheets): output_dirs["runsheet"]. Kept for
-        older callers and the tests; the folders are output_dirs now (see folder_for)."""
+        """The run sheets' own folder ("" = the case's folder, with its other files): output_dirs["runsheet"].
+        Kept for older callers and the tests; the folders are output_dirs now (see folder_for)."""
         return self.output_dirs.get("runsheet", "")
 
     @runsheet_dir.setter
@@ -807,7 +811,7 @@ class Settings:
 
     def folder_for(self, kind: str, general: Path | str | None = None) -> Path:
         """The folder an output (a key of OUTPUTS) is saved to: its own folder under Settings -> Options ->
-        Folders, else its built-in one (OUTPUT_FOLDERS: run sheets go to Documents\\YinIt Run Sheets), else
+        Folders, else its built-in one (OUTPUT_FOLDERS, a folder under Documents; none in Queens), else
         `general` (where the job's files go: its case's own folder or its "Save to" folder, see batch.out_dir_for;
         Documents\\Minute Agreements without one)."""
         own = self.output_dirs.get(kind, "")
@@ -1038,6 +1042,8 @@ class Settings:
                           and all(isinstance(k, str) and k for k in r[:2]) and isinstance(r[2], bool)]
         if s.runsheet_existing not in RUNSHEET_EXISTING:
             s.runsheet_existing = "ask"
+        if s.runsheet_witness not in RUNSHEET_WITNESS:
+            s.runsheet_witness = "headers"
         if s.case_folder_existing not in CASE_FOLDER_EXISTING:
             s.case_folder_existing = "ask"
         s.case_folder_pattern = clean_folder_pattern(s.case_folder_pattern)

@@ -2,8 +2,7 @@
 caption's Index column), the heading of the word index after the transcript, a "Re:" line, and the user's records
 for the same index number (a suggestion: amber, and asked about at Generate). Two readings of different parts of
 the document that agree make the name surer; one line read twice does not. A doctor's letters after a name keep
-their case ("Sam Poe, DPM", not "Dpm"), and a witness sworn in with them is named without them. Fictional names
-only."""
+their case ("Sam Poe, DPM", not "Dpm"). Fictional names only."""
 import pymupdf
 
 from minute_filler.batch import RECORDS_CONF, group, read_docs, records_extraction
@@ -11,7 +10,6 @@ from minute_filler.extract_regex import RegexExtractor, smart_title
 from minute_filler.ingest import Ingested, ingest_text
 from minute_filler.models import SRC_RECORDS, SRC_REGEX, Extraction
 from minute_filler.records import Ledger, default_db, recorded_cases
-from minute_filler.takes import scan_page
 
 from helpers import CAPTION_DPM, page_numbered_transcript, pat_settings
 
@@ -59,14 +57,6 @@ def test_letters_after_a_name_keep_their_case():
     assert smart_title("DANA SMITH, PSY.D") == "Dana Smith, Psy.D"
     assert smart_title("WE DO NOT") == "We Do Not"          # 'DO' anywhere else is a word
     assert smart_title("DO RIGHT LLC") == "Do Right LLC"
-
-
-def test_a_witness_sworn_in_with_letters_after_the_name():
-    doc = pymupdf.open()
-    page = doc.new_page()
-    page.insert_text((60, 80), " 1  SAM POE, DPM, called as a witness by the\n 2  Defendant, having been duly sworn,",
-                     fontsize=9)
-    assert scan_page(page).sworn == "SAM POE"
 
 
 # ------------------------------------------------------------------ the word index's heading, and readings that agree
@@ -144,12 +134,6 @@ def test_the_trash_is_not_asked():
 
 
 # ------------------------------------------------------------------ the review (fictional names)
-def test_a_witness_named_do_stays_one_witness():
-    from minute_filler.takes import _same_person
-    assert _same_person("LINH DO", "L. Do") and not _same_person("LINH DO", "L. Pham")
-    assert _same_person("SAM POE, DPM", "S. Poe") and _same_person("PAT ROE, M.D., PH.D.", "Dr. Roe")
-
-
 def test_do_inside_a_name_is_a_name():
     assert smart_title("ACME CORP., DO VAN HUNG AND SAM POE") == "Acme Corp., Do Van Hung and Sam Poe"
     assert smart_title("NGUYEN, DO THI MAI") == "Nguyen, Do Thi Mai"
@@ -248,14 +232,6 @@ def test_more_letters_after_a_name():
     assert smart_title("SAM POE, M.D., F.A.C.S.") == "Sam Poe, M.D., F.A.C.S."
     assert smart_title("JANE ROE, RN, BSN") == "Jane Roe, RN, BSN"
     assert smart_title("JANE ROE-CRUZ") == "Jane Roe-Cruz"  # (a hyphen still joins two names)
-    for line, who in ((" 1  SAM POE, M.D., F.A.C.S., called as a witness", "SAM POE"),
-                      (" 1  PAT ROE, PA-C, called as a witness", "PAT ROE"),
-                      (" 1  JANE ROE, RN, BSN, called as a witness", "JANE ROE"),
-                      (" 1  MARY McDONALD, called as a witness", "MARY McDONALD")):
-        doc = pymupdf.open()
-        page = doc.new_page()
-        page.insert_text((60, 80), line + "\n 2  by the Defendant, having been duly sworn,", fontsize=9)
-        assert scan_page(page).sworn == who, line
 
 
 def test_the_recorded_wording_is_offered_beside_the_documents(tmp_path):

@@ -15,7 +15,10 @@ unless Whose pages... says otherwise (Job.page_basis, Job.front_owner): it can
 also tick other reporters, whose pages are billed on invoices in their name
 (Job.bill_reporters, Job.billed_by, joint_invoice_sets). A transcript whose
 pages are someone else's, or that begins with pages nobody's initials are on,
-gets no invoice until the user says whose pages to bill (Job.ownership_problem).
+gets no invoice until the user says whose pages to bill (Job.ownership_problem). Where the
+initials put pages in the wrong take, the user corrects where a take ends (Doc.fixes, Doc.correct): the
+corrections count wherever the initials do (the takes, the run sheet, Yours, the pages billed) and are kept with
+the records of the files made (job_origin, joint_origin: "page_fixes"), for the job opened again (origin_fixes).
 
 A minute agreement, though, counts every page its attorney ordered, whoever wrote it (Job.ordered_pages: the
 whole day, or the attorney's runs of an excerpt): firm A ordering a day of 150 pages and firm B 80 of them get
@@ -26,23 +29,29 @@ user's: their invoice bills it, and the agreements count the day as that many pa
 
 fill_jobs makes the outputs of every job (Generate all). A day once invoiced
 (Job.invoiced) is not billed again until a new document is added to it; when a run stops part way, the
-attorneys already invoiced (Job.invoiced_keys) are not billed again by the next one. A day whose invoice is
-held (Job.invoice_hold: Excerpts... rows that no longer fit it, Whose pages... to choose, speeds or Parties to
-check) gets no invoice until the user has checked it. The days of a case on one invoice also get one minute
-agreement per attorney and one MOFR for all of them (form_groups, case_forms), unless Settings.forms_per_case is
-off. A job is billed by the split rule it was billed by before (Job.split_rule), else by the one its trial's
-first invoice was (trial_split_rules, Job.trial_rule), else as Settings say.
+attorneys already invoiced (Job.invoiced_keys) are not billed again by the next one. A day once made (Job.made)
+stays ticked, as the window's cards show every day ticked (bill_sets: the invoices those days come to, made or
+still to make; takes_of: their takes); Generate all then makes nothing more of it but its invoice, while that is
+still to make. A day whose invoice is held (Job.invoice_hold: Excerpts... rows that no longer fit it, Whose
+pages... to choose, speeds or Parties to check) gets no invoice until the user has checked it. The days of a case
+on one invoice also get one minute agreement per attorney and one MOFR for all of them (form_groups,
+case_forms), unless Settings.forms_per_case is off. A job is billed by the split rule it was billed by before
+(Job.split_rule), else by the one its trial's first invoice was (trial_split_rules, Job.trial_rule), else as
+Settings say.
 
 What each output needs of a job is its policy's (OutputPolicy and the classes after it, named by the
 courthouse's OutputSpec.policy). Each case's files go into a folder of their own inside Save to when Settings
-say so (case_folders, out_dir_for), or into Save to itself when it is that folder already (in_case_folder).
-Firms that order the same pages at different speeds (Job.speeds, and a run's own speeds in Job.portions) commit
-to one before they are billed (speeds_to_ask, settle_split_speeds). Documents of a job whose index numbers don't
+say so (case_folders, out_dir_for), or into Save to itself when it is that folder already (in_case_folder); its
+run sheet too, unless Settings give run sheets a folder of their own, and the case's run sheet is looked for there
+before Generate has chosen the folder (case_dir_for). Firms that order the same pages at different speeds
+(Job.speeds, and a run's own speeds in Job.portions) commit to one before they are billed (speeds_to_ask,
+settle_split_speeds). Documents of a job whose index numbers don't
 match are pointed out and asked about before Generate (Job.index_number_notes, Job.index_number_asks). Every file
 of a run is dated one day (fill_jobs' `day`, workdays.document_day: today, or the next business day).
 """
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from copy import deepcopy
@@ -67,7 +76,7 @@ from .pdfout import case_folder_name, free_folder, is_generated, short_caption
 from .rates import speed_key
 from .records import recorded_cases
 from .runsheet import NO_RUNSHEET, RunSheetOpts, matches, name_rows, read_info, rows_from, transcript_pages
-from .takes import my_initials, page_owners
+from .takes import fix_marks, my_initials, page_owners
 from .settings import OUTPUT_FOLDERS, OUTPUTS, Settings
 
 BATCH_EXT = {".pdf", ".eml", ".docx", ".txt", ".htm", ".html"} | IMAGE_EXT  # taken from a dropped folder
@@ -180,6 +189,10 @@ class Doc:
     path: str = ""
     ident: Ident = field(default_factory=Ident)
     records: Extraction | None = None  # the case names the user's records give its index number (a suggestion)
+    # The user's corrections of whose its pages are (Who transcribed what -> Correct where this take ends): a page's
+    # place in ing.marks -> the initials it counts for, whatever is printed on it (takes.fix_marks). They count
+    # wherever the initials do: the takes, the run sheet, Yours and the pages billed.
+    fixes: dict = field(default_factory=dict)
 
     def extractions(self) -> list[Extraction]:
         """The regex extraction, the records' suggestion and the AI model's, those there are (for merge)."""
@@ -196,13 +209,30 @@ class Doc:
         found = [c.value for x in (self.regex, self.ai) if x is not None for c in x.fields.get("index_no", [])]
         return {k for k in map(index_key, found) if k}
 
+    def marks(self) -> list:
+        """Its pages' marks (takes.PageMark) with the user's corrections (fixes)."""
+        return fix_marks(self.ing.marks, self.fixes)
+
+    def correct(self, fixes: dict[int, str]) -> None:
+        """Adds corrections (takes.moved_end) to fixes. One that gives a page the initials printed on it is
+        dropped: the page is counted as read again."""
+        merged = {**self.fixes, **fixes}
+        self.fixes = {i: v for i, v in merged.items()
+                      if not (i < len(self.ing.marks) and self.ing.marks[i].initials == v)}
+
+    def front(self, chosen: str = "") -> str:
+        """Whose the pages before the first initials are, for the takes (takes.find_takes' front): `chosen` (Whose
+        pages..., Job.front_owner) on a transcript of several reporters; "" (the one reporter's, as the invoice
+        counts them: Job._mask) on one a single reporter wrote, also once a correction left one."""
+        return chosen if len(self.reporters()) > 1 else ""
+
     def owners(self) -> list[str]:
         """Whose each page of this transcript is (the word index after them left out, see
-        runsheet.transcript_pages): the reporter's initials ("" for pages before the first initials; see
-        takes.page_owners); a page past the last initials found counts for the last reporter. [] when no page
-        has initials (a scan, or a reporter who doesn't initial the pages)."""
+        runsheet.transcript_pages): the reporter's initials, as the user corrected them (fixes; "" for pages
+        before the first initials; see takes.page_owners); a page past the last initials found counts for the last
+        reporter. [] when no page has initials (a scan, or a reporter who doesn't initial the pages)."""
         n = transcript_pages(self.ing)
-        owners = page_owners(self.ing.marks)[:n]
+        owners = page_owners(self.marks())[:n]
         if not any(owners):
             return []
         return owners + [owners[-1]] * (n - len(owners))
@@ -240,10 +270,17 @@ class Job:
     proc_touched: bool = False   # the user changed the proceeding types / attorneys,
     att_touched: bool = False    # so later extractions must not overwrite them
     batch: bool = False          # put together by group()
-    include: bool = True         # ticked for "Generate all"
+    include: bool = True         # ticked in the list: the cards show it, and Generate all makes it (unless made)
     saved: list[Path] = field(default_factory=list)  # the files the last Generate made
     error: str = ""  # what the last Generate couldn't do ("" = all done); see issues
+    # made by a Generate that left nothing undone (the day's own, or Generate all's): it stays ticked, so the cards
+    # still show it, but Generate all makes only its invoice from then on, while that is still to make
+    # (MainWindow._to_generate, fill_jobs); Generate for the day shown makes it all again. Reset by unbill
+    made: bool = False
     invoiced: bool = False       # an invoice covering this day was made: Generate all must not bill it again
+    # which invoice billed it (new_invoice_set): the days invoiced together share one, so the cards show them as
+    # they were billed (bill_sets); 0 while not invoiced
+    invoice_set: int = 0
     # the Attorney.key()s invoiced for this day by a run that stopped before every attorney's invoice was made:
     # the next run leaves them out (see unbill)
     invoiced_keys: list = field(default_factory=list)
@@ -474,11 +511,19 @@ class Job:
         return "\n".join([line] + notes), warning
 
     def runsheet_opts(self, s: Settings) -> RunSheetOpts:
-        """The takes of every transcript of the job, for the run sheet. The pages before the first initials go
-        to whoever Whose pages... said they are (front_owner), as the invoice bills them (reporter_pages)."""
+        """The takes of every transcript of the job, for the run sheet, as the user corrected them (Doc.fixes),
+        each naming its transcript (Row.doc) and marked when a correction changed it (Row.corrected). The pages
+        before the first initials go to whoever Whose pages... said they are (front_owner), or to the one reporter
+        of a transcript one reporter wrote (Doc.front), as the invoice bills them (reporter_pages)."""
         rows = []
         for d in self.transcripts():
-            rows += rows_from(d.ing, self._day_of(d), s, self.front_owner.get(d.key(), ""))
+            mine = rows_from(d.ing, self._day_of(d), s, d.front(self.front_owner.get(d.key(), "")), d.fixes)
+            for r in mine:
+                r.doc = d.key()
+                # changed by a correction: a page of it corrected, the page after it (it was made to end sooner) or
+                # the page before it (the take before it was made to end later)
+                r.corrected = r.at is not None and any(r.at - 1 <= i <= r.at + (r.pages or 0) for i in d.fixes)
+            rows += mine
         rows.sort(key=lambda r: (r.day or date.max, r.start if r.start is not None else -1))
         name_rows(rows)  # a reporter named on one day's title page is named on the other days too
         return RunSheetOpts(rows, self.runsheet_to)
@@ -678,8 +723,8 @@ class Job:
         not): the parties not named have no speed, so what each firm pays of the one original can't be worked out
         (the user, 2026-10-21: the reporter decides, not the app). "Parties says 3, but 2 firms are named and they
         ordered different speeds, so what the other party pays can't be worked out: tick it in the attorney table
-        and set its speed in Who ordered what, or set Parties to 2". A day split under Excerpts... counts the firms that ordered, not
-        Parties, so it never has this problem."""
+        and set its speed in Who ordered what, or set Parties to 2". A day split under Excerpts... counts the firms
+        that ordered, not Parties, so it never has this problem."""
         if not self.parties or self.valid_portions() is not None:
             return ""
         keys = self.ticked_keys()
@@ -874,8 +919,9 @@ class Job:
             self.split_rule = rule.key if rule is not None else ""
 
     def reporter_pages(self, docs: list[Doc] | None = None) -> dict[str, int]:
-        """How many pages of the job's transcripts (or of these of them) each reporter wrote, by initials
-        ({"pr": 65, "ds": 85}; "" for pages nobody's initials are on). Empty when no page has initials."""
+        """How many pages of the job's transcripts (or of these of them) each reporter wrote, by initials, as the
+        user corrected the takes (Doc.owners) ({"pr": 65, "ds": 85}; "" for pages nobody's initials are on). Empty
+        when no page has initials."""
         out: dict[str, int] = {}
         for d in self.transcripts() if docs is None else docs:
             owners, found = d.owners(), d.reporters()
@@ -906,8 +952,9 @@ class Job:
         return [] if self.invoiced else list(self.invoiced_keys)
 
     def unbill(self) -> None:
-        """New documents may mean new pages to bill: the day is billable again, for every attorney."""
-        self.invoiced = False
+        """New documents may mean new pages to bill: the day is billable again, for every attorney, and Generate
+        all makes it again."""
+        self.invoiced, self.invoice_set, self.made = False, 0, False
         self.invoiced_keys = []
 
     def portions_unavailable(self) -> str:
@@ -1402,10 +1449,42 @@ _ORIGIN_SKIP = ("agreement_date", "delivery_date")
 def job_origin(job: Job) -> dict:
     """Where a job came from, kept with the record of each file made from it (deliver.generate adds the case):
     the documents read (their paths; pasted text has none) and the invoice's own choices (Peripherals, Excerpts...,
-    the speed each firm ordered, Whose pages...)."""
+    the speed each firm ordered, Whose pages..., the takes corrected: page_fixes)."""
+    fixes = page_fixes(job.docs)
     return {"sources": [d.path for d in job.docs if d.path],
             "job": {**{k: getattr(job, k) for k in _ORIGIN_CHOICES},
-                    "proc_touched": job.proc_touched, "att_touched": job.att_touched}}
+                    "proc_touched": job.proc_touched, "att_touched": job.att_touched,
+                    **({"page_fixes": fixes} if fixes else {})}}
+
+
+def page_fixes(docs: list[Doc]) -> dict:
+    """The takes the user corrected in these documents (Doc.fixes), as a record keeps them: by Doc.key(), the
+    pages' places as text ({"...\\Roe 6-3.pdf": {"5": "ds"}}); {} when none was (and the record is then as it
+    always was: earlier records are compared by their text, see billed_split_rule)."""
+    return {d.key(): {str(i): v for i, v in sorted(d.fixes.items())} for d in docs if d.fixes}
+
+
+def joint_origin(days: list[Job], **more) -> dict:
+    """The record of a file made for several days at once (their run sheet, the trial's forms, a joint invoice):
+    their documents (opened again, they are read a job per day: MainWindow.open_past_job), `more`, and the takes
+    corrected in them (page_fixes; left out when none was, so the record is as it always was)."""
+    fixes = page_fixes([d for j in days for d in j.docs])
+    return {"sources": [d.path for j in days for d in j.docs if d.path], "joint": True, **more,
+            **({"page_fixes": fixes} if fixes else {})}
+
+
+def origin_fixes(origin: dict) -> dict[str, dict[int, str]]:
+    """The corrected takes a record kept (page_fixes: in its "job" choices, job_origin, or at the top for a file
+    made for several days at once, joint_origin), by Doc.key(), for the documents read again when it is opened
+    again (MainWindow.open_past_job): {"...\\Roe 6-3.pdf": {5: "ds"}}. Anything not as expected is left out."""
+    choices = origin.get("job") if isinstance(origin.get("job"), dict) else {}
+    kept = choices.get("page_fixes", origin.get("page_fixes"))
+    if not isinstance(kept, dict):
+        return {}
+    # (isdecimal, not isdigit: "²" is a digit int() can't read)
+    return {k: {int(i): v for i, v in pages.items()
+                if isinstance(i, str) and i.isdecimal() and isinstance(v, str) and v}
+            for k, pages in kept.items() if isinstance(k, str) and isinstance(pages, dict)}
 
 
 # When 2.9.0 (published 2026-10-21, 11:11 New York time) brought a second split rule (Settings -> Invoice -> Split
@@ -1492,8 +1571,9 @@ def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
     back with the source it had, so what the user typed stays theirs and what was read from the documents is
     read again; the attorneys and proceeding types come back as the user left them (ticks included), the day's
     invoice choices too, and split_rule, the rule it was billed by (billed_split_rule, which needs the records).
-    The agreement and delivery dates are today's again. Anything in `origin` that isn't as expected is left
-    out."""
+    The agreement and delivery dates are today's again. The takes the user corrected are not here: they belong to
+    the documents, and are given to them as they are read again (origin_fixes). Anything in `origin` that isn't as
+    expected is left out."""
     job = Job()
     snap = origin.get("case") if isinstance(origin.get("case"), dict) else {}
     choices = origin.get("job") if isinstance(origin.get("job"), dict) else {}
@@ -1914,11 +1994,30 @@ def in_case_folder(job: Job, s: Settings) -> bool:
 def out_dir_for(job: Job, s: Settings) -> Path:
     """Where a job's files go: its case's own folder inside the Save to folder (save_to_for) when
     Settings.case_folders is on and one was chosen (Job.folder: see case_folders), else Save to itself, also
-    when Save to is the case's folder already (in_case_folder). (An output with a folder of its own, and the run
-    sheet, still go there: Settings.folder_for.) The folder is kept by its name, so a preview made with Save to a
-    temporary folder puts its files in one of that name there."""
+    when Save to is the case's folder already (in_case_folder). (An output with a folder of its own still goes
+    there: Settings.folder_for.) The folder is kept by its name, so a preview made with Save to a temporary folder
+    puts its files in one of that name there."""
     base = save_to_for(job, s)
     return base / job.folder if s.case_folders and job.folder and not in_case_folder(job, s) else base
+
+
+def case_dir_for(job: Job, s: Settings) -> Path:
+    """Where the job's files go (out_dir_for), also before Generate has chosen its case's folder: then the folder
+    case_folders names ("...\\Minute Agreements\\712345-2021"), where the case's run sheet is looked for before
+    anything is asked."""
+    name = case_folder_name(job.case, s.case_folder_pattern)
+    if s.case_folders and not (job.folder and job.folder_named == name) and not in_case_folder(job, s):
+        return save_to_for(job, s) / _folder_at(save_to_for(job, s), name)
+    return out_dir_for(job, s)
+
+
+def _folder_at(base: Path, name: str) -> str:
+    """The name a case's folder gets in base: `name`, or, when a file of that name is in the way, the first folder
+    beside it ("712345-2021 (2)"), there or not yet (case_folders and case_dir_for alike)."""
+    if not (base / name).exists() or (base / name).is_dir():
+        return name
+    return next((f"{name} ({i})" for i in range(2, 1000)
+                 if (base / f"{name} ({i})").is_dir() or not (base / f"{name} ({i})").exists()), name)
 
 
 @dataclass(eq=False)
@@ -1956,13 +2055,13 @@ class CaseFolder:
 def case_folders(jobs: list[Job], s: Settings, outputs: list[str] | None = None) -> list[CaseFolder]:
     """The case folders these jobs' files are to go into (Settings.case_folders, named by
     Settings.case_folder_pattern), one for the jobs with the same name and Save to folder (the days of one case,
-    when the name doesn't say the date); [] with the setting off, or when none of `outputs` (default:
-    Settings.outputs) is saved in Save to (the run sheet alone, or outputs that each have a folder of their
-    own). A job that chose its folder at an earlier Generate keeps it without being listed, until the name
-    changes (another index number typed in), and so does one whose Save to is its case's folder already
-    (in_case_folder: its documents, there, are no reason to ask). Nothing is chosen yet: CaseFolder.use does, once
-    the user said (Settings.case_folder_existing, or the window's question when it is "ask" and the folder has
-    files in it)."""
+    when the name doesn't say the date); [] with the setting off, or when every one of `outputs` (default:
+    Settings.outputs) has a folder of its own (Settings -> Options -> Folders). The run sheet goes in the case's
+    folder too: made alone, it is still asked about. A job that chose its folder at an earlier Generate keeps it
+    without being listed, until the name changes (another index number typed in), and so does one whose Save to is
+    its case's folder already (in_case_folder: its documents, there, are no reason to ask). Nothing is chosen yet:
+    CaseFolder.use does, once the user said (Settings.case_folder_existing, or the window's question when it is
+    "ask" and the folder has files in it)."""
     wanted = s.outputs if outputs is None else outputs
     if not s.case_folders or not any(not s.output_dirs.get(o) and o not in OUTPUT_FOLDERS for o in wanted):
         return []
@@ -1972,12 +2071,9 @@ def case_folders(jobs: list[Job], s: Settings, outputs: list[str] | None = None)
         if (j.folder and j.folder_named == name) or in_case_folder(j, s):
             continue
         base = save_to_for(j, s)
-        at = name
-        if (base / name).exists() and not (base / name).is_dir():
-            # a file of that name in the way: the first folder beside it ("712345-2021 (2)"), there or not yet,
-            # for every day of the case, Generated now or later (asked about, as Settings says, when it has files)
-            at = next((f"{name} ({i})" for i in range(2, 1000)
-                       if (base / f"{name} ({i})").is_dir() or not (base / f"{name} ({i})").exists()), name)
+        # (with a file of that name in the way, every day of the case, Generated now or later, gets the same folder
+        # beside it, asked about as Settings say when it has files)
+        at = _folder_at(base, name)
         if base / at not in out:
             out[base / at] = CaseFolder(base, at, [], _files_in(base / at), name if at != name else "")
         out[base / at].jobs.append(j)
@@ -2083,14 +2179,54 @@ def trial_days(job: Job, jobs: list[Job]) -> list[Job]:
     return days if any(j is job for j in days) else days + [job]
 
 
-def trial_takes(job: Job, jobs: list[Job], s: Settings) -> list:
-    """Who transcribed what on job's trial: the takes of every transcript of its days (trial_days), as the run
-    sheet has them (Job.runsheet_opts: runsheet.Row, a reporter's run of pages each), earliest first, each
-    reporter named alike on every day (runsheet.name_rows)."""
-    rows = [r for j in trial_days(job, jobs) for r in j.runsheet_opts(s).rows]
-    rows.sort(key=lambda r: (r.day or date.max, r.start if r.start is not None else -1))
-    name_rows(rows)
-    return rows
+def takes_of(days: list[Job], s: Settings) -> list:
+    """Who transcribed what on these days: the takes of every transcript of each, as the run sheet has them
+    (Job.runsheet_opts: runsheet.Row, a reporter's run of pages each), earliest first, each reporter named alike
+    on every day (runsheet.name_rows). Days of several cases: a case's takes of a day together, each row naming
+    its case (Row.case, the short caption), as two cases heard the same day would mix by page number."""
+    cases: list[Ident] = []
+    rows = []
+    for j in days:
+        n = next((i for i, c in enumerate(cases) if same_case(c, ident(j.case))), None)
+        if n is None:
+            n = len(cases)
+            cases.append(ident(j.case))
+        rows += [(n, j, r) for r in j.runsheet_opts(s).rows]
+    rows.sort(key=lambda x: (x[2].day or date.max, x[0], x[2].start if x[2].start is not None else -1))
+    if len(cases) > 1:
+        for _, j, r in rows:
+            r.case = short_caption(j.case.get("case_name"), 24) or j.title()
+    out = [r for _, _, r in rows]
+    name_rows(out)
+    return out
+
+
+_INVOICE_SETS = itertools.count(1)
+
+
+def new_invoice_set() -> int:
+    """A number of its own for the days one invoice bills (Job.invoice_set). Counted from 1 at each start: it is
+    not kept with the records, only told apart while the app runs."""
+    return next(_INVOICE_SETS)
+
+
+def bill_sets(jobs: list[Job], s: Settings) -> tuple[list[list[Job]], list[Job]]:
+    """The invoices these days come to (the days ticked in the window, whose cards show them so: the user,
+    2026-10-23), each a list of the days it bills, earliest invoice first: those Generate all would make
+    (invoice_groups of the days not invoiced yet and not held), and those made already, each with the days it
+    billed (Job.invoice_set; a day of it not among `jobs` is left out of it). Days with no pages to bill are in
+    none. Second, the days not invoiced yet whose invoice is held (Job.invoice_hold): Generate all makes none for
+    them until it is checked."""
+    days = [j for j in jobs if j.invoice_pages()]
+    held = [j for j in days if not j.invoiced and j.invoice_hold()]
+    sets = invoice_groups([j for j in days if not j.invoiced and not j.invoice_hold()], s)
+    billed: dict[int, list[Job]] = {}
+    for j in days:
+        if j.invoiced:  # (no number: invoiced on its own)
+            billed.setdefault(j.invoice_set or -id(j), []).append(j)
+    sets += [sorted(g, key=_first_day) for g in billed.values()]
+    sets.sort(key=lambda g: _first_day(g[0]))
+    return sets, held
 
 
 def trial_marks(job: Job, jobs: list[Job]) -> dict:
@@ -2267,6 +2403,8 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
     The days of a case that share an invoice get their agreements and MOFR once for all of them (form_groups,
     case_forms; made after the days' own files, each listed under the days it covers): a day that is not among
     `jobs` is not on them.
+    A day made before (Job.made: the window gives it to Generate all only while its invoice is still to make)
+    gets its invoice alone, with its case's other days as invoice_groups says: its other files were made already.
     The days of a case are one piece of work (case_units): its run sheet is written first, with the takes of
     all its days in one go (never a run sheet with a day missing), and when a file of it can't be written (the
     run sheet open in Excel) nothing more is made for any of its days, whose errors say why (HELD): they are
@@ -2275,10 +2413,10 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
     the agreements are (trial_forms), and any other ("doc") with each day's own files, through generate. The
     run sheet and the joint invoice have phases of their own here (named "runsheet" and "invoice"): another
     output of group "sheet" or "billing" needs work in this function.
-    Each case's files go into its own folder (Settings.case_folders, out_dir_for); the trial forms and a joint
-    invoice into the first day's. A job without its folder chosen gets it here, without a question
-    (settle_case_folders: the window asks before), and so do the firms of a split order without a speed
-    (settle_split_speeds: the speed the question would start from).
+    Each case's files go into its own folder (Settings.case_folders, out_dir_for); the run sheet of several days,
+    the trial forms and a joint invoice into the first day's. A job without its folder chosen gets it here,
+    without a question (settle_case_folders: the window asks before), and so do the firms of a split order without
+    a speed (settle_split_speeds: the speed the question would start from).
     Every file is dated `day` (default: today, or the next business day as Settings -> Dates says,
     workdays.document_day, worked out once as the run starts). Before anything is made, each job's date of
     agreement filled in by default becomes that day and its delivery date not typed is counted again
@@ -2298,9 +2436,10 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
     in_joint = {id(j) for g in joint for j in g}  # these days are billed together, after the loop
     # the days whose agreements and MOFR are made once for all of them (form_groups), after the loop too
     forms = trial_forms()
-    trials = form_groups(jobs, s) if set(forms) & set(outputs) else []
+    fresh = [j for j in jobs if not j.made]  # (a made day is here for its invoice only)
+    trials = form_groups(fresh, s) if set(forms) & set(outputs) else []
     in_trial = {id(j) for g in trials for j in g}
-    sheets = sheet_units(jobs, outputs, s)
+    sheets = sheet_units(fresh, outputs, s)
     unit_of = case_units(jobs, sheets + trials + joint)
     stopped: dict[int, str] = {}  # case unit -> why nothing more is made for its days
     failed: set[int] = set()   # id(job) of the day a held case's problem happened on (its own error says it)
@@ -2317,8 +2456,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
         try:
             made = generate(unit_case(unit), s, out_dir_for(unit[0], s), ["runsheet"], None, ledger,
                             runsheet=sheet, folders=[f for j in unit for f in input_folders(j)],
-                            origin=job_origin(unit[0]) if len(unit) == 1 else
-                            {"sources": [d.path for j in unit for d in j.docs if d.path], "joint": True}, day=day)
+                            origin=job_origin(unit[0]) if len(unit) == 1 else joint_origin(unit), day=day)
         except Exception as e:
             stopped[unit_of[id(unit[0])]] = _held_note(unit[0] if len(unit) == 1 else None, e, "the run sheet")
             log_error("could not add the takes to the run sheet", e)
@@ -2339,7 +2477,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
         keys: list[str] = []  # the attorneys invoiced for this job by generate
         rule_was = job.split_rule  # (put back when no invoice comes of it: billed by nothing yet)
         try:
-            want = job.makeable(outputs)
+            want = [o for o in job.makeable(outputs) if not job.made or o == "invoice"]
             billed_elsewhere = job.invoiced or id(job) in in_joint  # billed before, or on the joint invoice
             unchecked_here = id(job) in unchecked and "invoice" in want and not billed_elsewhere
             if billed_elsewhere or unchecked_here:
@@ -2360,8 +2498,10 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
                                     invoiced=keys, origin=origin, math=math, ordered=job.ordered_pages(),
                                     speeds=job.ordered_speeds(), day=day, invoice_origin=job_origin(job))
                 if p not in sheet_made] if want else sheet_made
-            job.invoiced |= "invoice" in want
+            if "invoice" in want:  # (billed alone: an invoice of its own)
+                job.invoiced, job.invoice_set = True, new_invoice_set()
             left_out = [o for o in outputs if o not in want and not job.unneeded(o)
+                        and not (job.made and o != "invoice")
                         and not (o == "runsheet" and ran_sheet)
                         and not (o == "invoice" and (billed_elsewhere or unchecked_here))
                         and not (o in forms and id(job) in in_trial)]
@@ -2399,8 +2539,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
         try:
             forms = case_forms(g, s, outputs, day)
             made = make_forms([f for f, _ in forms], s, out_dir_for(g[0], s), ledger,
-                              origin={"sources": [d.path for j in g for d in j.docs if d.path], "joint": True},
-                              day=day)
+                              origin=joint_origin(g), day=day)
             problem = ""
         except Exception as e:
             made = list(getattr(e, "made", []))
@@ -2445,8 +2584,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             # the invoice's split rule again: MainWindow.open_past_job)
             made = generate(case, s, out_dir_for(first, s), ["invoice"], [o for _, o in sets], ledger,
                             invoiced=keys, math=math, cases=[c for c, _ in sets],
-                            origin={"sources": [d.path for j in g for d in j.docs if d.path], "joint": True,
-                                    "split_rule": first.split_rule},
+                            origin=joint_origin(g, split_rule=first.split_rule),
                             day=day)
             problem = ""
         except Exception as e:
@@ -2457,6 +2595,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
         if not keys:
             for job, rule in zip(g, rules_were):
                 job.split_rule = rule
+        billed_as = new_invoice_set()
         for job in g:  # the invoice is each day's: none of them is billed again
             job.saved += [p for p in made if p not in job.saved]
             if problem:
@@ -2464,7 +2603,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
                 # the attorneys whose invoices were made before the problem aren't billed again by the next run
                 job.invoiced_keys = list(dict.fromkeys(job.billed_keys() + keys))
             else:
-                job.invoiced = True
+                job.invoiced, job.invoice_set = True, billed_as
         done += made
     for job in jobs:  # every day of a held case says why: they stay to be done again, together
         why = stopped.get(unit_of[id(job)])
@@ -2761,10 +2900,11 @@ def output_counts(jobs: list[Job], outputs, s: Settings | None = None, again: bo
     Settings.invoice_joint says) the invoices, one for each attorney ticked on any of its days who ordered pages
     and was not invoiced yet (and the set of each other reporter Whose pages... bills, see joint_invoice_sets).
     Days already invoiced (Job.invoiced), and days whose invoice is held (Excerpts... rows to check, Whose
-    pages... to choose, speeds or Parties to check: Job.invoice_hold), get none. again: a day already invoiced
-    counts as one not invoiced yet, as Generate (the job shown) bills it again (Job.billed_keys); Generate all
-    doesn't. "detailed": with Settings.invoice_detailed_copy, the detailed copy of each invoice without the
-    granular detail. "math": the PDFs of the math saved with the invoices (Settings.save_math, as
+    pages... to choose, speeds or Parties to check: Job.invoice_hold), get none. A day made already (Job.made, the
+    window gives it to Generate all for its invoice alone) counts its invoice only, unless `again`. again: a day
+    already invoiced counts as one not invoiced yet, as Generate (the job shown) bills it again (Job.billed_keys);
+    Generate all doesn't. "detailed": with Settings.invoice_detailed_copy, the detailed copy of each invoice
+    without the granular detail. "math": the PDFs of the math saved with the invoices (Settings.save_math, as
     invoice_math.save_math makes them: one per invoice with "each" and "both", and one for all of a reporter's
     invoices of a group with "all", and with "both" when there are two or more); counted in the Generate buttons'
     number of files, not shown beside an output, as the user asked on 2026-10-09. The days whose agreements and
@@ -2775,9 +2915,10 @@ def output_counts(jobs: list[Job], outputs, s: Settings | None = None, again: bo
     out = {**dict.fromkeys(courthouses.keys(), 0), "detailed": 0, "math": 0}
     forms = trial_forms()
     own = forms + courthouses.keys("doc")  # (the outputs each day has its own of, unless made for the trial)
-    trials = form_groups(jobs, s) if set(forms) & set(outputs) else []
+    fresh = jobs if again else [j for j in jobs if not j.made]  # (Generate all: a made day's invoice alone)
+    trials = form_groups(fresh, s) if set(forms) & set(outputs) else []
     in_trial = {id(j) for g in trials for j in g}
-    for j in jobs:
+    for j in fresh:
         for o in outputs:
             if o in own and not (o in forms and id(j) in in_trial):
                 out[o] += j.file_count([o])
@@ -2799,7 +2940,7 @@ def output_counts(jobs: list[Job], outputs, s: Settings | None = None, again: bo
                             (1 if s.save_math == "all" or (s.save_math == "both" and n > 1) else 0)
     if "runsheet" in out:
         cases: list[Ident] = []
-        for j in jobs:
+        for j in fresh:
             if "runsheet" in j.makeable(outputs):
                 i = ident(j.case)
                 if not i or not any(same_case(i, k) for k in cases):

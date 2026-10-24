@@ -196,9 +196,11 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
     An invoice needs `invoice` with the page count (a list: the invoices of each reporter billed, see
     batch.Job.invoice_sets; the user's own set, when there is one, gives the pages the records count) and
     prices for every speed set (invoice.Invoices.check), the run sheet `runsheet` with the takes of the
-    transcripts; raises ValueError otherwise, before anything is made. The run sheet goes to the run sheets
-    folder (an existing one of the case is looked for there and in `folders`, see runsheet.choose). It is
-    written first: when it is open in Excel, nothing is made, and trying again doesn't make the invoices twice.
+    transcripts; raises ValueError otherwise, before anything is made. A new run sheet goes into out_dir, the
+    case's folder (or the run sheets' own folder when Settings give them one); an existing one of the case is
+    looked for there, in `folders`, where the records say and in the old run sheets folders
+    (runsheet.sheet_folders, runsheet.choose), and added to where it is. It is written first: when it is open in
+    Excel, nothing is made, and trying again doesn't make the invoices twice.
     A run sheet that already had every take is left as it was and is not among the files returned. `invoiced`,
     when given, gets the InvoiceOpts.skip_key ("" for a blank Bill To) of each invoice made, so a run that stops
     part way can be tried again without billing them twice (see InvoiceOpts.skip). `origin`: where the job came

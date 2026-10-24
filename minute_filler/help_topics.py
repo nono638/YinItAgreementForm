@@ -418,8 +418,8 @@ workbook: print it from Excel.</p>
     T("make-folders", MAKE, "Where the files go: a folder for each case",
       "folder save to location where saved case folder directory path already there add new beside",
       """
-<p>The PDFs are saved in a folder for the case, named by its index number ("712345-2021"), next to your document or
-inside the <i>Save to</i> folder chosen in Settings → Options → Folders.</p>
+<p>The PDFs and the case's run sheet are saved in a folder for the case, named by its index number ("712345-2021"),
+next to your document or inside the <i>Save to</i> folder chosen in Settings → Options → Folders.</p>
 <ul>
 <li><b>Case folder name</b>: <code>{index}</code>, <code>{case}</code>, <code>{date}</code>, <code>{dates}</code>,
 <code>{court}</code>, <code>{county}</code>, <code>{part}</code>, <code>{judge}</code> and words of your own. The
@@ -431,7 +431,7 @@ without asking.</li>
 "712345-2021".</li>
 <li>Untick <i>A folder for each case, inside Save to</i> to save them all in one folder.</li>
 <li>Minute agreements, MOFRs, invoices and run sheets can each have <b>a folder of their own</b> (same place). An
-output with its own folder, and the run sheet, keep theirs.</li>
+output with its own folder keeps it.</li>
 </ul>
 """),
     T("make-file-names", MAKE, "File names", "file name pattern rename change placeholders today date attorney number",
@@ -584,15 +584,17 @@ own (DS-2026-0001).</p>
     T("inv-who-pays", INVOICE, "Who pays what", "who pays what card each firm share amount per page alone shared",
       """
 <p>The <b>Who pays what</b> card, under Who ordered what, sums up each firm's invoice: its pages, how it ordered them
-(<i>70 alone + 50 shared by 2</i>) and what it pays at each speed offered, in all and per page. It follows every tick
-at once: attorneys, speeds, Parties, Peripherals… and Excerpts….</p>
+(<i>70 alone + 50 shared by 2</i>) and what it pays at each speed offered, in all and per page, for every day
+ticked in the job list. It follows every tick at once: days, attorneys, speeds, Parties, Peripherals… and
+Excerpts…. With more than one invoice (a day invoiced already beside one still to bill, or several cases), each has
+its own heading; one made already says <i>invoiced already ✓</i>.</p>
 <p><i>How these amounts are worked out…</i> opens the whole <a href="topic:inv-math">math</a>.</p>
 """),
     T("inv-who-ordered", INVOICE, "Who ordered what", "who ordered what card day pages speed also ordered rows edit "
       "excerpts question mark",
       """
-<p>Whenever an invoice is to be made, the <b>Who ordered what</b> card shows, for every day the invoice covers, a row
-for each attorney:</p>
+<p>Whenever an invoice is to be made, the <b>Who ordered what</b> card shows, for every day ticked in the job list
+(whichever day is shown), a row for each attorney. A day invoiced already has a ✓ after its date:</p>
 <ul>
 <li>the pages it ordered (<i>every page, 1–60</i>, or <i>excerpt: 20–40 of 60</i>);</li>
 <li>the <b>Speed</b> it ordered them at: a box you can change. <i>Chooses on the invoice</i> for a firm ordering
@@ -614,8 +616,8 @@ only the days it ordered, and one MOFR listing every day. The estimated delivery
 of 4 days ordered by 4 firms makes 4 invoices, 4 agreements, one MOFR and a run sheet, when all four outputs are
 ticked.</p>
 <ul>
-<li>A day once invoiced is not billed again by Generate all, even when you tick it again; new documents for it make
-it billable again.</li>
+<li>A day once invoiced is not billed again by Generate all. It stays in the cards, with the invoice that billed it;
+new documents for it make it billable again.</li>
 <li><i>Generate 6/4/2026 only</i> (the button names the day shown) makes that day alone; <i>Generate all 4 days</i>
 makes them all. Each button's tooltip lists the files it makes.</li>
 <li>Settings → Invoice → <i>Days of one case</i>: <i>An invoice for each day</i>. Settings → Options →
@@ -722,7 +724,7 @@ half a cent a page ($6,612.50 there, $6,610.00 here, for 1,000 pages).</p>
       "only",
       """
 <p>When one firm ordered the whole trial and others only some pages, open <b>Excerpts…</b> (Invoice card, next to
-<i>Parties</i>). It is one table for every day of the case on that invoice:</p>
+<i>Parties</i>). It is one table for every day of the case on that invoice (every day ticked, as a rule):</p>
 <ul>
 <li>each row is a <b>run of pages</b> of a day, typed in the transcript's own printed page numbers
 (<i>141-170</i>); the rows around a run you type make room for it;</li>
@@ -1074,11 +1076,14 @@ such as Realtime, isn't, and neither is $0.00 (a charge not made at that speed).
 """),
     # --------------------------------------------------------------------------------------------------- Run sheet
     T("run-overview", RUNSHEET, "The run sheet of a shared trial",
-      "run sheet takes shared trial reporters initials excel spreadsheet who wrote which pages by reporter witness",
+      "run sheet takes shared trial reporters initials excel spreadsheet who wrote which pages by reporter witness "
+      "folder saved case folder",
       """
 <p>When several reporters share a trial, each puts their initials at the foot of the pages they write. The run sheet
 keeps track of who wrote what: an Excel sheet with a row per take, with the date, weekday, reporter, the day's and
-running take, the pages written, the first and last page, and the witness who took the stand.</p>
+running take, the pages written, the first and last page, and the headers printed at the top of its first and last
+page (<i>Witness Start</i>, <i>Witness End</i>: the first and the last header printed in the take; Settings →
+Run sheet can leave them blank).</p>
 <ul>
 <li>The <b>Run sheet</b> box in the Outputs box ticks itself when two or more reporters wrote a case's transcripts,
 and unticks when one did. Once you click it, it stays as you set it until New job.</li>
@@ -1086,16 +1091,28 @@ and unticks when one did. Once you click it, it stays as you set it until New jo
 <li>The weekday, take counts and page numbers are formulas, so rows you type in are counted too. Filter the Reporter
 column for one reporter; the <b>By Reporter</b> sheet totals each reporter's takes and pages.</li>
 </ul>
-<p>Run sheets are saved in <i>Documents\\YinIt Run Sheets</i> (Settings → Options → Folders).</p>
+<p>Each case's run sheet is saved in the case's own folder, with its forms and invoices (a run sheet started
+in <i>Documents\\YinIt Run Sheets</i> by an earlier version is still found and added to there). To keep every run
+sheet in one folder instead, choose one in Settings → Options → Folders. <i>Open the run sheet's folder</i>, under
+the Run sheet options, opens the folder of the case shown.</p>
 """),
     T("run-who-transcribed", RUNSHEET, "Who transcribed what",
-      "who transcribed what wrote which pages reporter pages each day trial totals review save copy export",
+      "who transcribed what wrote which pages reporter pages each day trial totals review save copy export headers "
+      "correct wrong take misread initials undo",
       """
-<p>The <b>Who transcribed what</b> card, at the bottom of the form, lists every take of every day of the trial shown,
-read from the initials at the foot of the pages: the day, the reporter, the printed pages, how many, and the
-witnesses who took the stand or stepped down. Above it, what each reporter wrote in all (<i>These 3 days: Pat
-Reporter 144 pp. · DS 76 pp.</i>). It is there whenever a day of the trial has a transcript, whatever outputs are
+<p>The <b>Who transcribed what</b> card, at the bottom of the form, lists every take of every day ticked in the job
+list, read from the initials at the foot of the pages: the day, the reporter, the printed pages, how many, and the
+headers at the top of its pages as they are printed, each once (<i>PROCEEDINGS, DIRECT - PLAINTIFF - JANE
+ROE</i>). Above it, what each reporter wrote in all (<i>These 3 days: Pat
+Reporter 144 pp. · DS 76 pp.</i>). It is there whenever a day ticked has a transcript, whatever outputs are
 ticked. It starts folded, the totals on its line: click its heading to see every take.</p>
+<p><b>A take wrong?</b> When a page's initials were misread, or are missing, pages can land in the wrong take.
+Double-click the take (or right-click it → <i>Correct where this take ends…</i>), type the page it really ends on,
+and say yes in the <i>Are you sure?</i> box, which says how your pages change. The pages after it go to the next
+take, and the takes, your pages (<i>Yours</i>, the invoice) and the run sheet follow; the records of the files you
+make from then on keep the correction. A corrected take shows ✎. Right-click → <i>Undo my corrections to this
+transcript's takes</i> puts them back as the initials say. Files made already aren't changed: Generate the day again (a run sheet made already keeps its
+rows, so correct it in Excel).</p>
 <p><b>Save a copy…</b> saves the table as an Excel workbook or a CSV file. For the full record, kept and added to day
 after day, tick <b>Run sheet</b> and Generate: the trial's <a href="topic:run-overview">run sheet</a>.</p>
 """),
@@ -1113,8 +1130,9 @@ initials; failing that, the initials are written.</li>
     T("run-one-per-trial", RUNSHEET, "One run sheet per trial: adding to it",
       "add to existing run sheet new run sheet ask open in excel close duplicate takes",
       """
-<p>Before adding, the app looks for the case's run sheet in the run sheets folder and next to the transcript: the
-same index number, or the same case name. It then asks whether to add the takes to it or start a new one (the
+<p>Before adding, the app looks for the case's run sheet in the case's folder, next to the transcript and in
+<i>Documents\\YinIt Run Sheets</i> (where earlier versions kept them): the same index number, or the same case
+name. It then asks whether to add the takes to it or start a new one (the
 <i>If one exists</i> choice in the Run sheet column, or Settings → Run sheet → <i>When the case has one</i>).</p>
 <p>Takes already there are not added twice. New takes go in date and page order; rows already there keep their
 place, and what you typed on them is kept.</p>
@@ -1145,12 +1163,19 @@ of its own, left unticked.</li>
 </ul>
 <p>Batches are read with the built-in rules and Windows' text recognition only: the AI helper is not used.</p>
 """),
-    T("batch-job-list", BATCH, "The job list", "job list jobs left table marks check tick warning pages yours new job "
-      "undo clear sort order oldest newest heading column day of the week weekday",
+    T("batch-job-list", BATCH, "The job list", "job list jobs left table marks check tick ticked unticked greyed "
+      "warning pages yours initials footer new job undo clear sort order oldest newest heading column day of the week "
+      "weekday",
       """
 <p>Each job has a row: its case, date, <i>Day</i> (the day of the week), <i>Pages</i> (the transcript's own, without
-the word index) and <i>Yours</i> (the pages you wrote; <b>?</b> until it can tell). Hover over a job for its full
-name, index number and documents.</p>
+the word index) and <i>Yours</i> (the pages with your initials at the foot of the page; <b>?</b> until it can tell).
+Hover over a job for its full name, index number and documents.</p>
+<p><b>The ticks say which jobs count.</b> Every card on the right (Who ordered what, Who pays what, Who transcribed
+what; the Excerpts window, the ticked days of the shown day's invoice) shows every ticked job, whichever one is
+shown, and Generate all makes them (not those made already, but for the invoice of a made day still to bill).
+Untick a job
+to see what difference it makes: it is greyed and left out, but not removed, so ticking it brings it back. Everything
+you add starts ticked, but a document that names no case.</p>
 <p>The list is <b>by date, oldest first</b>, whatever order the documents were read in, and the job at the top of the
 list is shown first. <b>Click a heading</b> to sort by it (a date as a date, pages as numbers); click it again for the other way.
 Your choice is kept. A job's documents stay in the order they were read. Right-click the headings (or View →
@@ -1171,6 +1196,8 @@ for 10 seconds, until you add something new (not when documents were still being
 <p><b>Generate all</b> (Ctrl+Shift+Enter) makes the ticked outputs for every ticked job. Like Generate, it first shows
 a preview of every file; nothing is saved until you click Save.</p>
 <ul>
+<li>The jobs it makes stay ticked, with a ✓, so the cards still show them. Pressed again, it makes only what is
+left (<i>Generate the 1 day left</i>). To make one again, click it and use its own Generate button.</li>
 <li>The days of one case get one invoice per attorney (<a href="topic:inv-several-days">more</a>).</li>
 <li>A job without a transcript gets its forms but no run sheet, and no invoice unless you typed its pages.</li>
 <li>The days of one trial go on one run sheet, and you're asked about it once.</li>
@@ -1185,7 +1212,8 @@ a preview of every file; nothing is saved until you click Save.</p>
 <pre>YinItAgreementForm.exe --batch &lt;output folder&gt; [--outputs agreement,mofr,invoice,runsheet] [--math] &lt;files or folders…&gt;</pre>
 <ul>
 <li>it makes the outputs saved as ticked in the window, unless <code>--outputs</code> says otherwise, into the output
-folder, with no preview and no folder for each case (run sheets still go to theirs);</li>
+folder, with no preview and no folder for each case (run sheets go to their own folder if Settings give them
+one, and a case's run sheet found elsewhere is added to where it is);</li>
 <li><code>--math</code> also saves the math of the invoices, as Settings → Invoice → <i>Save the math</i> says;</li>
 <li>it writes a <code>batch.json</code> report: each job's <code>warnings</code> name a document without an index
 number, index numbers that don't match, or a firm billed at the form's speed because its speed wasn't given.</li>
@@ -1304,18 +1332,20 @@ ticked, ✗ not ticked, – either way).</li>
 <a href="topic:rec-button">the count on the Records button</a>.</p>
 """),
     T("set-run-sheet", SETTINGS, "Settings → Run sheet", "run sheet settings when the case has one reporters invoices "
-      "for invoice details",
+      "for invoice details witness start end columns blank",
       """
 <ul>
 <li><b>When the case has one</b>: ask whether to add to it or start a new one, add without asking, or always start a
 new run sheet (<a href="topic:run-one-per-trial">more</a>).</li>
+<li><b>Witness Start / End</b>: what those two columns get: the first and the last header printed at the top of the
+take's pages, as printed (<i>DIRECT - PLAINTIFF - JANE ROE</i>), or nothing, for you to type in.</li>
 <li><b>File name</b>: <code>{month}</code> <code>{year}</code> <code>{case}</code> <code>{index}</code>
 <code>{date}</code>.</li>
 <li><b>Reporters</b>: initials = name, one per line (<a href="topic:run-reporters">more</a>).</li>
 <li><b>Invoices for</b> and <i>Invoice details…</i>: the name, address and payment details of each other reporter
 you make invoices for (<a href="topic:inv-reporters">more</a>).</li>
 </ul>
-<p>The run sheets' folder is under Options → Folders.</p>
+<p>Run sheets are saved in each case's own folder, unless Options → Folders gives them one.</p>
 """),
     T("set-ai", SETTINGS, "Settings → AI", "ai settings ollama model url timeout test connection use a local ai model",
       """

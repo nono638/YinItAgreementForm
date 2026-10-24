@@ -1,6 +1,9 @@
 """The run sheet: takes read from the reporters' initials on each transcript page, written to Excel, and added
 to the case's run sheet when there is one, ours or one made elsewhere (whose original is kept as a "(before
-YinIt)" copy, or the old "(before DjinnIt)" one). Fictional names and cases."""
+YinIt)" copy, or the old "(before DjinnIt)" one). Its Witness columns get the running heads as printed, or are
+blank; a new run sheet goes in the case's own folder, and the case's run sheet is found there, where the records
+say or in the old run sheets folder. Takes the user corrected (takes.moved_end, batch.Doc.fixes) and the records
+that keep them. Who transcribed what of several cases (batch.takes_of). Fictional names and cases."""
 from copy import copy
 from datetime import date
 
@@ -8,12 +11,13 @@ import pymupdf
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from minute_filler.batch import fill_jobs, group, read_docs
+from minute_filler.batch import (case_dir_for, case_folders, fill_jobs, group, origin_fixes, out_dir_for, read_docs,
+                                 takes_of)
 from minute_filler.deliver import generate
-from minute_filler.runsheet import (FIRST, Row, RunSheetOpts, add_takes, choose, find_sheets, read_info,
-                                    run_sheet_summary, same_name)
-from minute_filler.takes import (PageMark, find_takes, initials_of, is_index_page, reporter_label, scan_page, scan_pdf,
-                                 title_reporters, unspace)
+from minute_filler.runsheet import (FIRST, Row, RunSheetOpts, add_takes, choose, find_sheets, old_folder, read_info,
+                                    recorded_folders, run_sheet_summary, same_name, sheet_folders)
+from minute_filler.takes import (PageMark, find_takes, fix_marks, initials_of, is_index_page, moved_end,
+                                 page_numbers, reporter_label, scan_page, scan_pdf, title_reporters)
 
 from helpers import pat_settings
 
@@ -54,7 +58,8 @@ TALK = """ 1              THE COURT:  Good morning.
 
 # (page number, initials, running head, text): two title pages by Pat, three pages by Dana with a witness
 # sworn in, three by Pat where he steps down, then Dana's take with the next witness - its last page
-# lacks the initials - and the word index after the transcript.
+# lacks the initials - and the word index after the transcript. (Who is on the stand is not read from the
+# pages: the run sheet's Witness columns get the running heads as printed.)
 DAY_1 = [
     (310, "pr", "", TITLE_1), (311, "pr", "", TITLE_2),
     (312, "ds", "Proceedings", TALK), (313, "ds", "Proceedings", SWORN), (314, "ds", "J. Doe - Plaintiff - Direct", TALK),
@@ -114,13 +119,13 @@ def test_takes_follow_the_initials(tmp_path):
         marks = scan_pdf(doc)
     assert len(marks) == 10  # the word index is not part of the transcript
     assert [m.number for m in marks] == list(range(310, 320)) and marks[0].initials == "pr" and not marks[9].initials
-    assert marks[3].sworn == "JOHN DOE" and marks[6].excused and marks[4].witness() == "J. Doe"
     takes = find_takes(marks, title_count=2)
-    assert [(t.initials, t.start, t.pages, t.title_only) for t in takes] == \
-        [("pr", 310, 2, True), ("ds", 312, 3, False), ("pr", 315, 3, False), ("ds", 318, 2, False)]
-    assert takes[1].witness_start == ["JOHN DOE"]       # sworn in: the head's "J. Doe" is the same witness
-    assert takes[2].witness_start == [] and takes[2].witness_end == ["JOHN DOE"]
-    assert takes[3].witness_start == ["M. Lee"]         # the next witness, by the running head
+    assert [(t.initials, t.start, t.pages, t.title_only, t.at) for t in takes] == \
+        [("pr", 310, 2, True, 0), ("ds", 312, 3, False, 2), ("pr", 315, 3, False, 5), ("ds", 318, 2, False, 8)]
+    assert [(t.heads, t.last_head) for t in takes] == [
+        ([], ""), (["Proceedings", "J. Doe - Plaintiff - Direct"], "J. Doe - Plaintiff - Direct"),
+        (["J. Doe - Plaintiff - Direct", "J. Doe - Plaintiff - Cross", "Proceedings"], "Proceedings"),
+        (["M. Lee - Defendant - Direct"], "M. Lee - Defendant - Direct")]
 
 
 def test_names_for_the_initials():
@@ -132,7 +137,6 @@ def test_names_for_the_initials():
     assert reporter_label("px", [], {}, "Pat Reporter", own_initials="PX") == "Pat"
     assert reporter_label("ds", names, {"ds": "Dana S."}, "Pat Reporter") == "Dana S."  # Settings win
     assert reporter_label("kl", names, {}, "Pat Reporter") == "KL"      # nobody known: the initials
-    assert unspace("D R.  J A N E   R O E") == "DR. JANE ROE" and unspace("JOHN  DOE") == "JOHN DOE"
 
 
 def test_the_word_index_is_not_billed(tmp_path, s):
@@ -153,11 +157,12 @@ def test_a_new_run_sheet(tmp_path, s):
     assert paths == [opts.path] and opts.created and opts.added == 4
     assert opts.path.parent == tmp_path / "sheets" and opts.path.name == "June 2026 712345-2021 Jane Roe v. Sam Poe - Run Sheet.xlsx"
     rows = sheet_rows(opts.path)
+    # Witness Start and End: the first and last heads printed in the take (Settings.runsheet_witness)
     assert [(r[0].date(), r[2], r[5], r[8], r[9], r[10]) for r in rows] == [
         (date(2026, 6, 3), "Pat", 2, None, None, "title page only"),
-        (date(2026, 6, 3), "Dana", 3, "John Doe", None, None),
-        (date(2026, 6, 3), "Pat", 3, None, "John Doe", None),
-        (date(2026, 6, 3), "Dana", 2, "M. Lee", None, None)]
+        (date(2026, 6, 3), "Dana", 3, "Proceedings", "J. Doe - Plaintiff - Direct", None),
+        (date(2026, 6, 3), "Pat", 3, "J. Doe - Plaintiff - Direct", "Proceedings", None),
+        (date(2026, 6, 3), "Dana", 2, "M. Lee - Defendant - Direct", "M. Lee - Defendant - Direct", None)]
     assert rows[0][6] == 310 and rows[1][6] == "=H5+1"  # the pages carry on from the row above
     assert rows[1][3].startswith('=IF(A6="","",IF(K6="title page only",0.5,COUNTIFS(')
     wb = load_workbook(opts.path)
@@ -272,6 +277,46 @@ def test_a_batch_puts_every_day_on_one_run_sheet(tmp_path, s):
     assert smith.error == "no run sheet: no transcript PDF among the inputs" and not smith.saved
 
 
+def test_a_run_sheet_goes_in_the_cases_own_folder(tmp_path, s):
+    """Run sheets went to Documents\\YinIt Run Sheets, away from each case's other files. They go in the case's
+    own folder now (the user, 2026-10-23: "they are particular to each case"), every day of a trial on one, and a
+    later day finds it there before its own folder is chosen (batch.case_dir_for)."""
+    s.runsheet_dir = ""
+    folder = tmp_path / "in"
+    folder.mkdir()
+    transcript(folder / "Transcript 6-3-2026 Roe v Poe.pdf")
+    transcript(folder / "Transcript 6-4-2026 Roe v Poe.pdf", [(320, "ds", "", TITLE_1), (321, "pr", "", TALK)],
+               day="June 4, 2026")
+    docs, _ = read_docs([str(p) for p in sorted(folder.iterdir())], s)
+    done = fill_jobs(group(docs, s), s, outputs=["runsheet"])
+    case = tmp_path / "out" / "712345-2021"
+    assert [p.parent for p in done] == [case] and len(sheet_rows(done[0])) == 6
+    assert not old_folder().exists()
+    third = job_of(transcript(folder / "Transcript 6-5-2026 Roe v Poe.pdf", [(330, "pr", "", TITLE_1),
+                                                                          (331, "ds", "", TALK)], day="June 5, 2026"), s)
+    assert case_dir_for(third, s) == case and out_dir_for(third, s) == tmp_path / "out"  # (not chosen yet)
+    assert [f.path for f in find_sheets(third.case, sheet_folders(s, case_dir_for(third, s), []))] == done
+    opts = third.runsheet_opts(s)
+    generate(third.case, s, case, ["runsheet"], runsheet=opts)
+    assert opts.path == done[0] and not opts.created and len(sheet_rows(done[0])) == 8
+
+
+def test_a_run_sheet_in_the_old_run_sheets_folder_is_still_added_to(tmp_path, s):
+    """A trial whose run sheet an earlier version started in Documents\\YinIt Run Sheets keeps it: the next day's
+    takes go on it there, not on a new one in the case's folder."""
+    first = job_of(transcript(tmp_path / "Transcript 6-3-2026 Roe v Poe.pdf"), s)
+    s.runsheet_dir = str(old_folder())  # (where it was kept)
+    a = first.runsheet_opts(s)
+    add_takes(first.case, a, s, [])
+    s.runsheet_dir = ""
+    second = job_of(transcript(tmp_path / "Transcript 6-4-2026 Roe v Poe.pdf", [(320, "ds", "", TITLE_1),
+                                                                             (321, "pr", "", TALK)], day="June 4, 2026"), s)
+    b = second.runsheet_opts(s)
+    generate(second.case, s, case_dir_for(second, s), ["runsheet"], runsheet=b)
+    assert b.path == a.path and b.path.parent == old_folder() and not b.created and len(sheet_rows(a.path)) == 6
+    assert not list(tmp_path.rglob("out/**/*.xlsx"))
+
+
 def test_a_scan_gets_one_row(tmp_path, s):
     job = job_of(transcript(tmp_path / "Transcript 6-3-2026 Roe v Poe.pdf"), s)
     job.docs[0].ing.marks = []  # as for a scanned transcript: no text to find the initials in
@@ -300,53 +345,200 @@ def test_open_in_excel(tmp_path, s, monkeypatch):
 # ------------------------------------------------------------------ found in the run sheet sweep
 
 D3, D4 = date(2026, 6, 3), date(2026, 6, 4)
-NEXT_SWORN = """ 3           MARY LEE, called as a witness by and on behalf
- 4    of the Defendant, having been first duly sworn,
- 5    testified as follows:"""
 
 
-def test_two_pages_saying_the_witness_stepped_down(tmp_path, s):
-    """The second "stepped down" wrote a NUL character into the Witness End column: Excel refused the file."""
-    pages = DAY_1[:6] + [(316, "pr", "J. Doe - Plaintiff - Cross", EXCUSED), (317, "pr", "Proceedings", EXCUSED)] \
-        + DAY_1[8:]
-    with pymupdf.open(transcript(tmp_path / "t.pdf", pages)) as doc:
-        takes = find_takes(scan_pdf(doc), title_count=2)
-    assert takes[2].witness_end == ["JOHN DOE"]
-    job = job_of(tmp_path / "t.pdf", s)
+def test_the_witness_columns_are_the_heads_as_printed_or_blank(tmp_path, s):
+    """Witness Start and End were the witness read from the pages, which went wrong with heads laid out another way
+    ("DIRECT - DEFENDANT - SAM POE"): they are the first and last heads printed in the take now, or blank
+    for the user to type in (Settings -> Run sheet: the user, 2026-10-23). A character a workbook can't hold (a
+    NUL in the PDF's text) is left out: once in a cell, Excel refused the file."""
+    pages = DAY_1[:2] + [(312, "ds", "PROCEEDINGS", TALK), (313, "ds", "DIRECT - DEFENDANT - SAM POE", TALK),
+                         (314, "pr", "CROSS - DEFENDANT - SAM POE", TALK), (315, "pr", "", TALK)]
+    job = job_of(transcript(tmp_path / "t.pdf", pages), s)
     opts = job.runsheet_opts(s)
     add_takes(job.case, opts, s, [])
-    assert [r[9] for r in sheet_rows(opts.path)] == [None, None, "John Doe", None]
+    assert [(r[8], r[9]) for r in sheet_rows(opts.path)] == [
+        (None, None), ("PROCEEDINGS", "DIRECT - DEFENDANT - SAM POE"),
+        ("CROSS - DEFENDANT - SAM POE", "CROSS - DEFENDANT - SAM POE")]  # (the last page has no head)
+    s.runsheet_witness = "blank"
+    assert {(r.witness_start, r.witness_end) for r in job.runsheet_opts(s).rows} == {("", "")}
+    take, = find_takes([PageMark(1, "pr", "PROCEEDINGS\x00 "), PageMark(2, "pr", "\x07")], title_count=0)
+    assert take.heads == ["PROCEEDINGS"] and take.last_head == "PROCEEDINGS"
 
 
-def test_redirect_and_recross_heads_name_the_witness():
-    assert PageMark(head="J. Doe - Plaintiff - Redirect").witness() == "J. Doe"
-    assert PageMark(head="M. Lee - Defendant - Re-cross").witness() == "M. Lee"
-    assert PageMark(head="Proceedings").witness() == ""
+def test_a_take_corrected_by_the_user(tmp_path, s):
+    """A page's initials misread (or missing) put pages in the wrong take; the user moves where a take ends
+    (Who transcribed what -> Correct where this take ends): the takes, Yours, the pages billed and the run sheet
+    follow, and the records of the files made from then on keep the correction (job_origin), for the documents
+    read again when the job is opened again (origin_fixes; the window gives them back: test_gui_runsheet)."""
+    from minute_filler.batch import job_origin
+    job = job_of(transcript(tmp_path / "t.pdf"), s)
+    doc = job.docs[0]
+    assert job.your_pages() == 5 and [(r.reporter, r.start, r.pages, r.at) for r in job.runsheet_opts(s).rows] == [
+        ("Pat", 310, 2, 0), ("Dana", 312, 3, 2), ("Pat", 315, 3, 5), ("Dana", 318, 2, 8)]
+    marks = doc.marks()
+    assert page_numbers([PageMark(None), PageMark(5), PageMark(None)]) == [None, 5, 6]
+    # Dana's first take really ends on 315 (its last page misread as Pat's): one page moves to Dana
+    fix = moved_end(marks, 2, 5, title_count=2)
+    assert fix == {5: "ds"}
+    doc.fixes = {**doc.fixes, **fix}
+    assert [(r.reporter, r.start, r.pages) for r in job.runsheet_opts(s).rows] == [
+        ("Pat", 310, 2), ("Dana", 312, 4), ("Pat", 316, 2), ("Dana", 318, 2)]
+    assert job.your_pages() == 4 and job.reporter_pages() == {"pr": 4, "ds": 6}
+    assert doc.ing.marks[5].initials == "pr"  # (the pages as read are left as they were)
+    # moved earlier: its pages after the new end go to the next take, which starts sooner
+    assert moved_end(doc.marks(), 2, 3, title_count=2) == {4: "pr", 5: "pr"}
+    # Pat's second take reaching to the end swallows Dana's last one
+    assert moved_end(doc.marks(), 6, 9, title_count=2) == {8: "pr", 9: "pr"}
+    for at, end in ((8, 7), (8, 10), (1, 5)):  # the last take earlier, past the last page, no take starting there
+        with pytest.raises(ValueError):
+            moved_end(doc.marks(), at, end, title_count=2)
+    assert moved_end(doc.marks(), 8, 9, title_count=2) == {}  # (where it ends already)
+    assert fix_marks(marks, None) is marks
+    # kept with the records, read back as the document's corrections
+    origin = job_origin(job)
+    assert origin["job"]["page_fixes"] == {doc.key(): {"5": "ds"}} and origin_fixes(origin) == {doc.key(): {5: "ds"}}
+    assert origin_fixes({"page_fixes": {"a.pdf": {"5": "ds", "x": "pr", "6": 3}}, "joint": True}) == {"a.pdf": {5: "ds"}}
+    assert origin_fixes({"job": {"page_fixes": "bad"}}) == {} and origin_fixes({}) == {}
+    assert origin_fixes({"page_fixes": {"a.pdf": {"²": "ds"}}}) == {"a.pdf": {}}  # (a digit int() can't read)
+    assert "page_fixes" not in job_origin(job_of(tmp_path / "t.pdf", s))["job"]  # (none: the record as it always was)
 
 
-def test_one_witness_steps_down_and_the_next_is_sworn_on_the_same_page(tmp_path):
-    pages = DAY_1[:5] + [(315, "pr", "J. Doe - Plaintiff - Cross", EXCUSED + "\n" + NEXT_SWORN),
-                         (316, "ds", "M. Lee - Defendant - Direct", TALK)]
+def test_extending_a_take_leaves_the_next_takes_unsigned_pages_where_they_are(tmp_path, s):
+    """Pat's take 315-317 made to end on 318: page 319, with no initials of its own, followed page 318 to Pat (Dana's
+    last take gone, Yours 5 -> 7). It stays Dana's: pinned to the take it is in."""
+    job = job_of(transcript(tmp_path / "t.pdf"), s)
+    doc = job.docs[0]
+    fix = moved_end(doc.marks(), 5, 8, title_count=2)
+    assert fix == {8: "pr", 9: "ds"}
+    doc.correct(fix)
+    assert [(r.reporter, r.start, r.pages) for r in job.runsheet_opts(s).rows][2:] == [("Pat", 315, 4), ("Dana", 319, 1)]
+    assert job.your_pages() == 6 and job.reporter_pages() == {"pr": 6, "ds": 4}
+
+
+def test_a_correction_that_leaves_one_reporter_gives_them_the_title_pages_everywhere(tmp_path, s):
+    """Whose pages... gave the title pages (no initials) to Pat; a correction then left Dana alone on the transcript.
+    The bill counted the title pages as Dana's (one reporter: theirs) while the takes still said Pat's."""
+    pages = [(310, "", "", TITLE_1), (311, "", "", TITLE_2), (312, "ds", "Proceedings", TALK),
+             (313, "ds", "Proceedings", TALK), (314, "pr", "Proceedings", TALK), (315, "pr", "Proceedings", TALK)]
+    job = job_of(transcript(tmp_path / "t.pdf", pages), s)
+    doc = job.docs[0]
+    job.front_owner = {doc.key(): "pr"}
+    assert [(r.reporter, r.pages) for r in job.runsheet_opts(s).rows] == [("Pat", 2), ("Dana", 2), ("Pat", 2)]
+    doc.correct(moved_end(doc.marks(), 2, 5, title_count=2, front="pr"))
+    assert doc.reporters() == ["ds"] and job.reporter_pages() == {"ds": 6}
+    assert [(r.reporter, r.start, r.pages) for r in job.runsheet_opts(s).rows] == [("Dana", 310, 6)]
+
+
+def test_a_head_that_starts_with_equals_is_text_in_the_workbooks(tmp_path, s):
+    """A running head printed "== DIRECT EXAMINATION ==" went into the run sheet as a (broken) formula, and Save a
+    copy's CSV let Excel read "- CROSS -" as one."""
+    from minute_filler.gui.main_window import save_takes
+    pages = DAY_1[:2] + [(312, "ds", "== DIRECT EXAMINATION ==", TALK), (313, "pr", "- CROSS -", TALK)]
+    job = job_of(transcript(tmp_path / "t.pdf", pages), s)
+    opts = job.runsheet_opts(s)
+    add_takes(job.case, opts, s, [])
+    cell = load_workbook(opts.path)["Run Sheet"].cell(FIRST + 1, 9)
+    assert cell.value == "== DIRECT EXAMINATION ==" and cell.data_type == "s"
+    more = job_of(transcript(tmp_path / "t2.pdf", [(320, "ds", "", TITLE_1), (321, "ds", "PROCEEDINGS", TALK)],
+                             day="June 4, 2026"), s)
+    add_takes(more.case, more.runsheet_opts(s), s, [])  # (written again: still text, not taken for a formula typed)
+    cell = load_workbook(opts.path)["Run Sheet"].cell(FIRST + 1, 9)
+    assert cell.value == "== DIRECT EXAMINATION ==" and cell.data_type == "s"
+    rows = job.runsheet_opts(s).rows
+    saved = save_takes(rows, tmp_path / "copy.xlsx")
+    assert not [c for r in load_workbook(saved).active.iter_rows() for c in r if c.data_type == "f"]
+    text = save_takes(rows, tmp_path / "copy.csv", csv_file=True).read_text(encoding="utf-8-sig")
+    assert "'== DIRECT EXAMINATION ==" in text and "'- CROSS -" in text
+
+
+def test_a_page_number_on_the_heads_line_is_not_part_of_the_head():
+    """A transcript printing "101 PROCEEDINGS" at the top listed every page's head once each in the card."""
+    take, = find_takes([PageMark(101, "pr", "101 PROCEEDINGS"), PageMark(102, "pr", "PROCEEDINGS 102"),
+                        PageMark(103, "pr", "PROCEEDINGS")], title_count=0)
+    assert take.heads == ["PROCEEDINGS"] and take.last_head == "PROCEEDINGS"
+    # any other number is the head's own: only the page's number goes
+    take, = find_takes([PageMark(7, "pr", "PROCEEDINGS - DAY 2"), PageMark(8, "pr", "VOLUME 3"),
+                        PageMark(9, "pr", "JANE ROE v. SAM POE - JUNE 3, 2026")], title_count=0)
+    assert take.heads == ["PROCEEDINGS - DAY 2", "VOLUME 3", "JANE ROE v. SAM POE - JUNE 3, 2026"]
+
+
+def test_two_cases_heard_the_same_day_are_kept_apart_in_who_transcribed_what(tmp_path, s):
+    """Days of several cases ticked: two cases of the same date had their takes mixed by page number, with nothing
+    to tell them apart."""
+    from minute_filler.gui.main_window import take_cells
+    a = job_of(transcript(tmp_path / "a.pdf"), s)
+    b = job_of(transcript(tmp_path / "b.pdf", index="700111/2022", defendant="SAM HILL"), s)
+    rows = takes_of([a, b], s)
+    assert [r.case for r in rows] == ["Jane Roe v. Sam Poe"] * 4 + ["Jane Roe v. Sam Hill"] * 4
+    assert take_cells(rows[0])[0] == "Jane Roe v. Sam Poe · 6/3/2026"
+    assert {r.case for r in takes_of([a], s)} == {""}
+
+
+def test_a_later_day_finds_the_trials_run_sheet_where_the_records_say(tmp_path, s):
+    """Run sheets go with each case's files: day 2's transcript in another folder (Save to blank: next to it) looked
+    only in its own case folder and started a second run sheet. The records say where day 1's is. And with a file of
+    the case folder's name in Save to, the case's files go beside it ("712345-2021 (2)"), where day 2 looks too."""
+    s.runsheet_dir, s.output_dir = "", ""
+    for name in ("Day1", "Day2"):
+        (tmp_path / name).mkdir()
+    one = job_of(transcript(tmp_path / "Day1" / "Transcript 6-3-2026 Roe v Poe.pdf"), s)
+    a = one.runsheet_opts(s)
+    generate(one.case, s, case_dir_for(one, s), ["runsheet"], runsheet=a)
+    assert a.path.parent == tmp_path / "Day1" / "712345-2021"
+    two = job_of(transcript(tmp_path / "Day2" / "Transcript 6-4-2026 Roe v Poe.pdf",
+                            [(320, "ds", "", TITLE_1), (321, "pr", "", TALK)], day="June 4, 2026"), s)
+    assert case_dir_for(two, s) == tmp_path / "Day2" / "712345-2021" and recorded_folders(two.case, s) == [a.path.parent]
+    b = two.runsheet_opts(s)
+    generate(two.case, s, case_dir_for(two, s), ["runsheet"], runsheet=b)
+    assert b.path == a.path and not b.created and len(sheet_rows(a.path)) == 6
+    s.output_dir = str(tmp_path / "out")
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "712345-2021").write_text("not a folder", encoding="utf-8")
+    [f] = case_folders([two], s, ["runsheet"])
+    assert case_dir_for(two, s) == f.path == tmp_path / "out" / "712345-2021 (2)"
+
+
+def test_a_trials_records_keep_its_corrected_takes(tmp_path, s):
+    """A trial's run sheet (like its forms and its joint invoice) is recorded for all its days at once: the takes
+    corrected on them were in none of those records, and the trial opened again billed the pages as misread."""
+    import json
+    from minute_filler.deliver import ledger_for
+    folder = tmp_path / "in"
+    folder.mkdir()
+    transcript(folder / "Transcript 6-3-2026 Roe v Poe.pdf")
+    transcript(folder / "Transcript 6-4-2026 Roe v Poe.pdf", [(320, "ds", "", TITLE_1), (321, "pr", "", TALK)],
+               day="June 4, 2026")
+    docs, _ = read_docs([str(p) for p in sorted(folder.iterdir())], s)
+    jobs = group(docs, s)
+    day1 = min(jobs, key=lambda j: j.docs[0].key())
+    day1.docs[0].correct({5: "ds"})
+    fill_jobs(jobs, s, outputs=["runsheet"])
+    sheet, = ledger_for(s).activity(kind="runsheet")
+    origin = json.loads(sheet.origin)
+    assert origin["joint"] is True and origin_fixes(origin) == {day1.docs[0].key(): {5: "ds"}}
+
+
+def test_who_transcribed_what_shows_the_running_heads_as_printed(tmp_path, s):
+    """The card's last column is each take's running heads as printed, each once, comma-separated: no witness read
+    from them (the user, 2026-10-23: heads with the examination first, "DIRECT - DEFENDANT - SAM POE", were
+    shown as "Direct took the stand"). A title page's top line is no running head."""
+    from minute_filler.gui.main_window import TAKE_COLS, take_cells
+    pages = DAY_1[:2] + [(312, "ds", "PROCEEDINGS", TALK), (313, "ds", "DIRECT - DEFENDANT - SAM POE", TALK),
+                         (314, "ds", "DIRECT - DEFENDANT - SAM POE", TALK),
+                         (315, "pr", "CROSS - DEFENDANT - SAM POE", TALK), (316, "pr", "Proceedings", TALK),
+                         (317, "pr", "", TALK), (318, "pr", "PROCEEDINGS", TALK)]
     with pymupdf.open(transcript(tmp_path / "t.pdf", pages)) as doc:
-        marks = scan_pdf(doc)
-        takes = find_takes(marks, title_count=2)
-    assert marks[5].sworn == "MARY LEE" and marks[5].excused and not marks[5].sworn_first
-    assert takes[2].witness_end == ["JOHN DOE"] and takes[2].witness_start == ["MARY LEE"]
-    assert takes[3].witness_start == []  # still Mary Lee: not listed again
-    # the other way round: sworn in and stepped down on one page
-    marks = [PageMark(1, "pr"), PageMark(2, "pr", "Proceedings", sworn="MARY LEE", excused=True, sworn_first=True)]
-    take, = find_takes(marks, title_count=1)
-    assert take.witness_start == take.witness_end == ["MARY LEE"]
-
-
-def test_a_witness_with_jr_after_the_name(tmp_path):
-    sworn = SWORN.replace("J O H N   D O E,", "JOHN DOE, JR.,")
-    pages = DAY_1[:3] + [(313, "ds", "Proceedings", sworn), (314, "ds", "J. Doe - Plaintiff - Direct", TALK)]
-    with pymupdf.open(transcript(tmp_path / "t.pdf", pages)) as doc:
-        marks = scan_pdf(doc)
-    assert marks[3].sworn == "JOHN DOE, JR."
-    takes = find_takes(marks, title_count=2)
-    assert takes[1].witness_start == ["JOHN DOE, JR."]  # the head's "J. Doe" is the same witness
+        takes = find_takes(scan_pdf(doc), title_count=2)
+    assert [t.heads for t in takes] == [[], ["PROCEEDINGS", "DIRECT - DEFENDANT - SAM POE"],
+                                        ["CROSS - DEFENDANT - SAM POE", "Proceedings"]]
+    rows = job_of(tmp_path / "t.pdf", s).runsheet_opts(s).rows
+    assert TAKE_COLS[-1] == "Headers"
+    assert [take_cells(r)[-1] for r in rows] == ["", "PROCEEDINGS, DIRECT - DEFENDANT - SAM POE",
+                                                 "CROSS - DEFENDANT - SAM POE, Proceedings"]
+    take, = find_takes([PageMark(1, "pr", "SUPREME COURT OF THE STATE OF NEW YORK"), PageMark(2, "pr", "Proceedings")],
+                       title_count=1)
+    assert take.heads == ["Proceedings"]
 
 
 def test_reporters_on_the_title_page():
@@ -424,13 +616,17 @@ def test_what_was_typed_on_our_run_sheet_stays(tmp_path, s):
     ws["F6"] = "=1+2"                                # Dana's 3 pages, typed as a sum
     ws["A9"], ws["C9"], ws["F9"] = "TBD", "Kim", 4   # a row with no date yet
     ws["L6"] = "=F6*2"                               # the user's own column
+    ws["A8"] = "=see note"                           # a date typed as text that starts with "=" (not a formula)
+    ws["A8"].data_type = "s"
     wb.save(path)
     opts = RunSheetOpts([Row(date(2026, 6, 2), "Dana", 10, 300)])  # the day before: goes first, the rest move down
     add_takes(job.case, opts, s, [])
     ws = load_workbook(path)["Run Sheet"]
     assert [ws.cell(r, 3).value for r in range(5, 11)] == ["Dana", "Pat", "Dana", "Pat", "Dana", "Kim"]
     assert ws["F7"].value == "=1+2" and ws["L7"].value == "=F7*2"  # moved with their row
+    assert ws["F7"].data_type == ws["L7"].data_type == "f"           # (still formulas)
     assert ws["A10"].value == "TBD" and ws["F10"].value == 4         # the undated row stays where it was
+    assert ws["A9"].value == "=see note" and ws["A9"].data_type == "s"  # (text, as typed)
 
 
 def test_merged_cells_and_notes_beside_the_title(tmp_path, s):

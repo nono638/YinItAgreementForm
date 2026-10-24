@@ -64,8 +64,11 @@ COURTHOUSE = Courthouse(
             maker="minute_filler.invoice:Invoices", per="attorney", policy="minute_filler.batch:InvoicePolicy",
             words=("invoice", "invoices"), asks=("firms", "parties", "speeds", "attorney"),
             panel="minute_filler.gui.panels:invoice", card="Invoice", panel_pos=1),
-        OutputSpec(  # an Excel workbook, so never previewed; its tooltip too says whether the job can have one
-            "runsheet", "Run sheet", "sheet", folder="YinIt Run Sheets",
+        # an Excel workbook, so never previewed; its tooltip too says whether the job can have one. It goes in the
+        # case's folder with the other files: the user, 2026-10-23, "they are particular to each case" (it went to
+        # Documents\YinIt Run Sheets before, still looked in: runsheet.old_folder)
+        OutputSpec(
+            "runsheet", "Run sheet", "sheet",
             maker="minute_filler.runsheet:RunSheets", policy="minute_filler.batch:RunSheetPolicy",
             words=("run sheet", "run sheets"), panel="minute_filler.gui.panels:runsheet", panel_pos=3),
     ),

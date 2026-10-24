@@ -128,7 +128,7 @@ def test_folder_for_falls_back_and_takes_new_outputs(tmp_path, monkeypatch):
     import minute_filler.settings as settings
     s = Settings()
     assert s.folder_for("agreement", tmp_path) == tmp_path               # the job's Save to folder
-    assert s.folder_for("runsheet", tmp_path).name == "YinIt Run Sheets"  # its own built-in folder
+    assert s.folder_for("runsheet", tmp_path) == tmp_path  # with the case's other files (no built-in folder now)
     s.output_dirs["agreement"] = str(tmp_path / "A")
     assert s.folder_for("agreement", tmp_path / "x") == tmp_path / "A"
     # an output added later needs nothing more than its key: blank, it goes with the others

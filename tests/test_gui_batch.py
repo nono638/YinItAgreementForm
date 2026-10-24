@@ -2,16 +2,18 @@
 (with a row per document under a job of two); outputs that need a transcript; the Outputs box (each output's
 options and how many files it makes, the Generate buttons); the Invoice card (parties, Peripherals... and
 Customize...) and the speeds offered under the rate sheet; the days of a case on one invoice, billed once by
-Generate all; Excerpts... (which firm ordered which pages) and the prices of each: its rows following a renamed
-firm (an attorney's name fixed is the same firm), kept to be checked when an attorney is unticked or the pages
-are typed again, and the days it shows (those of the invoice); a split order's prices before and after its
-firms' speeds are set; a document
-added or an attorney ticked while Generate all runs, and Generate tried again after a problem; the granular
+Generate all, the days it made staying ticked (Job.made) and every card showing them as they were billed, a made
+day's invoice still to make; Excerpts... (which firm ordered which pages) and the prices of each: its rows
+following a renamed firm (an attorney's name fixed is the same firm), kept to be checked when an attorney is
+unticked or the pages are typed again, and the days it shows (those of the invoice); a split order's prices before
+and after its firms' speeds are set; a document added or an attorney ticked while Generate all runs, and Generate
+tried again after a problem; the granular
 detail box of each day; File -> Lock finished PDFs; the Invoice card in a small window; the big yin-yang picture
 when the window first shows; the Records window (paid, amounts changed, only amounts taken); a preview whose
 records can't be opened; and background work that ends while the user is busy in the window."""
 import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -82,7 +84,8 @@ def test_batch_of_documents(window, tmp_path):
     assert len(saved) == 2 and saved[1].startswith("712222-2024/") and saved[0].startswith("700001-2025/")
     assert "712222-2024" in saved[1].split("/")[1]  # (each case in its folder)
     assert window.job_list.topLevelItem(0).text(0).startswith("✓")
-    assert not any(j.include for j in window.jobs)  # nothing left for a second "Generate all"
+    # nothing left for a second "Generate all"; still ticked, so the cards still show them
+    assert all(j.include and j.made for j in window.jobs) and window._to_generate() == []
 
 
 def test_documents_about_one_case_stay_one_job(window, tmp_path):
@@ -321,8 +324,8 @@ def two_days(window, tmp_path):
 
 
 def test_generate_all_bills_each_day_once(window, tmp_path, monkeypatch):
-    """Days billed by Generate all are marked invoiced: ticked again, they are done without a second invoice.
-    Generate for the day shown alone still bills it when asked."""
+    """Days billed by Generate all are marked invoiced and made: it leaves them out (they stay ticked), and made
+    again they are done without a second invoice. Generate for the day shown alone still bills it when asked."""
     from minute_filler.deliver import ledger_for
     from minute_filler.gui import dialogs
     monkeypatch.setattr(dialogs.ClarifyDialog, "exec", lambda self: 0)  # (not expected; never waits)
@@ -332,15 +335,17 @@ def test_generate_all_bills_each_day_once(window, tmp_path, monkeypatch):
     window.fill_all_jobs()
     wait(window, lambda: not window.filling)
     assert len(ledger_for(window.s).invoices()) == 1
-    assert all(j.invoiced and j.saved for j in window.jobs) and not any(j.include for j in window.jobs)
+    assert all(j.invoiced and j.saved and j.made and j.include for j in window.jobs)
+    assert window.fill_all_btn.text() == "Generate all" and not window.fill_all_btn.isEnabled()
+    assert window.fill_all_btn.toolTip().startswith("Every day ticked is made already (✓)")
     for job in window.jobs:
-        job.include = True
+        job.made = False  # (as if not made: still invoiced)
     window._refresh_job_labels()
     assert "(0 files)" in window.fill_all_btn.text()
     window.fill_all_jobs()
     wait(window, lambda: not window.filling)
     assert len(ledger_for(window.s).invoices()) == 1
-    assert not any(j.include for j in window.jobs)  # done, though nothing was left to make
+    assert all(j.made for j in window.jobs)  # done, though nothing was left to make
     assert all(window.job_list.topLevelItem(i).text(0).startswith("✓") for i in range(2))
 
     for a in window.cur.case.attorneys:
@@ -349,6 +354,164 @@ def test_generate_all_bills_each_day_once(window, tmp_path, monkeypatch):
     window.fill()
     assert sorted(i.pages for i in ledger_for(window.s).invoices()) == [30, 90]
     assert window.cur.invoiced
+
+
+def test_a_day_made_without_its_invoice_is_billed_by_generate_all(window, tmp_path, monkeypatch):
+    """Two days made by Generate all while Invoice was unticked, then Invoice ticked: the cards said Generate all
+    bills both days on one invoice, but it was greyed (every day made). It makes that invoice now, and nothing else
+    again."""
+    from minute_filler.deliver import ledger_for
+    from minute_filler.gui import dialogs
+    monkeypatch.setattr(dialogs.ClarifyDialog, "exec", lambda self: 0)  # (not expected; never waits)
+
+    boxes = []
+
+    def do_all(box):  # "Some jobs are incomplete": Do all (the MOFR's blanks left)
+        boxes.append(box.text())
+        go = next((b for b in box.buttons() if b.text().startswith("Do all")), None)
+        if go is not None:
+            go.click()
+        return 0
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", do_all)
+    window.output_boxes["agreement"].setChecked(False)
+    window.output_boxes["invoice"].setChecked(False)
+    window.output_boxes["mofr"].setChecked(True)
+    two_days(window, tmp_path)
+    window.fill_all_jobs()
+    wait(window, lambda: not window.filling)
+    assert all(j.made and not j.invoiced for j in window.jobs) and window._to_generate() == []
+    made = sorted(str(p) for p in (tmp_path / "out").rglob("*.pdf"))
+    assert made
+    window.output_boxes["invoice"].setChecked(True)
+    assert len(window._to_generate()) == 2 and window.fill_all_btn.isEnabled()
+    assert "2 days" in window.inv_info.text()
+    boxes.clear()
+    window.fill_all_jobs()
+    wait(window, lambda: not window.filling)
+    assert not [b for b in boxes if "incomplete" in b]  # (the MOFR made already isn't asked about again)
+    invoices = ledger_for(window.s).invoices()
+    assert [i.pages for i in invoices] == [90]  # one invoice for both days, as the cards said
+    assert sorted(str(p) for p in (tmp_path / "out").rglob("*.pdf") if not Path(p).name.startswith("Invoice")) \
+        == made  # (no MOFR made again)
+    assert all(j.invoiced for j in window.jobs) and window._to_generate() == []
+
+
+def test_a_made_day_whose_invoice_waits_for_a_choice_doesnt_leave_the_other_billed_alone(window, tmp_path,
+                                                                                          monkeypatch):
+    """Two days made while Invoice was unticked, the second's invoice held (whose its unsigned first page is, to
+    choose under Whose pages...): ticking Invoice, Generate all left the held day out and billed the first alone,
+    asking nothing. It is among the days Generate all makes, so its case's invoice waits for the choice."""
+    from minute_filler.deliver import ledger_for
+    from minute_filler.gui import dialogs
+    monkeypatch.setattr(dialogs.ClarifyDialog, "exec", lambda self: 0)  # (not expected; never waits)
+    monkeypatch.setattr(dialogs.PagesOwnerDialog, "exec", lambda self: 0)  # (Whose pages...: cancelled)
+
+    def do_all(box):  # "Some jobs are incomplete": Do all; any other box: no answer
+        go = next((b for b in box.buttons() if b.text().startswith("Do all")), None)
+        if go is not None:
+            go.click()
+        return 0
+    monkeypatch.setattr(QtWidgets.QMessageBox, "exec", do_all)
+    window.output_boxes["agreement"].setChecked(False)
+    window.output_boxes["invoice"].setChecked(False)
+    window.output_boxes["mofr"].setChecked(True)
+    from test_runsheet import TALK, TITLE_1, TITLE_2, transcript
+    day2 = [(320, "", "", TITLE_1), (321, "", "", TITLE_2), (322, "ds", "Proceedings", TALK),
+            (323, "pr", "Proceedings", TALK), (324, "pr", "Proceedings", TALK)]  # (unsigned title pages: whose?)
+    window.add_files([str(transcript(tmp_path / "Transcript 6-3-2026 Roe v Poe.pdf")),
+                      str(transcript(tmp_path / "Transcript 6-4-2026 Roe v Poe.pdf", day2, day="June 4, 2026"))])
+    wait(window, lambda: len(window.jobs) == 2 and all(j.docs for j in window.jobs))
+    window.fill_all_jobs()
+    wait(window, lambda: not window.filling)
+    assert all(j.made and not j.invoiced for j in window.jobs)
+    held = [j for j in window.jobs if j.invoice_hold()]
+    assert len(held) == 1
+    window.output_boxes["invoice"].setChecked(True)
+    assert len(window._to_generate()) == 2
+    window.fill_all_jobs()
+    wait(window, lambda: not window.filling)
+    assert ledger_for(window.s).invoices() == [] and not any(j.invoiced for j in window.jobs)
+
+
+def test_days_invoiced_together_dont_say_no_invoice_yet(window, tmp_path, monkeypatch):
+    """Two days invoiced together, then nobody ticked on one: the cards and the status said "no invoice for these
+    2 days yet", though it was made (Generate all leaves it)."""
+    from minute_filler.gui import dialogs
+    monkeypatch.setattr(dialogs.ClarifyDialog, "exec", lambda self: 0)  # (not expected; never waits)
+    window.output_boxes["agreement"].setChecked(False)
+    window.output_boxes["invoice"].setChecked(True)
+    two_days(window, tmp_path)
+    for j in window.jobs:  # (who ordered: ticked on both days)
+        for a in j.case.attorneys:
+            a.checked = True
+        j.att_touched = True
+    window._show_job()
+    window.fill_all_jobs()
+    wait(window, lambda: not window.filling)
+    assert all(j.invoiced for j in window.jobs)
+    day1, day2 = sorted(window.jobs, key=lambda j: j.invoice_pages())
+    for a in day2.case.attorneys:  # (the other day of the invoice: nobody ticked on it now)
+        a.checked = False
+    day2.att_touched = True
+    window.job_list.setCurrentItem(window._job_item(day1))
+    window._show_job()
+    texts = [window.inv_info.text(), window.orders_info.text(), window.pays.text(), window.status.text(),
+             *(p.text for p in window._problems())]
+    assert not [t for t in texts if "no invoice" in t.lower()], texts
+    # shown: a day of another case; Who pays what prices the invoice of the two days as one more (_price_set)
+    from test_runsheet import transcript
+    window.add_files([str(transcript(tmp_path / "Transcript 6-5-2026 Roe v Hill.pdf", index="700111/2022",
+                                     defendant="SAM HILL", day="June 5, 2026"))])
+    wait(window, lambda: len(window.jobs) == 3 and all(j.docs for j in window.jobs))
+    other = next(j for j in window.jobs if j not in (day1, day2))
+    window.job_list.setCurrentItem(window._job_item(other))
+    window._show_job()
+    assert "invoiced already" in window.pays.text() and "no invoice" not in window.pays.text().lower()
+
+
+def test_days_generate_all_made_stay_in_every_card(window, tmp_path, monkeypatch):
+    """The user, 2026-10-23: with two days of a trial invoiced, Who ordered what and Who pays what showed the day
+    shown alone, Who transcribed what both. Generate all leaves the days it made ticked, so every card still shows
+    them both, as the one invoice that billed them (a ✓ on their dates), whichever is shown; pressed again it
+    makes nothing."""
+    from minute_filler.gui import dialogs
+    monkeypatch.setattr(dialogs.ClarifyDialog, "exec", lambda self: 0)  # (not expected; never waits)
+    window.output_boxes["agreement"].setChecked(False)
+    window.output_boxes["invoice"].setChecked(True)
+    two_days(window, tmp_path)
+    window.fill_all_jobs()
+    wait(window, lambda: not window.filling)
+    first, second = sorted(window.jobs, key=lambda j: j.invoice_pages())
+    assert first.invoice_set == second.invoice_set != 0  # (billed together: one invoice)
+    assert all(j.include and j.made for j in window.jobs) and window._to_generate() == []
+    window.job_list.setCurrentItem(window._job_item(second))
+    assert window.cur is second
+    t = window.orders
+    assert {t.item(r, 0).text() for r in range(t.rowCount())} == {"6/3/2026 ✓", "6/4/2026 ✓"}
+    assert window.orders_info.text().startswith(
+        "Invoiced already (✓): 6/3/2026, 6/4/2026. Generate all won't bill them again")
+    assert window.pays.text().startswith("Invoiced already ✓") and "for these 2 days" in window.pays.text()
+    assert window.inv_info.text().startswith("Invoiced already ✓: one invoice for 2 days (90 pp.)")
+    assert len({r.day for r in window._take_rows}) == 2
+    assert window._excerpt_group() == [first, second]
+
+
+def test_a_day_invoiced_and_one_to_bill_are_two_invoices_in_the_cards(window, tmp_path):
+    """A day invoiced already beside one still to bill (both ticked): Who pays what shows each invoice under its
+    days, the one made marked so; Generate all bills the other alone, and says it is the day left."""
+    from minute_filler.batch import new_invoice_set
+    window.output_boxes["invoice"].setChecked(True)
+    two_days(window, tmp_path)
+    first, second = sorted(window.jobs, key=lambda j: j.invoice_pages())
+    first.invoiced, first.invoice_set, first.made = True, new_invoice_set(), True
+    window._update_status()
+    text = window.pays.text()
+    assert "<b>6/3/2026 · invoiced already ✓</b>" in text and "<b>6/4/2026</b>" in text
+    assert text.count("How these amounts are worked out") == 1
+    assert window.fill_all_btn.text().startswith("Generate the 1 day left  (")
+    assert window._invoice_group(second) == [second] and window._invoice_group(first) == [first]
+    days = {window.orders.item(r, 0).text() for r in range(window.orders.rowCount())}
+    assert days == {"6/3/2026 ✓", "6/4/2026"}
 
 
 def test_the_price_line_says_what_generate_all_bills(window, tmp_path, monkeypatch):
@@ -681,8 +844,8 @@ def test_a_document_added_while_generate_all_runs_is_billed_next_time(window, tm
     go.set()
     wait(window, lambda: not window.filling)
     assert sorted(i.pages for i in ledger_for(window.s).invoices()) == [30, 60]  # as the days were
-    assert not day1.invoiced and day1.include and day1.invoice_pages() == 55  # its 25 new pages are still to bill
-    assert window.jobs[1].invoiced and not window.jobs[1].include
+    assert not day1.invoiced and not day1.made and day1.invoice_pages() == 55  # its 25 new pages are still to bill
+    assert window.jobs[1].invoiced and window.jobs[1].made and window.jobs[1].include
     assert window.fill_all_btn.text().endswith("  (1 file)")
 
 
@@ -828,7 +991,7 @@ def test_the_invoice_panel_links_to_the_math(window, tmp_path, monkeypatch):
     assert not window.inv_form.isRowVisible(window.inv_math)  # nothing priced yet
     one_day_two_attorneys(window, tmp_path)
     assert window.inv_form.isRowVisible(window.inv_math)
-    window.inv_math.linkActivated.emit("math")
+    window.inv_math.linkActivated.emit("invoice")
     assert len(shown) == 1 and "Bill to Alex B. Counsel" in shown[0] and "Bill to Dana Smith" in shown[0]
     window.output_boxes["invoice"].setChecked(False)
     assert not window.inv_form.isRowVisible(window.inv_math)

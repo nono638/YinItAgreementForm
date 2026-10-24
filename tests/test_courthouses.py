@@ -50,7 +50,8 @@ def with_note():
 def test_queens_lists_what_the_program_has_always_made():
     assert courthouses.current().key == "queens_supreme_civil"
     assert OUTPUTS == {"agreement": "Minute agreement", "mofr": "MOFR", "invoice": "Invoice", "runsheet": "Run sheet"}
-    assert OUTPUT_FOLDERS == {"runsheet": "YinIt Run Sheets"} and records.KINDS is OUTPUTS
+    # (none has a folder of its own: the run sheet goes in the case's folder with the rest, runsheet.runsheets_folder)
+    assert OUTPUT_FOLDERS == {} and records.KINDS is OUTPUTS
     # made: the run sheet first (one open in Excel stops the case), the invoices last
     assert courthouses.make_order(["invoice", "mofr", "runsheet", "agreement", "bogus"]) == \
         ["runsheet", "agreement", "mofr", "invoice"]

@@ -169,11 +169,12 @@ def batch(out_dir: str, paths: list[str], outputs: list[str] | None = None, math
     unreadable, and each job's warnings: a document without an index number, documents whose index numbers don't
     match, a firm of a split order whose speed wasn't given and is billed at the agreement form's). The files go
     into OUTDIR whatever folders Settings give each output, and not into a folder per case (OUTDIR is where they
-    were asked for; run sheets still go to their own folder). Without --outputs, the outputs ticked in the window
-    are made. The math of the invoices is saved only with --math (then as Settings.save_math says): the command
-    line is for looking over what is made, not for the user's files (the user, 2026-10-10). Returns 0, 1 when a
-    file or job had a problem, or 2 for an unknown output (main also returns 2 when OUTDIR or the files are
-    missing)."""
+    were asked for; a run sheet still goes to the run sheets' folder when Settings give them one, and a case's run
+    sheet found elsewhere, next to the transcripts, where the records say or in Documents\\YinIt Run Sheets, is
+    added to where it is). Without --outputs, the outputs ticked in the window are made. The math of the invoices
+    is saved only with --math (then as Settings.save_math says): the command line is for looking over what is
+    made, not for the user's files (the user, 2026-10-10). Returns 0, 1 when a file or job had a problem, or 2 for
+    an unknown output (main also returns 2 when OUTDIR or the files are missing)."""
     import json
     from minute_filler.batch import expand_paths, fill_jobs, group, read_docs, settle_split_speeds
     from minute_filler.extract_regex import use_firm_answers

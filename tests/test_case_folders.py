@@ -1,7 +1,7 @@
 """A folder for each case (Settings.case_folders, on by default): each job's files go into a folder of its own
 inside Save to, named by a pattern (pdfout.case_folder_name: "712345-2021" by default), with the characters
-Windows forbids kept out. The run sheet and an output given a folder of its own keep theirs; the command line
-stays flat. A folder already there with files in it is asked about (add to it, or a new one beside it:
+Windows forbids kept out. The run sheet goes in it too; an output given a folder of its own keeps that one; the
+command line stays flat. A folder already there with files in it is asked about (add to it, or a new one beside it:
 "712345-2021 (2)"), or not, as Settings say; an empty one is simply used, and a job that chose its folder
 isn't asked again. When the folder the files would go in (the documents' own, or Save to) is already named as the
 case's folder would be, the files go into it, with no folder of that name made inside it, and nothing is asked.
@@ -120,12 +120,17 @@ def test_documents_already_in_the_case_s_folder_use_it(tmp_path):
     assert f.path == case / "700001-2025"
 
 
-def test_no_folder_is_asked_about_for_the_run_sheet_alone(tmp_path):
+def test_no_folder_is_asked_about_for_outputs_with_folders_of_their_own(tmp_path):
+    """The run sheet goes in the case's folder too (it went to Documents\\YinIt Run Sheets before: the run sheet
+    alone asked about no folder), unless Settings give run sheets a folder of their own."""
     s = pat_settings()
     s.output_dir = str(tmp_path / "out")
     jobs = jobs_of(s, write(tmp_path / "in", "a.txt", title="Smith v Jones", index="712222-2024", date="5-22-2026"))
     (tmp_path / "out" / "712222-2024").mkdir(parents=True)
     (tmp_path / "out" / "712222-2024" / "old.pdf").write_bytes(b"")
+    [f] = case_folders(jobs, s, ["runsheet"])
+    assert f.path == tmp_path / "out" / "712222-2024"
+    s.output_dirs = {"runsheet": str(tmp_path / "Sheets")}
     assert case_folders(jobs, s, ["runsheet"]) == []
     s.output_dirs = {"agreement": str(tmp_path / "Agreements")}  # (every output asked for has its own folder)
     assert case_folders(jobs, s, ["agreement"]) == []

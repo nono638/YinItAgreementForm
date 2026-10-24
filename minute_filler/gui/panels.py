@@ -114,8 +114,9 @@ def invoice(win, inv: QFormLayout) -> None:
     win.inv_info = QLabel("")
     win.inv_info.setObjectName("muted")
     inv.addRow("Prices:", win.inv_info)
-    # the whole math of the invoices priced, as under Who pays what (shown while there are prices)
-    win.inv_math = QLabel('<a href="math">How these amounts are worked out…</a>')
+    # the whole math of this job's invoices, as priced above (its link "invoice": MainWindow._show_live_math; Who
+    # pays what's link shows every day ticked); shown while there are prices
+    win.inv_math = QLabel('<a href="invoice">How these amounts are worked out…</a>')
     win.inv_math.setToolTip("The math of each invoice, charge by charge, as things stand now")
     win.inv_math.linkActivated.connect(win._show_live_math)
     inv.addRow("", win.inv_math)
@@ -137,7 +138,7 @@ def mofr(win, mo: QFormLayout) -> None:
 
 def runsheet(win, rs: QFormLayout) -> None:
     """The Run sheet's options: what to do when the case has one already, a warning without a transcript,
-    and the link to the run sheets folder (under the options: usable while it is unticked)."""
+    and the link to the folder of the case's run sheet (under the options: usable while it is unticked)."""
     win.rs_existing = QComboBox()
     for key, label in (("ask", "Ask me"), ("add", "Add to it"), ("new", "Start a new one")):
         win.rs_existing.addItem(label, key)
@@ -151,8 +152,9 @@ def runsheet(win, rs: QFormLayout) -> None:
     win.rs_info.setVisible(False)
     rs.addRow(win.rs_info)
     # under the options, not among them: the folder can be opened while Run sheet is unticked too
-    win.rs_folder = QLabel('<a href="open">Open the run sheets folder</a>')
-    win.rs_folder.setToolTip("Opens the folder the run sheets are kept in (Settings → Options → Folders)")
+    win.rs_folder = QLabel("<a href=\"open\">Open the run sheet's folder</a>")
+    win.rs_folder.setToolTip("Opens the folder this case's run sheet is in, or will go in: the case's own folder,\n"
+                             "with its other files (unless Settings → Options → Folders gives run sheets one)")
     win.rs_folder.linkActivated.connect(lambda _: win._open_run_sheets_folder())
     col = win.option_panels["runsheet"].layout()
     col.insertWidget(col.count() - 1, win.rs_folder)  # above the stretch
