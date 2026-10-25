@@ -305,6 +305,13 @@ RUNSHEET_EXISTING = ("ask", "add", "new")  # when the case has a run sheet: ask 
 # the run sheet's Witness Start and End columns: the first and last running head printed in each take, as printed,
 # or blank for the user to fill in (the user, 2026-10-23: the heads by default, blank as a setting)
 RUNSHEET_WITNESS = {"headers": "The first and last header printed in the take", "blank": "Leave them blank"}
+# What a firm ticked in Who ordered orders of a trial (the days of one case): all of it, days read later too, as a
+# standing order (the user, 2026-10-24: "most common that one or more sides order the entire trial"), or only the
+# day shown, each day ticked on its own (as before 2.13)
+TRIAL_ORDERS = {"trial": "The whole trial (days added later too)", "day": "Only the day shown"}
+# Firms ordering the same pages, which must each commit to a speed: billed at the speed their row in Who ordered
+# shows (the user, 2026-10-24: no question in the typical case), or asked at Generate first
+SPLIT_SPEEDS = {"shown": "Bill the speed each firm's row shows", "ask": "Ask me each firm's speed at Generate"}
 # When a case's own folder (Settings.case_folders) is already there with files in it: key -> label
 CASE_FOLDER_EXISTING = {
     "ask": "Ask",
@@ -527,6 +534,8 @@ class Settings:
     # Generate all: the days of a case that share an invoice (invoice_joint) get one minute agreement per attorney
     # (the days and pages it ordered) and one MOFR for all of them, instead of a set per day (batch.form_groups)
     forms_per_case: bool = True
+    trial_orders: str = "trial"  # a key of TRIAL_ORDERS: what a tick in Who ordered means (batch.spread_orders)
+    split_speeds: str = "shown"  # a key of SPLIT_SPEEDS: firms ordering the same pages, at Generate
     outputs: list = field(default_factory=lambda: ["agreement"])  # ticked by default: keys of OUTPUTS
 
     # MOFR (Minute Order Form/Receipt)
@@ -1044,6 +1053,10 @@ class Settings:
             s.runsheet_existing = "ask"
         if s.runsheet_witness not in RUNSHEET_WITNESS:
             s.runsheet_witness = "headers"
+        if s.trial_orders not in TRIAL_ORDERS:
+            s.trial_orders = "trial"
+        if s.split_speeds not in SPLIT_SPEEDS:
+            s.split_speeds = "shown"
         if s.case_folder_existing not in CASE_FOLDER_EXISTING:
             s.case_folder_existing = "ask"
         s.case_folder_pattern = clean_folder_pattern(s.case_folder_pattern)

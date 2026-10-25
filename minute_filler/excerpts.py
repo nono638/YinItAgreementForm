@@ -262,6 +262,8 @@ def store(day: Day, runs: list[Run], firms: list[Attorney], s: Settings | None =
     for a in job.case.attorneys:
         if not a.is_placeholder() and a.key():
             a.checked = a.key() in used
+    # (a firm left out of the day here doesn't order it: it isn't spread back to it, batch.spread_orders)
+    job.not_ordered = (job.not_ordered | {a.key() for a in firms if a.key() and a.key() not in used}) - set(used)
     for k in used:
         if k not in have:
             other = next((a for a in firms if a.key() == k), None)

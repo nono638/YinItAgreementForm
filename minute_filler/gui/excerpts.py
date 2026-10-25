@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import courthouses
+from ..batch import pin_orders
 from ..excerpts import (
     Day, Run, billed_in, carve, case_days, firms_of, prices, remove, runs_of, store, whole_day,
 )
@@ -479,12 +480,18 @@ class ExcerptsWindow(QDialog):
     def _keep(self, day: Day, runs: list[Run]) -> None:
         """A day's new runs: kept on its job, shown, and passed on to the main window."""
         store(day, runs, self.firms, self.s)
+        self._pin()
         i = next(k for k, r in enumerate(self.runs) if r.day is day)
         self.runs = [r for r in self.runs if r.day is not day]
         self.runs[i:i] = runs
         self.problem.setText("")
         self._show()
         self.changed()
+
+    def _pin(self) -> None:
+        """The table says who ordered each day: a firm ticked on some of its days only orders those, and isn't
+        spread to the others (batch.pin_orders; a tick in Who ordered is the whole trial)."""
+        pin_orders([d.job for d in self.days], self.firms)
 
     def _item_changed(self, it: QTableWidgetItem) -> None:
         """A run typed, or a firm ticked or unticked."""
@@ -615,6 +622,7 @@ class ExcerptsWindow(QDialog):
                 own = whole_day(day, own, day.job.ticked_keys(), self.firms)
                 store(day, own, self.firms, self.s)
             runs += own
+        self._pin()
         self.runs = runs
         self.problem.setText("")
         self._show()
