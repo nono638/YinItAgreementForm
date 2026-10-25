@@ -4,7 +4,7 @@ says by then); a Parties number that counts parties not named on pages ordered a
 invoice (Job.unnamed_problem: the app doesn't choose their speed), the window saying so and lighting up the
 Parties box; the math sent to one firm shows only what that firm owes (invoice_math.explain's one_firm, in the
 PDFs Generate saves for each invoice and from the math window's Save as PDF...); and the speeds offered asked
-about before they change once Who ordered what has speeds. All names are made up."""
+about before they change once Who ordered has speeds. All names are made up."""
 import json
 from decimal import Decimal
 

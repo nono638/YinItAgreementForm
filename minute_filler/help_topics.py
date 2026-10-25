@@ -752,8 +752,8 @@ half a cent a page ($6,612.50 there, $6,610.00 here, for 1,000 pages).</p>
       "excerpt part of the transcript some pages runs page range split run remove run partial order firm ordered "
       "only",
       """
-<p>When one firm ordered the whole trial and others only some pages, open <b>Excerpts…</b> (Invoice card, next to
-<i>Parties</i>). It is one table for every day of the case on that invoice (every day ticked, as a rule):</p>
+<p>When one firm ordered the whole trial and others only some pages, open <b>Excerpts…</b> (in Who ordered, or
+<i>Some days or pages…</i> in a firm's <i>What</i>). It is one table for every day of the case on that invoice (every day ticked, as a rule):</p>
 <ul>
 <li>each row is a <b>run of pages</b> of a day, typed in the transcript's own printed page numbers
 (<i>141-170</i>); the rows around a run you type make room for it;</li>

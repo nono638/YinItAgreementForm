@@ -91,7 +91,7 @@ def test_the_list_of_what_to_check_follows_a_day_unticked_and_a_speed_kept(windo
 
 
 def test_texts_name_the_generate_button_as_it_reads(window, qt, tmp_path):
-    """A day invoiced already, among jobs of two cases: Who ordered what's note names the button as it reads,
+    """A day invoiced already, among jobs of two cases: Who ordered's note names the button as it reads,
     "Generate this job" (it said "Generate 6/3/2026 only", the button's words only when one case is loaded)."""
     from test_speed_rule import DAILY
     job = one_day(window, qt, tmp_path, [counsel(), smith()])
@@ -110,7 +110,7 @@ def test_texts_name_the_generate_button_as_it_reads(window, qt, tmp_path):
 
 def test_the_reason_an_invoice_is_held_is_the_same_everywhere(window, qt):
     """Three firms at three speeds and Parties 4: the hold is the speeds (Job.invoice_hold checks them first), so
-    the count's tooltip says so and the list's link goes to Who ordered what, not to the Parties box."""
+    the count's tooltip says so and the list's link goes to Who ordered, not to the Parties box."""
     atts = [counsel(), smith(), poe()]
     job = window.cur
     job.case = make_case({**ROE, "est_pages": "40"}, atts)

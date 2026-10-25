@@ -1486,9 +1486,12 @@ def joint_origin(days: list[Job], **more) -> dict:
 def trial_orders(days: list[Job]) -> list[dict]:
     """Who ordered each of these days (a trial's), as the record of a file made for them keeps it (joint_origin's
     "orders"), so a trial opened again comes back with who ordered (put_back_orders): each day's dates, its
-    attorneys as they were (ticks included), the firms it says don't order it (Job.not_ordered) and the speeds."""
+    attorneys as they were (ticks included), the firms it says don't order it (Job.not_ordered), the speeds and its
+    Excerpts... rows (the pages each firm ordered: without them every firm ticked would order the whole day)."""
     return [{"dates": j.case.get("dates"), "attorneys": [a.to_dict() for a in j.case.attorneys],
-             "not_ordered": sorted(j.not_ordered), "speeds": dict(j.speeds)} for j in days]
+             "not_ordered": sorted(j.not_ordered), "speeds": dict(j.speeds),
+             "portions": [[r[0], list(r[1])] + ([dict(r[2])] if len(r) > 2 and isinstance(r[2], dict) else [])
+                          for r in j.portions] if j.portions is not None else None} for j in days]
 
 
 def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
@@ -1517,6 +1520,12 @@ def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
             job.not_ordered = {k for k in row["not_ordered"] if isinstance(k, str) and k}
         if isinstance(row.get("speeds"), dict):
             job.speeds = {k: v for k, v in row["speeds"].items() if isinstance(k, str) and isinstance(v, str) and v}
+        runs = row.get("portions")
+        if isinstance(runs, list) and all(isinstance(r, list) and len(r) in (2, 3) and isinstance(r[0], int)
+                                          and isinstance(r[1], list) for r in runs):
+            job.portions = [portion_row(r[0], [k for k in r[1] if isinstance(k, str)],
+                                        {k: v for k, v in r[2].items() if isinstance(k, str) and isinstance(v, str)
+                                         and v} if len(r) > 2 and isinstance(r[2], dict) else None) for r in runs]
         job.refresh_copies(s)
         changed.append(job)
     return changed
@@ -2324,7 +2333,7 @@ def invoice_groups(jobs: list[Job], s: Settings) -> list[list[Job]]:
 def firm_questions(jobs: list[Job]) -> list[tuple[Attorney, Attorney]]:
     """The rows of these jobs (the days of a case) that may be one firm or attorney, but it isn't sure
     (extract_regex.maybe_same_entry: 'Smith Law' and 'Smith Law Group', 'Mr. Smith' and Dana Smith of Smith
-    Law): the user is asked (the Attorneys card, and Generate). Each pair once; placeholders are left out."""
+    Law): the user is asked (the Who ordered card, and Generate). Each pair once; placeholders are left out."""
     rows = [a for j in jobs for a in j.case.attorneys if not a.is_placeholder() and a.key()]
     out: list[tuple[Attorney, Attorney]] = []
     seen: set[frozenset] = set()
@@ -2429,6 +2438,21 @@ def standing(days: list[Job], key: str) -> bool:
     return not any(key in j.not_ordered for j in days)
 
 
+def trial_speeds(days: list[Job]) -> dict[str, str]:
+    """Each firm's speed for all its pages of a day of these (a trial's) still to bill that it is ticked on: the
+    speed a day it is ticked on without one gets (spread_orders, order_firm). Not an invoiced day's (the speed it
+    was billed at: "They choose" chosen since is every day's still to bill, set_firm_speed)."""
+    known: dict[str, str] = {}
+    for j in days:
+        if j.invoiced:
+            continue
+        ticked = set(j.ticked_keys())
+        for k, sp in j.speeds.items():
+            if sp and k in ticked:
+                known.setdefault(k, sp)
+    return known
+
+
 def spread_orders(days: list[Job], s: Settings) -> bool:
     """A trial's days (trials) kept to what a tick in Who ordered means with Settings.trial_orders "trial": a firm
     ticked on a day of it that orders the whole trial (standing: no day says it doesn't) is ticked on every day,
@@ -2447,13 +2471,11 @@ def spread_orders(days: list[Job], s: Settings) -> bool:
         for a in j.case.attorneys:
             if a.checked and not a.is_placeholder() and a.key() and standing(days, a.key()):
                 rows.setdefault(a.key(), a)
-    known: dict[str, str] = {}  # (each firm's speed on some day of the trial)
-    for j in days:
-        for k, sp in j.speeds.items():
-            if sp:
-                known.setdefault(k, sp)
-    chosen = next((j.case.fields["delivery"] for j in days
-                   if j.case.fields["delivery"].source == SRC_USER and j.case.get("delivery")), None)
+    known = trial_speeds(days)
+    # (the forms' speed the user chose for the days still to bill: an invoiced day's may be one chosen before, or
+    # put back with ↺ since)
+    chosen = next((j.case.fields["delivery"] for j in days if not j.invoiced
+                   and j.case.fields["delivery"].source == SRC_USER and j.case.get("delivery")), None)
     changed = False
     for j in [j for j in days if not j.invoiced]:
         mine: dict[str, Attorney] = {}
@@ -2463,7 +2485,12 @@ def spread_orders(days: list[Job], s: Settings) -> bool:
         for k, a in rows.items():
             b = mine.get(k)
             if b is not None and b.checked:
-                continue  # ordering already: its runs and speed as they are
+                # ordering already: its runs as they are, at the firm's speed when the day has none (a day read
+                # later that its document ticks the firm on)
+                if known.get(k) and not j.has_speed(k):
+                    j.speeds[k] = known[k]
+                    ticked = True
+                continue
             if b is None:
                 j.case.attorneys.append(replace(a, checked=True))
             else:
@@ -2512,11 +2539,13 @@ def pin_orders(days: list[Job], firms: list[Attorney]) -> None:
 def order_firm(days: list[Job], key: str, whole: bool, shown: Job | None = None) -> None:
     """Who ordered's What for firm `key` on a trial's days not invoiced yet: the whole trial (whole: ticked on
     every day, its row added where a day doesn't name it, ordering every run, none of them saying it doesn't), or
-    only the day shown (ticked there, not on the others, which then say it doesn't: Job.not_ordered). The days
-    changed are the user's (Job.att_touched)."""
+    only the day shown (ticked there, not on the others, which then say it doesn't: Job.not_ordered, and their
+    Excerpts... runs leave it out: drop_from_runs). A day it is ticked on without a speed gets the one it has on
+    another day (trial_speeds). The days changed are the user's (Job.att_touched)."""
     model = next((a for j in days for a in j.case.attorneys if a.key() == key), None)
     if model is None:
         return
+    speed = trial_speeds(days).get(key, "")
     for j in days:
         if j.invoiced and j is not shown:
             continue
@@ -2533,16 +2562,30 @@ def order_firm(days: list[Job], key: str, whole: bool, shown: Job | None = None)
                                           [x for x in keys if x != ORDERED_BY_NOBODY] + [key],
                                           more[0] if more else None)
                               for last, keys, *more in j.portions]
+            if speed and not j.has_speed(key):
+                j.speeds[key] = speed
         else:
             j.not_ordered.add(key)
+            drop_from_runs(j, key)
         j.att_touched = True
+
+
+def drop_from_runs(job: Job, key: str) -> None:
+    """Firm `key` no longer orders the day: its Excerpts... runs leave it out (a run left without a firm is
+    nobody's), so they still fit the ticks (Job.portions_problem would hold the day's invoice otherwise)."""
+    if job.portions is None:
+        return
+    job.portions = [portion_row(last, [k for k in keys if k != key] or [ORDERED_BY_NOBODY],
+                                {k: v for k, v in more[0].items() if k != key} if more and more[0] else None)
+                    for last, keys, *more in job.portions]
 
 
 def tick_firm(days: list[Job], key: str, on: bool, s: Settings, shown: Job | None = None) -> None:
     """A firm ticked or unticked in Who ordered: with Settings.trial_orders "trial", for the whole trial (ticked on
     every day, as order_firm; unticked on every day not invoiced yet, none of them then saying it doesn't, so a
-    tick later is the whole trial again); with "day", on the day shown alone (its row added, as another day has
-    it, when the day doesn't name the firm)."""
+    tick later is the whole trial again, its Excerpts... runs leaving it out); with "day", on the day shown alone
+    (its row added, as another day has it, when the day doesn't name the firm). Day by day, the days it isn't
+    ticked on say it doesn't order them (Job.not_ordered), so a switch to "trial" keeps the days picked."""
     if s.trial_orders != "trial" or len(days) < 2:
         model = next((a for j in days for a in j.case.attorneys if a.key() == key), None)
         for j in [shown] if shown is not None else days:
@@ -2553,18 +2596,31 @@ def tick_firm(days: list[Job], key: str, on: bool, s: Settings, shown: Job | Non
                 a.checked = on
             if on:
                 j.not_ordered.discard(key)
+            else:
+                j.not_ordered.add(key)
             j.att_touched = True
+        if on and shown is not None:
+            for j in days:
+                if j is not shown and not j.invoiced and key not in j.ticked_keys():
+                    j.not_ordered.add(key)
         return
     if on:
         order_firm(days, key, True, shown)
         return
+    # (an invoiced day ordered by it stays so: the days unticked then say it doesn't order them, or that day's tick
+    # would spread back to them)
+    billed = any(j.invoiced and j is not shown and key in j.ticked_keys() for j in days)
     for j in days:
         if j.invoiced and j is not shown:
             continue
         for a in j.case.attorneys:
             if a.key() == key:
                 a.checked = False
-        j.not_ordered.discard(key)
+        if billed:
+            j.not_ordered.add(key)
+        else:
+            j.not_ordered.discard(key)
+        drop_from_runs(j, key)
         j.att_touched = True
 
 
@@ -2661,9 +2717,10 @@ def speed_shown(days: list[Job], key: str, s: Settings) -> ShownSpeed:
 
 def set_firm_speed(days: list[Job], key: str, speed: str) -> None:
     """A firm's speed chosen in Who ordered: for all its pages of every day of the trial not invoiced yet
-    (Job.set_speed: its runs' own speeds are cleared). "" = none (it chooses from its invoice)."""
+    (Job.set_speed: its runs' own speeds are cleared), those it doesn't order now that keep a speed of it too (it
+    is the firm's again when it orders them again). "" = none (it chooses from its invoice)."""
     for j in days:
-        if not j.invoiced and key in j.ticked_keys():
+        if not j.invoiced and (key in j.ticked_keys() or j.has_speed(key)):
             j.set_speed(key, speed)
 
 

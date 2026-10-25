@@ -84,7 +84,7 @@ def test_the_window_fits_a_small_screen(window, monkeypatch):
 
 
 def test_the_form_never_scrolls_sideways(window, qt):
-    """The Case card and "Speed, pages and dates" put their two columns one above the other when the form is too
+    """The Case card and "Pages and dates" put their two columns one above the other when the form is too
     narrow for both (Windows scaling, a zoom): before, the second (then Order) needed 1,050 px and the form scrolled
     sideways."""
     window.resize(1320, 860)

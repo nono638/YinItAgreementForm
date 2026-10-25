@@ -436,7 +436,7 @@ def test_one_firm_is_one_party_and_one_invoice():
 
 
 def test_an_entry_in_a_few_words():
-    """Columns and lines of the window (Excerpts..., Who ordered what, the prices) name a firm of several
+    """Columns and lines of the window (Excerpts..., Who ordered, the prices) name a firm of several
     attorneys by the firm, an entry of one attorney by the name."""
     assert Attorney(name="Alex B. Counsel, Dana Smith", firm="Counsel & Counsel, LLP").label() == \
         "Counsel & Counsel, LLP"

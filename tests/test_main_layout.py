@@ -108,7 +108,7 @@ def att(name="", firm="", party=""):
 
 def test_the_status_names_the_first_thing_to_check_and_reaches_what_it_missed(window, qt, tmp_path):
     """The pill names the first thing to look at and its click goes there, now also to what it never reached:
-    two rows that may be one firm (the Attorneys card's question), the page count to check and a date on a court
+    two rows that may be one firm (Who ordered's question), the page count to check and a date on a court
     holiday (the warnings under those fields)."""
     from test_sweep_270 import one_day
     one_day(window, qt, tmp_path, [att("Dana Smith", "Smith Law", "Plaintiff"),

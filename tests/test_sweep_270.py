@@ -148,7 +148,7 @@ Kew Gardens, NY 11415
 
 
 def test_a_speed_follows_its_firm_when_a_later_document_names_the_firm():
-    """Dana Smith's speed was set (Who ordered what, or Generate's question); a second e-mail signs "Smith Law
+    """Dana Smith's speed was set (Who ordered, or Generate's question); a second e-mail signs "Smith Law
     PLLC" and the row's key becomes the firm's: the speed went with the old key, and the firm chose again."""
     s = pat_settings()
     job = Job(docs=[text_doc(s, ONE, "one.txt")])

@@ -145,7 +145,7 @@ _DAY_TICK, _VISITOR = Qt.UserRole + 30, Qt.UserRole + 31
 VISITOR_TIP = "Named on another day of the trial, not this one. Tick it and it orders this day too."
 ATT_TIPS = {
     0: "Tick each firm that ordered. In a trial a tick is the whole trial, days added later too (Settings →\n"
-       "Options → Trials); a box half filled is a firm that ordered some days or pages only (What says which).",
+       "Options → A firm you tick orders); a box half filled is a firm that ordered some days or pages only (What says which).",
     ATT_WHAT: "What the firm ordered: the whole trial (or day), only the day shown, or some days or pages\n"
               "(Excerpts…, one table of every day and firm)",
     ATT_SPEED: "The speed the firm is billed: firms ordering the same pages are billed the speed shown\n"
@@ -251,6 +251,7 @@ JOB_TIPS = {
 }
 JOB_SORT_ROLE = Qt.UserRole + 20  # what a row sorts by in each column (MainWindow._job_sort_key)
 CASE_MIN = 120  # the least the Case / file column keeps, before zoom (_fit_case_column)
+ATT_NAME_MIN = 110  # the least Who ordered's Name and Firm columns each keep, before zoom (_fit_att_columns)
 
 
 class JobItem(QTreeWidgetItem):
@@ -354,8 +355,9 @@ EST_PAGES_TIP = ("Counted from the transcript PDF: every page, whoever wrote it 
                  "only)? Type the pages here and the invoice bills them (a number read from an e-mail isn't\n"
                  "billed).")
 AGREEMENT_SPEED_TIP = ("The speed written on the minute agreement forms (and the MOFR), at its rate per page, out\n"
-                       "of the speeds offered. In a trial it is every day's. Firms ordering the same pages are\n"
-                       "billed it unless their row says another speed. Settings → Invoice picks it (first choice\n"
+                       "of the speeds offered. In a trial it is every day's (unless Settings → Options → A firm\n"
+                       "you tick orders is the day shown). Firms ordering the same pages are billed it unless\n"
+                       "their row says another speed. Settings → Invoice picks it (first choice\n"
                        "Expedited, else the slowest offered); choose another here (↺ goes back to the Settings\n"
                        "rule). A firm whose speed is chosen in its row gets its own speed on its form, and the\n"
                        "MOFR ticks every speed ordered.\n"
@@ -1711,6 +1713,9 @@ class MainWindow(QMainWindow):
         self._att_list: list[Attorney] = []  # the attorney each row shows (_show_attorneys): the day shown's first,
         self._att_own = 0                    # this many of them, then the other days' firms
         self._tick_mix: dict[str, list] = {}  # a firm's days before its half tick was clicked (_tick_row)
+        # (job, firm, speed) Generate set as the rows show them (_ask_split_speeds, "shown"): put back when nothing
+        # is made, so a firm Go back left follows the forms' Speed as before (_unsettle)
+        self._settled: list[tuple] = []
         # the day shown's attorneys were changed under the table (a tick, What, a firm's row added to the day) and
         # it isn't shown again yet: what it says is not taken back into the day (_take_table) until it is
         self._att_stale = False
@@ -2260,7 +2265,8 @@ class MainWindow(QMainWindow):
             lines["details"] = (bool(missing & set(DETAIL_KEYS)), bits)
         if "attorneys" in folded:  # (who orders what at which speed, as the line under its table says it)
             atts = [a for a in self._att_list if (a.name or a.firm).strip()]
-            said = self.orders_info.text().split("  ")[0] if self.orders_info.isVisibleTo(self) else ""
+            # (isHidden: the card folded hides its body, and isVisibleTo with it)
+            said = self.orders_info.text().split("  ")[0] if not self.orders_info.isHidden() else ""
             lines["attorneys"] = ((bool(atts) and not any(a.checked for a in case.attorneys))
                                   or bool(job.speed_question()), [said or "No attorneys yet"])
         if "pays" in folded:
@@ -3153,6 +3159,19 @@ class MainWindow(QMainWindow):
             lst.setColumnWidth(0, z(CASE_MIN))
         lst.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded if narrow else Qt.ScrollBarAlwaysOff)
 
+    def _fit_att_columns(self) -> None:
+        """Who ordered's Name and Firm share the room its other columns leave, but never less than ATT_NAME_MIN
+        each (in a narrow window, zoomed in, they held three letters beside What and Speed): with less, they keep
+        that much and the table scrolls sideways."""
+        hh = self.att.horizontalHeader()
+        rest = sum(self.att.columnWidth(c) for c in range(self.att.columnCount())
+                   if c not in (1, 2) and not self.att.isColumnHidden(c))
+        narrow = self.att.viewport().width() - rest < 2 * z(ATT_NAME_MIN)
+        for c in (1, 2):
+            hh.setSectionResizeMode(c, QHeaderView.Interactive if narrow else QHeaderView.Stretch)
+            if narrow:
+                self.att.setColumnWidth(c, z(ATT_NAME_MIN))
+
     def _show_weekday(self, on: bool) -> None:
         """The job list's Day column shown or hidden (right-click on its headings, or View), kept for next time
         (Settings.job_weekday)."""
@@ -3687,6 +3706,16 @@ class MainWindow(QMainWindow):
         from ..batch import trial_days
         return trial_days(self.cur, self.jobs) if self.cur in self.jobs else [self.cur]
 
+    def _trial_of(self, jobs: list[Job]) -> list[Job]:
+        """Every day of the trials of these jobs (batch.trial_days), each once: the days the Excerpts window pins
+        its ticks on."""
+        from ..batch import trial_days
+        out: dict[int, Job] = {}
+        for j in jobs:
+            for d in trial_days(j, self.jobs) if j in self.jobs else [j]:
+                out.setdefault(id(d), d)
+        return list(out.values())
+
     def _counted(self, days: list[Job]) -> list[Job]:
         """The days of a trial Who ordered counts (its ticks, What and Pages say them): those ticked in the job list,
         as every card follows them (_considered), and the job shown, ticked or not."""
@@ -3718,10 +3747,12 @@ class MainWindow(QMainWindow):
         """Each firm's tick, What, Speed and Pages in Who ordered (batch.order_of, speed_shown), over the days
         counted (_counted): ticked when it orders every one of them (the trial's ticks: _trial_display), half
         ticked when some only, else the day shown's own tick; What, Speed and Pages for a firm ordering any of
-        them. A row being typed (no name yet) or a placeholder ("Unrepresented") has its tick alone."""
+        them. A row being typed (no name yet) or a placeholder ("Unrepresented") has its tick alone. The tick
+        leaves out the days invoiced already (_tickable): a click can't change them."""
         from ..batch import order_of
         days = self._trial()
         counted = self._counted(days)
+        tickable = self._tickable(counted)
         trial = self._trial_display(days)
         for r, a in enumerate(self._att_list):
             chk = self.att.item(r, 0)
@@ -3741,7 +3772,8 @@ class MainWindow(QMainWindow):
                 continue
             order = order_of(counted, key)
             if trial:
-                chk.setCheckState({"whole": Qt.Checked, "some": Qt.PartiallyChecked}.get(order.kind, Qt.Unchecked))
+                kind = order_of(tickable, key).kind
+                chk.setCheckState({"whole": Qt.Checked, "some": Qt.PartiallyChecked}.get(kind, Qt.Unchecked))
             else:
                 chk.setCheckState(Qt.Checked if mine else Qt.Unchecked)
             ordering = order.kind != "none"
@@ -3756,6 +3788,11 @@ class MainWindow(QMainWindow):
                 text += " (typed)"  # (the Pages field's number is billed, not the transcript's pages)
             pages.setText(text)
             pages.setToolTip(ATT_TIPS[ATT_PAGES])
+
+    def _tickable(self, counted: list[Job]) -> list[Job]:
+        """The days counted that a firm's tick in Who ordered changes (batch.tick_firm): those not invoiced yet, and
+        the day shown."""
+        return [j for j in counted if not j.invoiced or j is self.cur]
 
     def _put_cell_box(self, r: int, c: int, box: QuietCombo | None) -> None:
         """A box in a cell of Who ordered's table (What, Speed), or none: the one there is kept when the new one
@@ -3815,7 +3852,9 @@ class MainWindow(QMainWindow):
             return
         self._sync_from_ui()
         days = self._trial()
+        self._tick_mix.pop(key, None)  # (a half tick's days, as they were: changed now)
         order_firm(days, key, what == "whole", shown=self.cur)
+        self._att_stale = True  # (a row added to the day shown: the table, until shown again, hasn't it)
         QTimer.singleShot(0, lambda d=days: self._orders_changed(d))
 
     def _firm_speed_box(self, key: str, days: list[Job]) -> QuietCombo:
@@ -3825,13 +3864,15 @@ class MainWindow(QMainWindow):
         invoice offers the speeds offered), or "Several (set in Excerpts…)"; then the rate sheet's speeds. A speed
         the rate sheet doesn't have is kept, and says so. The user, 2026-10-24: the row names the speed."""
         from ..batch import speed_shown
-        shown = speed_shown([j for j in days if not j.invoiced], key, self.s)
+        billable = [j for j in days if not j.invoiced]
+        shown = speed_shown(billable, key, self.s)
         sheet = self.s.sheet()
-        together = any(key in j.split_keys() for j in days)
+        together = any(key in j.split_keys() for j in billable)
         box = QuietCombo()
         if shown.kind == "several":
             box.addItem("Several (set in Excerpts…)", "*")
-        if not (together and courthouses.speed_upfront()):  # (alone, or where firms together choose too)
+        # (alone, or where firms together choose too; or, whatever the days say, when its invoice will offer them)
+        if not (together and courthouses.speed_upfront()) or shown.kind == "choose":
             box.addItem("They choose: " + _or([sp.name for sp in self.s.offered_speeds()]), "")
         for sp in sheet.speeds:
             box.addItem(sp.name, sp.name)
@@ -3854,13 +3895,14 @@ class MainWindow(QMainWindow):
 
     def _firm_speed_chosen(self, key: str, speed) -> None:
         """A firm's speed chosen in Who ordered: for all its pages of every day of the trial not invoiced yet
-        (batch.set_firm_speed), or none ("They choose": its invoice offers the speeds offered). The table, the
-        prices and the Excerpts window follow (after the box's own signal)."""
+        (batch.set_firm_speed), or none ("They choose": its invoice offers the speeds offered); day by day
+        (_trial_display), of the day shown alone. The table, the prices and the Excerpts window follow (after the
+        box's own signal)."""
         from ..batch import set_firm_speed
         if speed in ("*", None) or self.cur not in self.jobs:
             return
         days = self._trial()
-        set_firm_speed(days, key, speed)
+        set_firm_speed(days if self._trial_display(days) else [self.cur], key, speed)
         QTimer.singleShot(0, lambda d=days: self._orders_changed(d))
 
     def _orders_changed(self, days: list[Job], table_later: bool = False) -> None:
@@ -3896,28 +3938,48 @@ class MainWindow(QMainWindow):
             self._orders_changed(days, table_later=True)
             return
         self._sync_from_ui()
+        if r < len(self._att_list):  # (the table read back: the day's rows are new objects, _take_table)
+            a = self._att_list[r]
         if self._trial_display(days):
-            kind = order_of(self._counted(days), key).kind
+            kind = order_of(self._tickable(self._counted(days)), key).kind
             mix = self._tick_mix.pop(key, None)
+            if mix is not None and not all(j in self.jobs and any(j is d for d in days) for j, *_ in mix):
+                mix = None  # (another trial's: the same firm in another case)
             if kind == "some":
-                self._tick_mix[key] = [(j, key in j.ticked_keys(), key in j.not_ordered, deepcopy(j.portions))
-                                       for j in days if not j.invoiced]
+                self._tick_mix[key] = [(j, key in j.ticked_keys(), key in j.not_ordered, deepcopy(j.portions),
+                                        j.speeds.get(key)) for j in days if not j.invoiced]
                 tick_firm(days, key, True, self.s, shown=self.cur)
-            elif kind == "none" and mix is not None and all(j in self.jobs for j, *_ in mix):
+            elif kind == "none" and mix is not None:
                 self._put_back_mix(key, mix)
             else:
                 if kind == "whole" and mix is not None:
                     self._tick_mix[key] = mix  # (none now; the next click puts the days back)
                 tick_firm(days, key, kind == "none", self.s, shown=self.cur)
+        elif r < self._att_own:
+            # day by day: the row clicked (a firm's other row on the day, another attorney of it, keeps its tick)
+            a.checked = not a.checked
+            self.cur.att_touched = True
+            if key in self.cur.ticked_keys():  # (the days it isn't ticked on: not ordered, as tick_firm says them)
+                self.cur.not_ordered.discard(key)
+                for j in days:
+                    if j is not self.cur and not j.invoiced and key not in j.ticked_keys():
+                        j.not_ordered.add(key)
+            else:
+                self.cur.not_ordered.add(key)
         else:
-            tick_firm(days, key, key not in self.cur.ticked_keys(), self.s, shown=self.cur)
+            tick_firm(days, key, True, self.s, shown=self.cur)  # (another day's firm: ordering this day too)
         self._orders_changed(days, table_later=True)
 
     def _put_back_mix(self, key: str, mix: list) -> None:
         """A firm's days as they were before its half tick was clicked (_tick_row): ticked or not on each, which
-        said it doesn't order them (Job.not_ordered), and their runs (Excerpts...)."""
+        said it doesn't order them (Job.not_ordered), its speed of the day, and which of their runs (Excerpts...) it
+        ordered, at which speed: the other firms' runs stay as they are now (another firm's What may have changed
+        them meanwhile). A day whose runs were cut otherwise since keeps them, the firm left out when it doesn't
+        order the day."""
+        from ..batch import drop_from_runs, portion_row
+        from ..invoice import ORDERED_BY_NOBODY
         model = next((a for j, *_ in mix for a in j.case.attorneys if a.key() == key), None)
-        for j, ticked, excepted, portions in mix:
+        for j, ticked, excepted, portions, speed in mix:
             rows = [a for a in j.case.attorneys if a.key() == key]
             if ticked and not rows and model is not None:
                 j.case.attorneys.append(replace(model, checked=True))
@@ -3927,7 +3989,22 @@ class MainWindow(QMainWindow):
                 j.not_ordered.add(key)
             else:
                 j.not_ordered.discard(key)
-            j.portions = portions
+            if j.portions is not None and portions is not None and \
+                    [p[0] for p in portions] == [p[0] for p in j.portions]:
+                runs = []
+                for was, now in zip(portions, j.portions):
+                    keys = [k for k in now[1] if k not in (key, ORDERED_BY_NOBODY)] + ([key] if key in was[1] else [])
+                    speeds = {k: v for k, v in (now[2] if len(now) > 2 and now[2] else {}).items() if k != key}
+                    if len(was) > 2 and was[2] and was[2].get(key):
+                        speeds[key] = was[2][key]
+                    runs.append(portion_row(now[0], keys or [ORDERED_BY_NOBODY], speeds or None))
+                j.portions = runs
+            elif not ticked:
+                drop_from_runs(j, key)
+            if speed:  # (the whole trial gave the days without one the firm's: they choose again)
+                j.speeds[key] = speed
+            else:
+                j.speeds.pop(key, None)
             j.att_touched = True
 
     def _marks(self, job: Job | None) -> dict:
@@ -4089,7 +4166,11 @@ class MainWindow(QMainWindow):
                 if before.key() and any(getattr(before, f) != getattr(after, f) for f in ATT_FIELDS[1:-1]):
                     self._same_firm_everywhere(days, before, after)
         self._take_table()
-        if spread_orders(days, self.s) or renamed:  # (a firm typed in, ticked: every day of the trial orders it)
+        rows = len(self.case.attorneys)
+        spread = spread_orders(days, self.s)  # (a firm typed in, ticked: every day of the trial orders it)
+        if len(self.case.attorneys) != rows:
+            self._att_stale = True  # (a row added to the day shown: the table, until shown again, hasn't it)
+        if spread or renamed:
             QTimer.singleShot(0, lambda d=days: self._orders_changed(d))
         self._show_copies()
         self._update_status()
@@ -4108,6 +4189,10 @@ class MainWindow(QMainWindow):
             rows = [a for a in j.case.attorneys if a.key() == old]
             for a in rows:
                 for f in ATT_FIELDS[1:-1]:
+                    # (a name corrected is that attorney's: another attorney of the firm keeps theirs; a row
+                    # without a firm is keyed by its name, so it follows)
+                    if f == "name" and a.firm and a.name and a.name != before.name:
+                        continue
                     if getattr(before, f) != getattr(after, f):
                         setattr(a, f, getattr(after, f))
             if rows and new != old:
@@ -4153,17 +4238,20 @@ class MainWindow(QMainWindow):
             if r < self._att_own:
                 self.att.removeRow(r)
         self.att_touched = True
-        self._attorneys_edited()
-        if trial and keys:
+        if trial and keys:  # (before the table is read back: its spread would bring the firm back from those days)
+            # a firm an invoiced day orders stays there: the other days say it doesn't order them, or that day's
+            # tick would spread back to them
+            billed = {k for k in keys if any(j.invoiced and j is not self.cur and k in j.ticked_keys() for j in days)}
             for j in days:
-                if j is self.cur or j.invoiced:
+                if j.invoiced:
                     continue
-                if any(a.key() in keys for a in j.case.attorneys):
+                if j is not self.cur and any(a.key() in keys for a in j.case.attorneys):
                     j.case.attorneys = [a for a in j.case.attorneys if a.key() not in keys]
                     for k in keys:
                         j.rename_in_portions(k, "")
-                    j.not_ordered -= keys
                     j.att_touched = True
+                j.not_ordered = (j.not_ordered - keys) | billed
+        self._attorneys_edited()
         self._orders_changed(days)
 
     # ------------------------------------------------ rate sheets / speed
@@ -4313,14 +4401,24 @@ class MainWindow(QMainWindow):
         (settle_split_speeds). With "ask", a firm asked about on several days of a trial at the same speed is one
         line ("All 4 days"), its answer every one of those days' (the user, 2026-10-24: one line per day was a
         question per firm and day)."""
-        from ..batch import speeds_to_ask, trials
+        from ..batch import speeds_to_ask, trial_days, trials
         from .dialogs import SplitSpeedsDialog
-        asks = speeds_to_ask(jobs, self.s)
+        # (worked out over the days of their trials Who ordered counts, as its Speed column is, batch.speed_shown: a
+        # firm ordering one day alone that shares pages on another commits on both, Generate of one day too)
+        pool: dict[int, Job] = {id(j): j for j in jobs}
+        for j in jobs:
+            if j in self.jobs:
+                for d in self._counted(trial_days(j, self.jobs)):
+                    if not d.invoiced:
+                        pool.setdefault(id(d), d)
+        asks = [a for a in speeds_to_ask(list(pool.values()), self.s) if any(a.job is j for j in jobs)]
         if not asks:
             return True
         if self.s.split_speeds != "ask":
             for a in asks:
-                a.job.speeds.setdefault(a.key, a.speed)
+                if a.key not in a.job.speeds:
+                    a.job.speeds[a.key] = a.speed
+                    self._settled.append((a.job, a.key, a.speed))
             self._update_status()
             return True
         cases = trials(self.jobs)
@@ -4950,7 +5048,7 @@ class MainWindow(QMainWindow):
         self._card_summaries()
 
     def _show_firm_question(self) -> None:
-        """The Attorneys card's question when two rows of the job, or of its case's other days, may be one firm or
+        """Who ordered's question when two rows of the job, or of its case's other days, may be one firm or
         attorney (batch.firm_questions: "Smith Law" and "Smith Law Group"): Same firm or Not the same answers it
         (_answer_firm); hidden when there is none."""
         group = self._invoice_group() if self.cur in self.jobs else [self.cur]
@@ -5345,6 +5443,26 @@ class MainWindow(QMainWindow):
             editor.setCursorPosition(min(cursor, len(editor.text())))
 
     def fill(self):
+        """Generate (_fill). The speeds it set as Who ordered's rows show them (_ask_split_speeds) are taken off
+        again when nothing was made (Go back, a question left): until then the rows follow the forms' Speed."""
+        self._settled = []
+        try:
+            self._fill()
+        finally:
+            self._unsettle()
+
+    def _unsettle(self, settled: list | None = None) -> None:
+        """The speeds Generate set without asking (_ask_split_speeds, Settings.split_speeds "shown"; default:
+        self._settled) taken off the days again, each where it is still the one set: nothing was made with them."""
+        if settled is None:
+            settled, self._settled = self._settled, []
+        for job, key, speed in settled:
+            if job.speeds.get(key) == speed:
+                del job.speeds[key]
+        if settled:
+            self._update_status()
+
+    def _fill(self):
         """Generate: makes the ticked outputs for the job on screen, on the UI thread (Ctrl+Enter).
 
         Asks first, as needed, in this order: whether documents whose index numbers don't match belong together
@@ -5527,6 +5645,7 @@ class MainWindow(QMainWindow):
         if "invoice" in outputs:
             job.settle_split_rule(self.s)
             billed_origin = {**origin, "job": {**origin["job"], "split_rule": job.split_rule}}
+        self._settled = []  # (the files are made at the speeds set: kept)
         try:
             paths = generate(case, self.s, out_dir, outputs, opts, runsheet=sheet, folders=input_folders(job),
                              invoiced=keys, origin=origin, math=math, detailed=detailed, ordered=ordered,
@@ -5655,7 +5774,7 @@ class MainWindow(QMainWindow):
                  "unnamed": "Parties needs checking"}.get(kind, "The speeds need checking")
         if kind == "portions":
             why = (f"{job.portions_check()}.\n\nNo invoice is made for this day until you check it: open "
-                   "Excerpts… in the Invoice card and tick who ordered which pages, or choose \"Remove this "
+                   "Excerpts… in Who ordered and tick who ordered which pages, or choose \"Remove this "
                    "day's excerpts\".")
         elif kind == "unnamed":  # parties not named, on pages ordered at different speeds
             why = (f"{job.unnamed_problem()}.\n\nNo invoice is made for this day until every party is named or "
@@ -5817,6 +5936,15 @@ class MainWindow(QMainWindow):
         return box.clickedButton() is new
 
     def fill_all_jobs(self):
+        """Generate all (_fill_all_jobs). The speeds it set as Who ordered's rows show them (_ask_split_speeds) are
+        taken off again when nothing is made (Go back, a question left, the preview's Go back)."""
+        self._settled = []
+        try:
+            self._fill_all_jobs()
+        finally:
+            self._unsettle()
+
+    def _fill_all_jobs(self):
         """Generate all: makes the outputs of every ticked job not made already (_to_generate: a made day whose
         invoice is still to make gets that invoice alone) on another thread (Ctrl+Shift+Enter). The jobs it makes
         stay ticked, the cards showing them, but are made (Job.made) from then on: pressed again, it makes only
@@ -5982,12 +6110,15 @@ class MainWindow(QMainWindow):
         chosen = [j for j in chosen if j in self.jobs]
         if not chosen:
             return
+        # (the speeds set for days left out since, "Do the 3 complete ones": nothing is made for them)
+        self._unsettle([e for e in self._settled if not any(e[0] is j for j in chosen)])
+        self._settled = [e for e in self._settled if any(e[0] is j for j in chosen)]
         # The batch is made on another thread while the window stays usable, so it gets its own copy of the
         # jobs and the settings: editing a job, an AI answer or a change in Settings can't reach files half made.
         def copy_jobs() -> dict:
             return {id(j): replace(j, case=deepcopy(j.case), docs=list(j.docs), saved=[], error="",
                                    invoiced_keys=list(j.invoiced_keys), portions=deepcopy(j.portions),
-                                   speeds=dict(j.speeds),
+                                   speeds=dict(j.speeds), not_ordered=set(j.not_ordered),
                                    page_basis=deepcopy(j.page_basis), front_owner=dict(j.front_owner),
                                    runsheet_to=sheet_for.get(id(j), (None, None))[0],
                                    runsheet_group=sheet_for.get(id(j), (None, None))[1])
@@ -6007,17 +6138,19 @@ class MainWindow(QMainWindow):
             shown = copy_jobs()
             for j in chosen:  # (until Save: Go back saves nothing, and the folders are asked about next time)
                 j.folder, j.folder_named = folder_was.get(id(j), (j.folder, j.folder_named))
-            self._preview_batch(chosen, shown, outputs, save, dating.day)
+            settled, self._settled = self._settled, []  # (the preview's Go back puts them back)
+            self._preview_batch(chosen, shown, outputs, save, dating.day, back=lambda: self._unsettle(settled))
         else:
             self._run_batch(chosen, copies, todo, settings, outputs, False, dating)
 
     def _preview_batch(self, chosen: list[Job], copies: dict, outputs: list[str], then,
-                       day: date | None = None) -> None:
+                       day: date | None = None, back=None) -> None:
         """Generate all's preview before saving: the batch made on another thread into a temporary folder, with a
         records database of its own (Ledger.preview_copy: the numbers the invoices will get, none taken), then
         shown in one PreviewDialog with "The math" of every invoice. Save calls then(math shown); Go back saves
-        nothing. The run sheets are not made for it (they are spreadsheets, and would add to the real ones). day:
-        the day the files are dated, the saved ones too."""
+        nothing (back is called then). The run sheets are not made for it (they are spreadsheets, and would add to
+        the real ones). day: the day the files are dated, the saved ones too."""
+        back = back or (lambda: None)
         from .preview import PreviewDialog
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         s = deepcopy(self.s)
@@ -6034,6 +6167,8 @@ class MainWindow(QMainWindow):
                                     "\n\nSave the files without it?") == QMessageBox.Yes \
                     and not self._batch_running():
                 then(False)
+            else:
+                back()
             return
         self.filling = True
         self.work += 1
@@ -6066,6 +6201,8 @@ class MainWindow(QMainWindow):
                                             "\n\nSave the files without it?") == QMessageBox.Yes \
                             and not self._batch_running():
                         then(False)
+                    else:
+                        back()
                     return
                 before = self.s.save_math
                 save = dlg.exec() == PreviewDialog.Accepted
@@ -6076,6 +6213,8 @@ class MainWindow(QMainWindow):
             self._job_status()
             if save and not self._batch_running():
                 then(previewed)
+            else:
+                back()
 
         def failed(msg):
             ended()
@@ -6085,6 +6224,8 @@ class MainWindow(QMainWindow):
             if QMessageBox.question(self, "No preview", "The preview could not be made.\n\nSave the files "
                                     "without it?") == QMessageBox.Yes and not self._batch_running():
                 then(False)
+            else:
+                back()
 
         self.runner.start(fill_jobs, [copies[id(j)] for j in chosen], s, batch=list(copies.values()),
                           outputs=shown, ledger=ledger, math=math, day=day, on_done=done, on_error=failed)
@@ -6096,6 +6237,7 @@ class MainWindow(QMainWindow):
         Settings.show_math is on). dating: the day every file is dated (workdays.document_day, as Generate all
         started; default: now's), which the message at the end says when it isn't today."""
         dating = dating or document_day(self.s)
+        self._settled = []  # (made at the speeds set: kept)
         math: list = []
         self.filling = True
         self.work += 1
@@ -6547,6 +6689,18 @@ class MainWindow(QMainWindow):
         self._follow_excerpts()
         self._card_summaries()  # (a folded card's line: the speed and its price may have changed)
 
+    def _as_billed(self, group: list[Job]) -> list[Job]:
+        """The days of an invoice as Generate bills them: with Settings.split_speeds "shown", copies with the speeds
+        Generate sets without asking (batch.settle_split_speeds: what Who ordered's rows show), so the prices say
+        what is billed; asked at Generate, the days themselves (a speed still to answer is marked "?")."""
+        from ..batch import settle_split_speeds
+        if self.s.split_speeds == "ask":
+            return group
+        copies = [replace(j, case=deepcopy(j.case), speeds=dict(j.speeds), portions=deepcopy(j.portions))
+                  for j in group]
+        settle_split_speeds(copies, self.s, ["invoice"])
+        return copies
+
     def _show_invoice_prices(self) -> tuple[list | None, int]:
         """The Invoice card's parties, Includes line (Peripherals…) and prices for the current job. When Generate
         all bills it with other days of its case, or billed it with them already ("Invoiced already ✓"), the first
@@ -6561,7 +6715,7 @@ class MainWindow(QMainWindow):
         job = self.cur
         group = self._invoice_group()
         self._note_trial_rules(group)  # (priced as an earlier invoice of the trial was, if there is one)
-        case, opts = joint_invoice(group)
+        case, opts = joint_invoice(self._as_billed(group))
         split = job.portions is not None  # Excerpts... decides this day's parties (or needs checking)
         check = job.portions_check()
         with QSignalBlocker(self.inv_parties):
@@ -6615,7 +6769,7 @@ class MainWindow(QMainWindow):
         held = group_problem(group) if not job.invoiced else ""
         if held:  # nobody ticked on a day of the joint invoice: no prices until it says who ordered it
             self._warn(f"⚠ Generate all: no invoice for these {len(group)} days yet:\n{held}")
-            self.inv_info.setToolTip("Tick the attorneys who ordered that day's pages (in its attorney table);\n"
+            self.inv_info.setToolTip("Tick the attorneys who ordered that day's pages (in Who ordered);\n"
                                      "until then Generate all makes the other outputs but no invoice for the case.")
             return None, 1
         try:
@@ -6628,7 +6782,8 @@ class MainWindow(QMainWindow):
             self._warn("No invoice left to make: every attorney ticked is invoiced already or ordered no pages")
             return None, 1
         from ..batch import speeds_to_ask
-        asked = {a.key for a in speeds_to_ask(group, self.s)}  # (priced at the form's speed meanwhile)
+        # (priced at the form's speed meanwhile; marked "?" only when Generate asks it: else that speed is billed)
+        asked = {a.key for a in speeds_to_ask(group, self.s)} if self.s.split_speeds == "ask" else set()
         prices, per_firm = _price_lines(firms, self.case.get("delivery"), asked)
         ask_tip = ("A speed with \"?\" is not set yet: firms that order the same pages commit to a speed.\n"
                    "Generate asks for it (set it beforehand in Who ordered)." if asked else "")
@@ -6660,7 +6815,7 @@ class MainWindow(QMainWindow):
 
     def _form_speed_text(self) -> str:
         """The one speed and rate the minute agreement form names: 'Expedite · $5.65 a page'; with firms that
-        have a speed of their own (Who ordered what), 'Each firm's own speed (Expedite · $5.65 a page without
+        have a speed of their own (in Who ordered), 'Each firm's own speed (Expedite · $5.65 a page without
         one)'."""
         speed, rate = self.case.get("delivery"), self.case.get("rate")
         if not speed:
@@ -7258,7 +7413,8 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Excerpts", why)
             return
         if self.excerpts is None:
-            self.excerpts = ExcerptsWindow(self.s, self._excerpts_changed, self, marks=self._marks)
+            self.excerpts = ExcerptsWindow(self.s, self._excerpts_changed, self, marks=self._marks,
+                                           trial=self._trial_of)
         self.excerpts.load(self._excerpt_group(job))
         rows = [i for i, r in enumerate(self.excerpts.runs) if r.day.job is job]
         if rows:
@@ -7285,7 +7441,9 @@ class MainWindow(QMainWindow):
 
     def _excerpts_changed(self) -> None:
         """A change kept in the Excerpts window: the attorney table, No. of copies (each day's ordering
-        parties, see excerpts.store), the prices and the card follow it."""
+        parties, see excerpts.store), the prices and the card follow it. A half tick's days kept for its next
+        click (_tick_mix) are forgotten: the days are as Excerpts left them."""
+        self._tick_mix.clear()
         if self.excerpts is not None and any(r.day.job is self.cur for r in self.excerpts.runs):
             self._show_attorneys()
             self._show_copies()
@@ -7508,7 +7666,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self, lambda: self._place_left_split(len(self.jobs) > 1))
 
     def _fill_invoice_speeds(self):
-        """Speeds offered, under the rate sheet: a box per speed of the current rate sheet with its price
+        """Speeds offered, beside the Speed in Who ordered: a box per speed of the current rate sheet with its price
         ("Regular  $4.30/pg"), cheapest first as on the invoice, two a row, ticked for the speeds invoices offer
         (Settings.invoice_speeds)."""
         from ..rates import speed_key
@@ -7877,6 +8035,8 @@ class MainWindow(QMainWindow):
             obj.setAttribute(Qt.WA_NoMouseReplay)
         if t == QEvent.Resize and obj is getattr(self, "job_list", None):
             self._fit_case_column()
+        if t == QEvent.Resize and obj is getattr(self, "att", None):
+            self._fit_att_columns()
         if t in (QEvent.FocusIn, QEvent.FocusOut) and obj is getattr(self, "paste", None):
             QTimer.singleShot(0, self, self._fit_paste)  # (clicked in: open; left empty: one line again)
         if t == QEvent.FocusOut and obj is getattr(self, "att_edits", {}).get(3) and self._att_typed(3):

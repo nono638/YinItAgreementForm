@@ -543,8 +543,8 @@ class Settings:
     mofr_filename_pattern: str = MOFR_FILENAME_PATTERN
 
     # Invoices (they need pages to bill: a transcript's, or a number typed in Est. number of pages)
-    # the speeds ticked under "Speeds offered" (Settings -> Invoice, and under the rate sheet in the main window's
-    # Speed, pages and dates card): the invoice lists them so the attorney can choose (one alone: a single-speed
+    # the speeds ticked under "Speeds offered" (Settings -> Invoice, and beside the Speed in the main window's
+    # Who ordered card): the invoice lists them so the attorney can choose (one alone: a single-speed
     # invoice), and the agreement form names one of them (agreement_speed)
     invoice_speeds: list = field(default_factory=lambda: ["Regular", "Expedited"])
     invoice_include_email: bool = True  # each party also gets an e-mailed copy (Email column of the rate sheet)

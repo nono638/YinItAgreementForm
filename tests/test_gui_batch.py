@@ -651,8 +651,10 @@ def test_the_days_of_a_case_bill_each_attorney_for_its_own_days(window, tmp_path
 
 def test_a_split_order_s_prices_say_its_speeds_are_asked(window, tmp_path):
     """Queens: firms that order the same pages commit to a speed. Until it is set, each is priced at the agreement
-    form's speed with a question mark (Generate asks); set, its price at that speed alone. Alex's invoice covers
-    its day alone too: an invoice can't be partly "choose one"."""
+    form's speed with a question mark (Generate asks: Settings.split_speeds "ask"; billing the speeds shown, the
+    default, it has none, test_sweep_213); set, its price at that speed alone. Alex's invoice covers its day alone
+    too: an invoice can't be partly "choose one"."""
+    window.s.split_speeds = "ask"
     window.output_boxes["invoice"].setChecked(True)
     two_days(window, tmp_path)
     window.jobs[0].case.attorneys = [counsel(), smith(checked=False)]

@@ -34,11 +34,11 @@ from PySide6.QtWidgets import (
 )
 
 from .. import courthouses
-from ..batch import pin_orders
+from ..batch import pin_orders, speeds_to_ask
 from ..excerpts import (
     Day, Run, billed_in, carve, case_days, firms_of, prices, remove, runs_of, store, whole_day,
 )
-from ..invoice import own_words, shared_words
+from ..invoice import default_speed, own_words, shared_words
 from ..invoice_calc import fmt
 from ..invoice_math import money_exact
 from ..rates import speed_key
@@ -73,13 +73,15 @@ class ExcerptsWindow(QDialog):
     """Who ordered which pages of the case: see the module docstring. load(group) shows the days of an invoice
     (MainWindow keeps it up to date); changed() is called after each change is kept."""
 
-    def __init__(self, s, changed, parent=None, marks=None):
+    def __init__(self, s, changed, parent=None, marks=None, trial=None):
         """s: the settings (the rate sheet, the speeds, what this window hides); changed: called after a change
         is kept on the jobs, so the main window shows it; marks: a job -> the tags of its trial's firms, by
         Attorney.key(), as the main window shows them (MainWindow._marks: every day of the trial loaded, those
-        not on this invoice too, so a firm has the same tag here); without it, those of the days shown."""
+        not on this invoice too, so a firm has the same tag here); without it, those of the days shown. trial:
+        the jobs shown -> every day of their trials (MainWindow._trial_of), which the table's ticks are pinned on
+        (_pin); without it, the days shown."""
         super().__init__(parent)
-        self.s, self.changed, self.marks = s, changed, marks
+        self.s, self.changed, self.marks, self.trial = s, changed, marks, trial
         self.setWindowTitle("Excerpts: who ordered which pages")
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
         self.group: list = []  # the jobs shown (the days of an invoice)
@@ -262,6 +264,9 @@ class ExcerptsWindow(QDialog):
                 head.setIcon(badge_icon(marks[a.key()], z(TAG_HEIGHT)))
         t.setRowCount(len(self.runs))
         first = FIRST_FIRM + len(firms)
+        # (the speed Generate bills a firm sharing pages without one at, by day: the agreement form's, or the firm's
+        # on its other pages, batch.speeds_to_ask)
+        settles = {(id(a.job), a.key): a.speed for a in speeds_to_ask([d.job for d in self.days], self.s)}
         for r, run in enumerate(self.runs):
             day = run.day
             new_day = r == 0 or self.runs[r - 1].day is not day
@@ -293,6 +298,11 @@ class ExcerptsWindow(QDialog):
                     speed, pays = at[a.key()]
                     if run.speed(a.key()):
                         it.setText(f"{speed} · {money_exact(pays)}")
+                    elif self.s.split_speeds != "ask" and speed_key(
+                            settles.get((id(day.job), a.key()), speed)) == speed_key(speed):  # (billed so, as said)
+                        it.setText(f"{speed} · {money_exact(pays)}")
+                        it.setToolTip(f"Ordered with another firm: billed at {speed}, the agreement form's speed, "
+                                      "unless you choose another (right-click, or above the table).")
                     else:  # (it must commit to one: priced at the agreement form's until then)
                         it.setText(f"{speed}? · {money_exact(pays)}")
                         it.setForeground(QColor(AMBER))
@@ -401,7 +411,13 @@ class ExcerptsWindow(QDialog):
             box = QuietCombo()
             if len(mine) > 1:
                 box.addItem(VARIES, None)
-            box.addItem("Chooses on the invoice", "")
+            # (none set: a firm ordering pages with another is billed the agreement form's speed, as Who ordered
+            # says, unless Generate asks; one alone chooses on its invoice)
+            shared = next((r for r in self.runs if k in r.keys and len(r.keys) > 1 and not r.speed(k)), None)
+            if shared is not None and courthouses.speed_upfront() and self.s.split_speeds != "ask":
+                box.addItem(f"The form's ({default_speed(shared.day.job.case, self.s)})", "")
+            else:
+                box.addItem("Chooses on the invoice", "")
             for sp in speeds:
                 box.addItem(sp, sp)
             now = next(iter(mine)) if len(mine) == 1 else None
@@ -490,8 +506,11 @@ class ExcerptsWindow(QDialog):
 
     def _pin(self) -> None:
         """The table says who ordered each day: a firm ticked on some of its days only orders those, and isn't
-        spread to the others (batch.pin_orders; a tick in Who ordered is the whole trial)."""
-        pin_orders([d.job for d in self.days], self.firms)
+        spread to the others (batch.pin_orders; a tick in Who ordered is the whole trial). The trial's days not
+        shown (the window shows one invoice's) are pinned too: a firm ordering pages of a day shown, and no
+        other day, orders those pages only."""
+        jobs = [d.job for d in self.days]
+        pin_orders(self.trial(jobs) if self.trial is not None else jobs, self.firms)
 
     def _item_changed(self, it: QTableWidgetItem) -> None:
         """A run typed, or a firm ticked or unticked."""
