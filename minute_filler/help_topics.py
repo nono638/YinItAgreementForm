@@ -93,10 +93,10 @@ Put them in My info if they aren't the first letters of your name.</p>
 e-mail or a screenshot (<a href="topic:input-documents">what it reads</a>).</li>
 <li><b>Check the fields.</b> Amber fields are guesses; the badge on each says where its value came from
 (<a href="topic:check-badges">more</a>). The status at the top right counts what still needs a look.</li>
-<li><b>Tick the attorneys who ordered.</b> A transcript lists everyone who appeared, not who ordered
-(<a href="topic:check-attorneys">more</a>).</li>
-<li><b>Pick the rate sheet and the speeds</b> (<a href="topic:inv-speeds">more</a>).</li>
-<li><b>Check Who pays what</b>, the card under Who ordered what (<a href="topic:inv-who-pays">more</a>).</li>
+<li><b>Tick who ordered</b> in the <i>Who ordered</i> card. A transcript lists everyone who appeared, not who
+ordered. In a trial, one tick is the whole trial, at the speed shown (<a href="topic:check-attorneys">more</a>).</li>
+<li><b>Check the speed and the rate sheet</b> (<a href="topic:inv-speeds">more</a>).</li>
+<li><b>Check Who pays what</b>, the card under the Invoice card (<a href="topic:inv-who-pays">more</a>).</li>
 <li><b>Tick what to make</b> in the Outputs box and click <b>Generate</b> (Ctrl+Enter), or <b>Generate all</b>
 (Ctrl+Shift+Enter) for every ticked job (<a href="topic:make-outputs">more</a>).</li>
 <li><b>Look at the preview</b> and click <b>Save</b>, or <b>Go back</b> to change something: nothing is saved until
@@ -112,9 +112,9 @@ then (<a href="topic:make-preview">more</a>).</li>
 becomes one slim row (<i>Drop more here, or Browse…</i>).</li>
 <li><b>The job list</b> (left): each job's case, date and day, pages and your pages, with ✓ for a job already made and ⚠ for
 one with something to check (<a href="topic:batch-job-list">more</a>).</li>
-<li><b>The form</b> (right): its cards follow the job, top to bottom: <i>Case</i>, <i>Attorneys</i> (tick who
-ordered), <i>Speed, pages and dates</i>, then, when an invoice is to be made, <i>Invoice</i>, <i>Who ordered what</i>
-and <i>Who pays what</i>, and for a trial <i>Who transcribed what</i>. Each folds to one line that sums it up
+<li><b>The form</b> (right): its cards follow the job, top to bottom: <i>Case</i>, <i>Who ordered</i> (who
+ordered, what and at what speed), <i>Pages and dates</i>, then, when an invoice is to be made, <i>Invoice</i> and
+<i>Who pays what</i>, and for a trial <i>Who transcribed what</i>. Each folds to one line that sums it up
 (<a href="topic:start-room">more</a>). While nothing is open, a <b>Recent jobs</b> card at the top of the form lists
 the jobs made lately: click one to open it again. <i>Recent documents ▾</i> on it lists the documents you opened
 lately.</li>
@@ -187,8 +187,8 @@ dropped like a document. Once a document is read the box is one line, <i>Paste a
 list has the room: click in it (or paste) to open it again.</p>
 <p>The sender of an e-mail is ticked as ordering (a transcript's attorneys are not: it lists who appeared). A page
 count read from an e-mail is shown, but not billed until you type it in <i>Est. number of pages</i>.</p>
-<p>When an e-mail asks for another speed ("please send a daily copy"), the <i>Speed, pages and dates</i> card
-asks which speed to use, and so does Generate. A speed an e-mail mentions is never applied by itself.</p>
+<p>When an e-mail asks for another speed ("please send a daily copy"), the <i>Who ordered</i> card asks
+which speed to use, and so does Generate. A speed an e-mail mentions is never applied by itself.</p>
 """),
     T("input-photos", INPUT, "Photos, scans and screenshots",
       "picture image camera iphone heic jpg png screenshot ocr text recognition paste ctrl+v scan",
@@ -294,29 +294,46 @@ them on.</p>
 <p>Court, Part and Judge suggest what your records hold as you type, from any part of the name ("alv" offers
 <i>Maria T. Alvarez</i>). So do an attorney's name and firm in the attorney details.</p>
 """),
-    T("check-attorneys", CHECK, "Ticking who ordered: the Attorneys table",
-      "attorney lawyer firm counsel who ordered tick party appearances address phone fax email details row",
+    T("check-attorneys", CHECK, "Who ordered: tick each firm that ordered",
+      "attorney lawyer firm counsel who ordered tick party appearances address phone fax email details row whole "
+      "trial every day all days standing order half ticked only this day what speed pages",
       """
-<p>A transcript lists everyone who appeared, not who ordered: <b>tick the attorneys who ordered</b>. Each one ticked
-gets a minute agreement and an invoice. The app ticks only the sender of an e-mail, the firm an invoice is
-addressed to, and the one attorney when only one appeared.</p>
+<p>A transcript lists everyone who appeared, not who ordered: in the <b>Who ordered</b> card, <b>tick each firm that
+ordered</b>. Each one ticked gets a minute agreement and an invoice. The app ticks only the sender of an e-mail, the
+firm an invoice is addressed to, and the one attorney when only one appeared.</p>
+<p><b>In a trial</b> (days of one case), the card lists every firm of every day, whichever day is shown, and <b>a
+tick is the whole trial</b>: every day of it, and the days you drop in later, at one speed. That is how most trials
+are ordered. A box half filled is a firm that ordered some days or pages only.</p>
+<ul>
+<li><b>What</b>: <i>The whole trial (4 days)</i>; <i>Only 6/4/2026</i>, the day shown; or <i>Some days or
+pages…</i>, which opens <a href="topic:exc-table">Excerpts…</a>, the table of every day and every firm. A firm that
+ordered some days says which: <i>6/3/2026 and 6/5/2026</i>, <i>part of 6/4/2026</i>.</li>
+<li><b>Speed</b>: the speed the firm is billed, by name (<a href="topic:inv-who-ordered">more</a>).</li>
+<li><b>Pages</b>: the pages its invoice bills: <i>412</i>, or <i>300 of 412</i> when some are another
+reporter's.</li>
+<li>Clicking a half-filled box makes it the whole trial; the next click, none; the next puts back the days it
+had.</li>
+</ul>
+<p>The line under the table says it in words, <i>Counsel &amp; Counsel and Smith Law: the whole trial (4 days), at
+Expedite.</i>, then what Generate all bills.</p>
 <p>The table has <b>one row per firm</b> (or city office, or a party without an attorney). Every attorney of the firm
 on the title page is named in its row ("Alex B. Counsel, Dana Smith"), with the firm's address and whom it
-represents. A firm is one party: one agreement and one invoice, however many of its attorneys appeared. An e-mail
-from one of its attorneys, or the same firm on another day's transcript, joins its row.</p>
+represents. A firm is one party: one agreement and one invoice, however many of its attorneys appeared. A firm
+another day names, but not the day shown, is in italics: tick it and it orders the day shown too.</p>
 <p>Click a row to see and change all its details under the table: address (one line per line), phone, fax and
-e-mail.</p>
+e-mail. In a trial they are the firm's on every day.</p>
 <p><b>Each firm has a tag</b>, as court exhibits do: the plaintiffs' firms <b>1</b>, <b>2</b>, <b>3</b> in oranges, the
 defense firms <b>A</b>, <b>B</b>, <b>C</b> in blues, any others <b>001</b>, <b>002</b>, with a thin stripe of its colour
-at the left of its name. A firm keeps its tag on every day of a trial, here, in Who ordered what, Who pays what and
-Excerpts…, so you can tell the firms apart at a glance.</p>
-<p>Two rows that may be one firm are asked about (<a href="topic:check-same-firm">more</a>).</p>
+at the left of its name. A firm keeps its tag on every day of a trial, here, in Who pays what and Excerpts…, so you
+can tell the firms apart at a glance.</p>
+<p>To tick each day on its own instead, Settings → Options → <i>A firm you tick orders</i>: <i>Only the day
+shown</i>. Two rows that may be one firm are asked about (<a href="topic:check-same-firm">more</a>).</p>
 """),
     T("check-same-firm", CHECK, "Are these one firm?", "same firm not the same duplicate merge join forget remember "
       "firms you answered twice shows up two rows",
       """
 <p>When two rows only <i>may</i> be one firm ("Smith Law" and "Smith Law Group", or "Mr. Smith" and Dana Smith of
-Smith Law), they are not joined without asking. The Attorneys card asks <i>Are these one firm?</i>: <b>Same
+Smith Law), they are not joined without asking. The Who ordered card asks <i>Are these one firm?</i>: <b>Same
 firm</b> or <b>Not the same</b>. Generate asks too, before it makes anything.</p>
 <p>With <i>Remember</i> ticked (the default), your answer is kept for later documents. Unticked, it holds until you
 close the app.</p>
@@ -341,7 +358,7 @@ forms</i>, and with several jobs <i>(2 · all 6)</i> counts what Generate all ma
 <ul>
 <li><b>Options ▾</b> holds each output's standing choices, kept for every job: which agreement form and how it is signed,
 the MOFR's Civil or Criminal box, what to do when the case has a run sheet already.</li>
-<li>The invoice's choices are this job's own: they are in the <b>Invoice</b> card of the form, above Who ordered what
+<li>The invoice's choices are this job's own: they are in the <b>Invoice</b> card of the form, above Who pays what
 (<a href="topic:inv-panel">more</a>).</li>
 <li><b>Generate</b> (Ctrl+Enter), the big button at the right of the row, makes the job on screen. For a day of a
 case it says which, <i>Generate 6/4/2026 only</i>.</li>
@@ -497,39 +514,41 @@ it.</p>
       "speed delivery regular expedited expedite daily immediate turnaround offered agreement form speed rate per "
       "page choose",
       """
+<p>Every speed is chosen in the <b>Who ordered</b> card:</p>
 <ul>
-<li><b>The invoice</b> offers every speed ticked under <i>Speeds offered</i>, under the rate sheet in <i>Speed,
-pages and dates</i>, each at its own price, so the attorney can choose. Tick one to bill that speed alone.</li>
-<li><b>The minute agreement form</b> names one speed at one rate per page: Expedited when you offer it, else the
-slowest offered (Settings → Invoice → <i>Agreement form speed</i> changes the rule). The <i>Speed</i> dropdown
-under <i>Speed, pages and dates</i> changes it for one job; ↺ goes back to the rule.</li>
-<li>A firm whose speed is set in <a href="topic:inv-who-ordered">Who ordered what</a> gets that speed on its own
-agreement and invoice.</li>
+<li><b>Speed</b>, at its top: the speed the minute agreement forms name, at one rate per page: Expedited when you
+offer it, else the slowest offered (Settings → Invoice → <i>Agreement form speed</i> changes the rule). Choose
+another for the job: in a trial it is every day's. ↺ goes back to the rule.</li>
+<li><b>Speeds offered</b>, beside it: what the invoice of a firm ordering alone offers, each at its own price, so
+the attorney can choose. Tick one to bill that speed alone.</li>
+<li>Each firm's row has its own <b>Speed</b>, by name (<a href="topic:inv-who-ordered">more</a>). A firm whose
+speed is chosen there gets it on its own agreement and invoice.</li>
 <li>When an e-mail asks for another speed, an amber line asks you to choose (<i>Keep</i> keeps the one shown), and
 Generate asks too.</li>
-<li>Once a firm's speed is set in Who ordered what, the <i>Speeds offered</i> boxes are greyed: they only list the
-speeds for a firm that chooses from its invoice, and a click asks before changing them.</li>
+<li>Once a firm's speed is chosen in its row, the <i>Speeds offered</i> boxes are greyed: they only list the speeds
+for a firm that chooses from its invoice, and a click asks before changing them.</li>
 </ul>
-<p>The rate, the delivery box and the <a href="topic:dates-turnaround">estimated delivery date</a> follow the
-speed.</p>
+<p>The rate (under <i>Pages and dates</i>), the delivery box and the <a href="topic:dates-turnaround">estimated
+delivery date</a> follow the speed.</p>
 """),
     T("inv-panel", INVOICE, "The Invoice card", "Invoice card parties prices billed includes line options this job",
       """
-<p>The <b>Invoice</b> card of the form, under <i>Speed, pages and dates</i> and above <i>Who ordered what</i> (shown
-while <i>Invoice</i> is ticked in the Outputs box), shows the prices before you generate, and holds this job's
-choices for its invoice:</p>
+<p>The <b>Invoice</b> card of the form, under <i>Pages and dates</i> and above <i>Who pays what</i> (shown while
+<i>Invoice</i> is ticked in the Outputs box), shows the prices before you generate, and holds this job's choices
+for its invoice:</p>
 <ul>
-<li><b>Parties</b>: the number of ordering parties, and <b>Excerpts…</b>: who ordered which pages
-(<a href="topic:exc-table">more</a>);</li>
+<li><b>Parties</b>: the number of ordering parties (who ordered which pages is <a href="topic:exc-table">Excerpts…</a>,
+in Who ordered);</li>
 <li><b>Whose pages…</b>, on a transcript several reporters wrote (<a href="topic:inv-reporters">more</a>);</li>
 <li><b>Peripherals…</b>: the e-mailed copy and the index for this job (<a href="topic:inv-peripherals">more</a>);</li>
 <li><b>Show granular detail</b> and <b>Customize…</b> (<a href="topic:inv-granular">more</a>);</li>
 <li>the <b>Prices</b> line, the <b>Billed</b> line ("You wrote 45 of 83 total pages") and the <b>Includes</b> line
 (<i>E-mailed copy, index (83 total pages, 50 or more)</i>), and a link to the math.</li>
 </ul>
-<p>The speeds the invoice offers are ticked under the rate sheet, in <i>Speed, pages and dates</i>
-(<a href="topic:inv-speeds">more</a>). A firm sharing pages without a speed set is priced at the agreement form's
-speed with a question mark (<i>Dana Smith: Expedite? $98.00</i>) until you set it. Your defaults for every invoice are in
+<p>The speeds the invoice offers are ticked in Who ordered, beside the Speed (<a href="topic:inv-speeds">more</a>).
+With Settings → Invoice → <i>Firms ordering the same pages</i> set to ask, a firm sharing pages without a speed
+chosen is priced at the agreement form's speed with a question mark (<i>Dana Smith: Expedite? $98.00</i>) until
+Generate asks. Your defaults for every invoice are in
 <a href="topic:set-invoice">Settings → Invoice</a>.</p>
 """),
     T("inv-peripherals", INVOICE, "Peripherals…: the e-mailed copy and the index for one job",
@@ -583,34 +602,43 @@ own (DS-2026-0001).</p>
 """),
     T("inv-who-pays", INVOICE, "Who pays what", "who pays what card each firm share amount per page alone shared",
       """
-<p>The <b>Who pays what</b> card, under Who ordered what, sums up each firm's invoice: its pages, how it ordered them
+<p>The <b>Who pays what</b> card, under the Invoice card, sums up each firm's invoice: its pages, how it ordered them
 (<i>70 alone + 50 shared by 2</i>) and what it pays at each speed offered, in all and per page, for every day
 ticked in the job list. It follows every tick at once: days, attorneys, speeds, Parties, Peripherals… and
 Excerpts…. With more than one invoice (a day invoiced already beside one still to bill, or several cases), each has
 its own heading; one made already says <i>invoiced already ✓</i>.</p>
 <p><i>How these amounts are worked out…</i> opens the whole <a href="topic:inv-math">math</a>.</p>
 """),
-    T("inv-who-ordered", INVOICE, "Who ordered what", "who ordered what card day pages speed also ordered rows edit "
-      "excerpts question mark",
+    T("inv-who-ordered", INVOICE, "Who ordered a trial: what each firm ordered, at which speed",
+      "who ordered what card day pages speed also ordered rows excerpts whole trial they choose firms ordering the "
+      "same pages billed asked one speed several",
       """
-<p>Whenever an invoice is to be made, the <b>Who ordered what</b> card shows, for every day ticked in the job list
-(whichever day is shown), a row for each attorney. A day invoiced already has a ✓ after its date:</p>
+<p>Each firm's row in the <b>Who ordered</b> card says what it ordered and at what speed, over every day ticked in
+the job list, whichever day is shown (<a href="topic:check-attorneys">ticking who ordered</a>):</p>
 <ul>
-<li>the pages it ordered (<i>every page, 1–60</i>, or <i>excerpt: 20–40 of 60</i>);</li>
-<li>the <b>Speed</b> it ordered them at: a box you can change. <i>Chooses on the invoice</i> for a firm ordering
-alone; <i>Speed? (Generate asks)</i> in amber for a firm sharing pages without one;</li>
-<li>who else ordered the same pages (<i>Also ordered</i>), and how many of your pages that bills.</li>
+<li><b>What</b>: <i>The whole trial (4 days)</i>, a list of days, or <i>part of 6/4/2026</i> for some pages. Change
+it there: the whole trial, only the day shown, or <i>Some days or pages…</i> (<a href="topic:exc-table">Excerpts…</a>).</li>
+<li><b>Speed</b>, by name. Firms that ordered the same pages are each billed one speed: while none is chosen for a
+firm, it is the Speed of the forms at the top of the card (<i>Expedite</i>), and that is what is billed. A firm
+ordering alone shows <i>They choose: Regular or Expedite</i>: its invoice lists each speed offered. Choose a speed
+in the row and it is the firm's for every day of the trial; <i>Several (set in Excerpts…)</i> when its days or
+pages differ.</li>
+<li><b>Pages</b>: how many of its pages are billed: on a transcript of several reporters only yours; <i>0 of 40: no
+invoice</i> when none of them are; <i>(typed)</i> when it is the Pages field's number.</li>
 </ul>
+<p>The line under the table says who orders what at which speed, then what Generate all bills: the days invoiced
+already (✓), those unticked in the job list, a day nobody ordered (no invoice for the case until someone does) and
+a day waiting for a choice.</p>
 <p>Firms that ordered the same pages split the original and the judge's index; each pays its own copies and index.
-A day nobody is ticked on says in amber that no invoice is made for the case until you tick who ordered it.</p>
-<p><b>Excerpts…</b>, or a double-click on a row, opens <a href="topic:exc-table">Excerpts…</a> for that day. The
-<b>?</b> beside the card explains the rows.</p>
+Generate bills the speeds shown without asking. Settings → Invoice → <i>Firms ordering the same pages</i>: <i>Ask me
+each firm's speed at Generate</i> asks first, one line per firm for the whole trial.</p>
 """),
     T("inv-several-days", INVOICE, "Several days of one case: one invoice, one agreement",
       "trial several days multiple days joint invoice one invoice per attorney whole case mofr generate all",
       """
 <p>When you generate the days of a case together with <b>Generate all</b>, each ordering attorney gets <b>one
-invoice</b> for all its days, billed only for the days it is ticked on, and only for the pages it ordered.</p>
+invoice</b> for all its days, billed only for the days it ordered, and only for the pages it ordered. A firm ticked
+in Who ordered orders every day (<a href="topic:check-attorneys">more</a>).</p>
 <p>The <b>minute agreements and the MOFR are made once</b> for those days too: one agreement per attorney, listing
 only the days it ordered, and one MOFR listing every day. The estimated delivery date is the latest of them. A trial
 of 4 days ordered by 4 firms makes 4 invoices, 4 agreements, one MOFR and a run sheet, when all four outputs are
@@ -622,6 +650,7 @@ new documents for it make it billable again.</li>
 makes them all. Each button's tooltip lists the files it makes.</li>
 <li>Settings → Invoice → <i>Days of one case</i>: <i>An invoice for each day</i>. Settings → Options →
 <i>Minute agreements and MOFRs: one for the whole case</i>: untick for forms for each day.</li>
+<li>Opened again from Records, a trial comes back with who ordered each day, as it was made.</li>
 </ul>
 <p>A day that still waits for a choice: <a href="topic:inv-undecided">A day not decided yet</a>.</p>
 """),
@@ -629,7 +658,7 @@ makes them all. Each button's tooltip lists the files it makes.</li>
       "not invoiced",
       """
 <p>When Generate all includes a day whose invoice waits for a choice (Excerpts… to check, Whose pages… to answer,
-or a firm's speed to change in Who ordered what), or a case with a day nobody is ticked on, it says which
+or a firm's speed to change in Who ordered), or a case with a day nobody is ticked on, it says which
 first:</p>
 <ul>
 <li><b>Go back and decide</b> (the default) makes nothing and shows the first day to decide;</li>
@@ -751,10 +780,11 @@ $207.50.</p>
 <p>When firms order the same pages, each one <b>commits to a speed</b> and is billed that speed alone. Only a firm
 ordering by itself gets the invoice that lists every speed to choose from.</p>
 <ul>
-<li>Set each firm's speed in the <b>Speed</b> column of <a href="topic:inv-who-ordered">Who ordered what</a>, or,
-for one run, by right-clicking the firm's box in Excerpts… (<i>Dana Smith on this run at… ▸</i>). The boxes above the
-Excerpts table set the speed of all a firm's pages.</li>
-<li>When one isn't set, Generate asks <i>Which speed did each firm order?</i> before anything is made.</li>
+<li>Each firm's speed is in its row of <a href="topic:inv-who-ordered">Who ordered</a>, by name: the forms' speed
+while none is chosen. Choose another there, or, for one run, by right-clicking the firm's box in Excerpts…
+(<i>Dana Smith on this run at… ▸</i>). The boxes above the Excerpts table set the speed of all a firm's pages.</li>
+<li>Generate bills the speeds shown. With Settings → Invoice → <i>Firms ordering the same pages</i> set to ask, it
+asks <i>Which speed did each firm order?</i> first, one line per firm for the whole trial.</li>
 </ul>
 <p>At different speeds, the one original is divided as Settings → Invoice → <b>Split invoices</b> says. By
 default, it is billed at the <b>fastest</b> speed ordered. Each slower firm pays its share as if every firm had
@@ -1028,7 +1058,7 @@ hour the next day, then the next business day: made Friday at 6 PM, dated Monday
       """
 <p>Prices come from rate sheets: small CSV files you can edit in Excel. Open their folder with <b>File → Open rate
 sheets folder</b> (it is <code>%APPDATA%\\YinItAgreementForm\\Rate Sheets</code>, or a folder you choose in
-Settings → Defaults). Pick one from the <i>Rate sheet</i> dropdown under <i>Speed, pages and dates</i>.</p>
+Settings → Defaults). Pick one from the <i>Rate sheet</i> dropdown under <i>Pages and dates</i>.</p>
 <p>To add one, for example city rates:</p>
 <ol>
 <li>copy <i>Rate Sheet TEMPLATE.csv</i>;</li>
@@ -1170,7 +1200,7 @@ of its own, left unticked.</li>
 <p>Each job has a row: its case, date, <i>Day</i> (the day of the week), <i>Pages</i> (the transcript's own, without
 the word index) and <i>Yours</i> (the pages with your initials at the foot of the page; <b>?</b> until it can tell).
 Hover over a job for its full name, index number and documents.</p>
-<p><b>The ticks say which jobs count.</b> Every card on the right (Who ordered what, Who pays what, Who transcribed
+<p><b>The ticks say which jobs count.</b> Every card on the right (Who ordered, Who pays what, Who transcribed
 what; the Excerpts window, the ticked days of the shown day's invoice) shows every ticked job, whichever one is
 shown, and Generate all makes them (not those made already, but for the invoice of a made day still to bill).
 Untick a job
@@ -1267,6 +1297,8 @@ sheet has no Days column (<a href="topic:dates-turnaround">more</a>).</li>
 in the Outputs box. <b>MOFR case</b>: Civil or Criminal. <i>Include the instructions page (UCS form page 2)</i>.</li>
 <li><i>Batches: put all days of the same case on one form</i> and <i>Minute agreements and MOFRs: one for the whole
 case (every day on its invoice)</i> (<a href="topic:inv-several-days">more</a>).</li>
+<li><b>A firm you tick orders</b>: <i>The whole trial (days added later too)</i>, or <i>Only the day shown</i>
+(<a href="topic:check-attorneys">more</a>).</li>
 <li><b>Folders</b>: <i>Save to</i>, <i>A folder for each case, inside Save to</i>, <i>Case folder name</i>, <i>If
 it's already there</i>, and a folder for each kind of file (<a href="topic:make-folders">more</a>).</li>
 <li><b>File name</b> and <b>MOFR file name</b> (<a href="topic:make-file-names">more</a>).</li>
@@ -1298,6 +1330,8 @@ turnaround from</i> (<a href="topic:dates-turnaround">more</a>).</li>
       """
 <ul>
 <li><b>Speeds offered</b> and <b>Agreement form speed</b> (<a href="topic:inv-speeds">more</a>).</li>
+<li><b>Firms ordering the same pages</b>: <i>Bill the speed each firm's row shows</i>, or <i>Ask me each firm's speed
+at Generate</i> (<a href="topic:inv-who-ordered">more</a>).</li>
 <li><b>Granular detail shows</b>: <i>Page count</i>, <i>Pages for each day</i>, <i>Price per page</i>, <i>The charges
 in each amount</i>, <i>The split between parties</i>; and <i>Also save a detailed copy of each invoice</i>
 (<a href="topic:inv-granular">more</a>).</li>

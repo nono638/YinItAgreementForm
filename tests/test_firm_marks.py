@@ -127,8 +127,8 @@ def test_the_colours_are_the_sides_and_never_the_amber_of_a_field_to_check(qt):
 
 
 def test_the_window_marks_each_firm_in_its_tables(qt, tmp_path, monkeypatch, make_window):
-    """The attorney table and Who ordered what: each firm's tag beside its name and a stripe of its colour at the
-    name's left edge, no shade behind it; Who pays what: its tag and a stripe."""
+    """Who ordered's table: each firm's tag beside its name and a stripe of its colour at the name's left edge, no
+    shade behind it; Who pays what: its tag and a stripe."""
     from PySide6.QtCore import Qt
     from minute_filler.gui.badges import STRIPE_ROLE, StripeDelegate
     from helpers import pat_settings
@@ -148,9 +148,5 @@ def test_the_window_marks_each_firm_in_its_tables(qt, tmp_path, monkeypatch, mak
     assert all(stripes) and stripes[0] != stripes[1]
     assert all(win.att.item(r, c).background().style() == Qt.NoBrush for r in (0, 1) for c in (1, 2))
     assert isinstance(win.att.itemDelegateForColumn(1), StripeDelegate)
-    assert isinstance(win.orders.itemDelegateForColumn(1), StripeDelegate)
-    names = {win.orders.item(r, 1).text(): win.orders.item(r, 1) for r in range(win.orders.rowCount())}
-    assert not names["Dana Smith"].icon().isNull() and not names["Alex B. Counsel"].icon().isNull()
-    assert names["Dana Smith"].data(STRIPE_ROLE) == stripes[0] and names["Dana Smith"].background().style() == Qt.NoBrush
     assert "&nbsp;1&nbsp;" in win.pays.text() and "&nbsp;A&nbsp;" in win.pays.text()
     assert f"bgcolor='{stripes[0]}'" in win.pays.text()

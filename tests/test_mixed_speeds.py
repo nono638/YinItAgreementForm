@@ -400,17 +400,18 @@ def one_day(win, qt, tmp_path) -> Job:
 
 
 def speed_box(win, name):
-    """The "Who ordered what" card's Speed box of this attorney's row."""
-    from minute_filler.gui.main_window import ORDER_SPEED
-    row = next(r for r in range(win.orders.rowCount()) if win.orders.item(r, 1).text() == name)
-    return win.orders.cellWidget(row, ORDER_SPEED)
+    """Who ordered's Speed box of this attorney's row."""
+    from minute_filler.gui.main_window import ATT_SPEED
+    row = next(r for r in range(win.att.rowCount()) if win.att.item(r, 1).text() == name)
+    return win.att.cellWidget(row, ATT_SPEED)
 
 
 def test_the_card_s_speed_box_sets_a_firm_s_speed(window, qt, tmp_path):
     job = one_day(window, qt, tmp_path)
     box = speed_box(window, "Alex B. Counsel")
-    # (it shares pages with Smith Law: it commits to a speed, so "Chooses on the invoice" isn't offered)
-    assert box.currentText() == "Speed? (Generate asks)" and box.findData("") == -1
+    # (it shares pages with Smith Law: it commits to a speed, the forms' while none is chosen, named; "They
+    # choose" isn't offered)
+    assert box.currentText() == "Expedite" and box.findData("") == -1
     box.setCurrentIndex(box.findData("Daily"))
     box.activated.emit(box.currentIndex())
     wait(window, qt, lambda: speed_box(window, "Alex B. Counsel") is not box)  # (the card is filled again)
@@ -420,8 +421,22 @@ def test_the_card_s_speed_box_sets_a_firm_s_speed(window, qt, tmp_path):
     assert "the fastest pay the rest. Each firm also pays" in window.pays.text()  # (one full stop between them)
 
 
+def test_generate_bills_the_speeds_shown_without_asking(window, qt, tmp_path, monkeypatch):
+    """Settings.split_speeds "shown" (the default; the user, 2026-10-24): the firms of a split order are billed the
+    speed their rows show, the forms' (Expedite), and nothing is asked."""
+    from minute_filler.gui.dialogs import SplitSpeedsDialog
+    job = one_day(window, qt, tmp_path)
+    assert speed_box(window, "Alex B. Counsel").currentText() == speed_box(window, "Dana Smith").currentText() \
+        == "Expedite"
+    monkeypatch.setattr(SplitSpeedsDialog, "exec", lambda dlg: pytest.fail("asked"))
+    window.fill()
+    wait(window, qt, lambda: job.saved)
+    assert job.speeds == {A: "Expedite", B: "Expedite"}
+
+
 def test_generate_asks_the_speeds_of_a_split_order_first(window, qt, tmp_path, monkeypatch):
     from minute_filler.gui.dialogs import SplitSpeedsDialog
+    window.s.split_speeds = "ask"  # (Settings -> Invoice: ask me each firm's speed at Generate)
     job = one_day(window, qt, tmp_path)
     seen = []
 

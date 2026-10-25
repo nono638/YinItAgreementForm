@@ -295,6 +295,7 @@ def window(tmp_path, monkeypatch, make_window, qt):
     s.outputs = ["agreement", "invoice"]
     s.save_math = "off"
     s.invoice_include_index = False
+    s.split_speeds = "ask"  # (these test Generate's question of the speeds: Settings -> Invoice, ask me)
     return make_window(s)
 
 
@@ -334,9 +335,10 @@ def one_day(win, qt, tmp_path, attorneys) -> Job:
 
 
 def speed_box(win, name):
-    from minute_filler.gui.main_window import ORDER_SPEED
-    row = next(r for r in range(win.orders.rowCount()) if win.orders.item(r, 1).text() == name)
-    return win.orders.cellWidget(row, ORDER_SPEED)
+    """Who ordered's Speed box of this attorney's row."""
+    from minute_filler.gui.main_window import ATT_SPEED
+    row = next(r for r in range(win.att.rowCount()) if win.att.item(r, 1).text() == name)
+    return win.att.cellWidget(row, ATT_SPEED)
 
 
 def test_a_day_held_for_three_speeds_is_said_not_crashed(window, qt, tmp_path, monkeypatch):

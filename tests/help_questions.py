@@ -132,4 +132,8 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("why is one of the jobs grey", ("batch-job-list",)),
     ("where did the invoice options go", ("inv-panel", "make-outputs")),
     ("list of everything i still need to fix", ("check-status",)),
+    # who ordered, what and at what speed in one card (2026-10-24)
+    ("the defense ordered every day of the trial", ("check-attorneys", "inv-who-ordered")),
+    ("one firm only wants the second day", ("check-attorneys", "inv-who-ordered", "exc-table")),
+    ("stop asking me the speed for each firm when i generate", ("inv-who-ordered", "set-invoice", "exc-speeds")),
 ]

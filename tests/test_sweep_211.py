@@ -130,9 +130,9 @@ def test_the_reason_an_invoice_is_held_is_the_same_everywhere(window, qt):
 
 
 def test_the_attorney_tables_tags_follow_an_edit(window, qt, tmp_path):
-    """Smith Law's party typed as Defendant: its tag in the attorney table turns to the defense's, as in Who
-    ordered what (it kept the plaintiff's until the job was shown again); a row that names nobody loses its tag."""
-    from minute_filler.gui.badges import STRIPE_ROLE
+    """Smith Law's party typed as Defendant: its tag in the attorney table turns to the defense's, as the trial's
+    marks say (it kept the plaintiff's until the job was shown again); a row that names nobody loses its tag."""
+    from minute_filler.gui.badges import STRIPE_ROLE, tag_color
     from minute_filler.gui.main_window import ATT_FIELDS
     pl = dict(party="Plaintiff", checked=True)
     one_day(window, qt, tmp_path, [Attorney(name="Alex B. Counsel", firm="Counsel & Counsel", **pl),
@@ -141,25 +141,22 @@ def test_the_attorney_tables_tags_follow_an_edit(window, qt, tmp_path):
     row = next(r for r in range(window.att.rowCount()) if window.att.item(r, 2).text() == "Smith Law")
     before = window.att.item(row, 1).data(STRIPE_ROLE)
     window.att.item(row, ATT_FIELDS.index("party")).setText("Defendant")
-    orders = {window.orders.item(r, 1).text(): window.orders.item(r, 1).data(STRIPE_ROLE)
-              for r in range(window.orders.rowCount()) if window.orders.item(r, 1)}
     now = window.att.item(row, 1).data(STRIPE_ROLE)
-    assert now != before and now == orders["Dana Smith"]
+    assert now != before and now == tag_color(window._marks(window.cur)[B]).name()
     window.att.item(row, ATT_FIELDS.index("firm")).setText("")
     window.att.item(row, ATT_FIELDS.index("name")).setText("")
     assert window.att.item(row, 1).data(STRIPE_ROLE) is None and window.att.item(row, 1).icon().isNull()
 
 
 def test_the_firm_tags_follow_the_zoom(window, qt, tmp_path):
-    """At 140 % the firms' tags in the attorney table and in Who ordered what are drawn at the zoomed size, and
-    both tables make room for them."""
+    """At 140 % the firms' tags in Who ordered's table are drawn at the zoomed size, and it makes room for them."""
     from minute_filler.gui.badges import TAG_HEIGHT, badge_size
     from minute_filler.gui.zoom import z
     one_day(window, qt, tmp_path, [counsel(), smith()])
     try:
         window.set_zoom(1.4)
         want = QSize(*badge_size(z(TAG_HEIGHT)))
-        assert window.att.iconSize() == want and window.orders.iconSize() == want
+        assert window.att.iconSize() == want
         assert window.att.item(0, 1).icon().availableSizes() == [want]
     finally:
         window.set_zoom(1.0)
@@ -207,6 +204,7 @@ def test_the_speeds_question_tags_each_trials_firms_as_that_trial_does(window, q
                         [Attorney(name="Kim Park", firm="Park PLLC", party="Plaintiff", checked=True),
                          Attorney(name="Dana Smith", firm="Smith Law", party="Defendant", checked=True)])
     window.jobs = [j1, j2]
+    window.s.split_speeds = "ask"  # (Settings -> Invoice: ask me each firm's speed at Generate)
     asks = [SpeedAsk(j1, B, "Dana Smith", "", "Daily"), SpeedAsk(j2, B, "Dana Smith", "", "Daily")]
     monkeypatch.setattr(batch, "speeds_to_ask", lambda jobs, s: asks)
     seen = {}

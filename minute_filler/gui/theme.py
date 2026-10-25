@@ -155,6 +155,7 @@ QTreeView { show-decoration-selected: 1; }
 QTreeView::item { padding: 3px 2px; }
 QListWidget::indicator, QTableView::indicator, QTreeView::indicator { width: 15px; height: 15px; border: 1px solid {input_border}; border-radius: 4px; background: {input}; }
 QListWidget::indicator:checked, QTableView::indicator:checked, QTreeView::indicator:checked { background: {accent}; border: 1px solid {accent}; image: url(CHECK_ICON); }
+QTableView::indicator:indeterminate { background: {accent}; border: 1px solid {accent}; image: url(DASH_ICON); }
 QListWidget::item:selected, QTableWidget::item:selected, QTreeView::item:selected { background: {sel}; color: {text}; }
 QHeaderView::section { background: {header_bg}; border: none; border-bottom: 1px solid {border}; padding: 5px; color: {muted}; font-weight: 600; }
 QTabWidget::pane { border: 1px solid {border}; border-radius: 8px; background: {card}; top: -1px; }
@@ -183,15 +184,19 @@ QToolTip { background: {card}; color: {text}; border: 1px solid {border}; paddin
 
 _CHECK_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" '
               'fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+# a box half ticked (Who ordered: a firm ordering some days of a trial only): a dash, as Windows draws it
+_DASH_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M4 8h8" fill="none" '
+             'stroke="white" stroke-width="2" stroke-linecap="round"/></svg>')
 
 
-def _check_icon_path() -> str:
-    """Writes the tick-mark SVG to the settings folder once and returns its path with forward slashes.
-    A Qt style sheet can only load an image from a file, and url() wants "/" even on Windows."""
+def _check_icon_path(name: str = "check.svg", svg: str = _CHECK_SVG) -> str:
+    """Writes the tick-mark SVG (or another: the dash of a box half ticked) to the settings folder once and returns
+    its path with forward slashes. A Qt style sheet can only load an image from a file, and url() wants "/" even
+    on Windows."""
     from ..settings import settings_dir
-    p = settings_dir() / "check.svg"
+    p = settings_dir() / name
     if not p.exists():
-        p.write_text(_CHECK_SVG, encoding="utf-8")
+        p.write_text(svg, encoding="utf-8")
     return p.as_posix()
 
 
@@ -215,7 +220,7 @@ def apply_theme(app, theme: str) -> dict:
     qss = scale_qss(QSS, zoom())
     for k, v in tokens.items():
         qss = qss.replace("{" + k + "}", v)
-    qss = qss.replace("CHECK_ICON", _check_icon_path())
+    qss = qss.replace("CHECK_ICON", _check_icon_path()).replace("DASH_ICON", _check_icon_path("dash.svg", _DASH_SVG))
     pal = QPalette()
     pal.setColor(QPalette.Window, QColor(tokens["bg"]))
     pal.setColor(QPalette.Base, QColor(tokens["input"]))

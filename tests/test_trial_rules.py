@@ -173,7 +173,7 @@ def test_parties_not_named_on_pages_at_different_speeds_hold_the_invoice(s):
     job = unnamed_day()
     assert job.unnamed_problem() == job.invoice_hold() == (
         "Parties says 3, but 2 firms are named and they ordered different speeds, so what the other party pays "
-        "can't be worked out: tick it in the attorney table and set its speed in Who ordered what, or set Parties to 2")
+        "can't be worked out: tick it in Who ordered and set its speed in its row, or set Parties to 2")
     assert "the other 2 parties pay" in unnamed_day(4).unnamed_problem()
     assert unnamed_day(2).unnamed_problem() == "" and unnamed_day(0).unnamed_problem() == ""
     assert unnamed_day(3, ("Daily", "Daily")).unnamed_problem() == ""
@@ -290,7 +290,7 @@ def test_one_invoice_without_shared_speeds_saves_as_before(s, qt, tmp_path):
 
 
 def test_the_speeds_offered_are_soft_locked_once_who_ordered_what_has_speeds(window, qt, tmp_path, monkeypatch):
-    """A speed chosen in Who ordered what greys out the Speeds offered under the rate sheet; a click asks first
+    """A speed chosen in Who ordered greys out the Speeds offered beside the Speed; a click asks first
     (the user, 2026-10-21): No puts the box back and changes nothing, Yes changes it and stops asking for this
     job."""
     job = one_day(window, qt, tmp_path, [counsel(), smith()])
@@ -306,7 +306,7 @@ def test_the_speeds_offered_are_soft_locked_once_who_ordered_what_has_speeds(win
     name, cb = next((n, b) for n, b in boxes.items() if not b.isChecked())
     before = list(window.s.invoice_speeds)
     cb.click()
-    assert asked == ["Speeds chosen in Who ordered what"] and not cb.isChecked()
+    assert asked == ["Speeds chosen in Who ordered"] and not cb.isChecked()
     assert window.s.invoice_speeds == before
     answer[0] = qt.QMessageBox.Yes
     cb.click()

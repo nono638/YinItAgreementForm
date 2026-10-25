@@ -170,14 +170,16 @@ def test_going_back_from_the_speed_question_makes_nothing(window, monkeypatch):
 
 
 def test_the_speeds_offered_are_the_invoices_and_the_card_is_the_forms(window):
-    """The card that names the form's speed is "Speed, pages and dates" (it was "Order", then "Minute agreement
-    form details"), and the speeds the invoice offers are ticked there too, under the rate sheet (the user,
-    2026-10-22: they were in the Invoice panel of the Outputs box, apart from the Speed), usable while Invoice is
-    unticked, as the form names one of them; the Invoice card is hidden then."""
+    """The form's speed is chosen in Who ordered (it was "Order", then "Minute agreement form details", then
+    "Speed, pages and dates": the user, 2026-10-24, who ordered, what and at what speed in one place), and the
+    speeds the invoice offers are ticked there too, beside it (the user, 2026-10-22: they were in the Invoice
+    panel of the Outputs box, apart from the Speed), usable while Invoice is unticked, as the form names one of
+    them; the Invoice card is hidden then."""
     from PySide6.QtWidgets import QLabel
     titles = [w.text() for w in window.findChildren(QLabel) if w.objectName() == "section"]
-    assert "Speed, pages and dates" in titles and "Order" not in titles
-    assert all(window.cards["details"].isAncestorOf(cb) for cb in window.inv_speed_boxes.values())
+    assert "Who ordered" in titles and "Pages and dates" in titles and "Speed, pages and dates" not in titles
+    assert window.cards["attorneys"].isAncestorOf(window.delivery)
+    assert all(window.cards["attorneys"].isAncestorOf(cb) for cb in window.inv_speed_boxes.values())
     window.output_boxes["invoice"].setChecked(False)
     assert not window.output_opts["invoice"].isEnabled() and window.cards["invoice"].isHidden()
     assert all(cb.isEnabled() for cb in window.inv_speed_boxes.values())

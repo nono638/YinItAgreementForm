@@ -23,6 +23,7 @@ from .. import __version__, courthouses
 from ..models import Attorney, FIELD_LABELS
 from ..settings import (AGREEMENT_FALLBACKS, AI_TICKS, CASE_FOLDER_EXISTING, CASE_FOLDER_PATTERN, DETAIL_ITEMS,
                         INDEX_RULES, INDEX_SHARED, MATH_SAVES, OUTPUT_FOLDERS, OUTPUTS, ROUNDINGS, RUNSHEET_WITNESS,
+                        SPLIT_SPEEDS, TRIAL_ORDERS,
                         SPEEDS, TURNAROUND_FROM, ReporterProfile,
                         TEXT_PLACEHOLDERS, TEXT_PLACES, TEXT_WHEN, Settings, clean_folder_pattern,
                         default_invoice_texts, reporter_key)
@@ -220,6 +221,17 @@ class SettingsDialog(QDialog):
             "\"Generate 6/4/2026 only\" (the day shown) always makes that day's forms alone.")
         self.o_per_case.setChecked(settings.forms_per_case)
         f.addRow("", self.o_per_case)
+        # what a tick in Who ordered means in a trial (batch.spread_orders; the user, 2026-10-24: the whole trial,
+        # most often, "though this should be customizable")
+        self.o_trial = QComboBox()
+        for key, label in TRIAL_ORDERS.items():
+            self.o_trial.addItem(label, key)
+        self.o_trial.setCurrentIndex(max(0, self.o_trial.findData(settings.trial_orders)))
+        self.o_trial.setToolTip(
+            "A trial (days of one case): a firm you tick in Who ordered orders every day of it, days you drop in\n"
+            "later too, at one speed; What in its row makes it one day, or some days or pages (Excerpts…).\n"
+            "Only the day shown: each day is ticked on its own.")
+        f.addRow("A firm you tick orders", self.o_trial)
         self._folders(f, settings)
         self.o_pattern = QLineEdit(settings.filename_pattern)
         self.o_pattern.setToolTip("Placeholders:\n{case}  {index}  {attorney}\n"
@@ -293,7 +305,7 @@ class SettingsDialog(QDialog):
         speeds.addStretch(1)
         f.addRow("Speeds offered", speeds)
         hint = QLabel("The attorney chooses one. With one ticked the invoice bills that speed alone. "
-                      "The same boxes are under the rate sheet in the main window (Speed, pages and dates).")
+                      "The same boxes are in the main window's Who ordered card, beside the Speed.")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         f.addRow("", hint)
@@ -324,6 +336,16 @@ class SettingsDialog(QDialog):
         self.i_first.currentIndexChanged.connect(self._show_agreement_speed)
         self.i_fallback.currentIndexChanged.connect(self._show_agreement_speed)
         self._show_agreement_speed()
+        # firms ordering the same pages commit to a speed: billed what Who ordered shows, or asked at Generate
+        self.i_split_speeds = QComboBox()
+        for key, label in SPLIT_SPEEDS.items():
+            self.i_split_speeds.addItem(label, key)
+        self.i_split_speeds.setCurrentIndex(max(0, self.i_split_speeds.findData(settings.split_speeds)))
+        self.i_split_speeds.setToolTip(
+            "Firms that ordered the same pages are each billed one speed. Who ordered names it in each firm's row\n"
+            "(the agreement form's speed, unless you choose another there). Bill it: Generate asks nothing.\n"
+            "Ask me: Generate asks each firm's speed first, one line per firm for the whole trial.")
+        f.addRow("Firms ordering the same pages", self.i_split_speeds)
         shows = QGridLayout()
         shows.setHorizontalSpacing(16)
         shows.setVerticalSpacing(6)
@@ -700,8 +722,8 @@ class SettingsDialog(QDialog):
             " (the fastest offered)" if trial.agreement_speed_fallback == "fastest" else
             " (the slowest offered: the most turnaround days)")
         self.i_agreement_note.setText(
-            f"With {ticked} ticked, every agreement form says {pick}{why}. A speed you choose for one job under "
-            "Speed, pages and dates comes first; when an e-mail asks for another speed, you are asked which.")
+            f"With {ticked} ticked, every agreement form says {pick}{why}. A speed you choose in Who ordered "
+            "comes first; when an e-mail asks for another speed, you are asked which.")
 
     def _pick_sheet_dir(self):
         """Lets the user choose another rate sheets folder and reloads the sheet list from it."""
@@ -1151,6 +1173,8 @@ class SettingsDialog(QDialog):
         s.include_instructions = self.o_instr.isChecked()
         s.batch_combine_dates = self.o_combine.isChecked()
         s.forms_per_case = self.o_per_case.isChecked()
+        s.trial_orders = self.o_trial.currentData() or s.trial_orders
+        s.split_speeds = self.i_split_speeds.currentData() or s.split_speeds
         s.output_dir, s.filename_pattern = self.o_dir.text().strip(), self.o_pattern.text().strip() or s.filename_pattern
         s.theme = self.o_theme.currentText()
         s.zoom = self.o_zoom.value() / 100
@@ -1515,7 +1539,7 @@ class SplitSpeedsDialog(QDialog):
                 head.setFont(font)
                 grid.addWidget(head, r, 0, 1, 4)
                 r += 1
-            for c, text in enumerate((a.job.case.get("dates") or "(no date)", a.name,
+            for c, text in enumerate((a.days or a.job.case.get("dates") or "(no date)", a.name,
                                       a.shared_with or "(its speed on its other pages)")):
                 lab = QLabel(text)
                 lab.setTextFormat(Qt.PlainText)
@@ -1539,8 +1563,9 @@ class SplitSpeedsDialog(QDialog):
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(2, 2)
         lay.addLayout(grid)
-        lay.addWidget(_tip("The speeds are kept with each day: change them later in the \"Who ordered what\" card "
-                           "or in the Excerpts window."))
+        lay.addWidget(_tip("The speeds are kept with each day: change them later in the Who ordered card, or in "
+                           "the Excerpts window. Settings → Invoice can bill the speeds Who ordered shows without "
+                           "asking."))
         buttons = QDialogButtonBox()
         buttons.addButton(f"{button} with these speeds", QDialogButtonBox.AcceptRole)
         buttons.addButton("Go back", QDialogButtonBox.RejectRole)

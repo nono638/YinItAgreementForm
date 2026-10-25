@@ -41,15 +41,15 @@ def agreement(win, ag: QFormLayout) -> None:
     win.ag_speed = QLabel("")  # the speed and rate the forms name (MainWindow._form_speed_text)
     win.ag_speed.setObjectName("muted")
     win.ag_speed.setToolTip("The speed and rate per page the minute agreement forms name (the MOFR names the\n"
-                            "speed too): set under Speed, pages and dates → Speed. A firm whose speed\n"
-                            "is set in Who ordered what gets its own, and the MOFR ticks every speed ordered.")
+                            "speed too): set under Who ordered → Speed. A firm whose speed is set in\n"
+                            "its row there gets its own, and the MOFR ticks every speed ordered.")
     ag.addRow("Speed:", win.ag_speed)
 
 
 def invoice(win, inv: QFormLayout) -> None:
-    """The Invoice card's rows (this job's invoice): parties and Excerpts..., whose pages are billed, what it
-    includes (Peripherals...), granular detail, the prices and the math. (The speeds it offers are under the rate
-    sheet, in the window's Speed, pages and dates card.)"""
+    """The Invoice card's rows (this job's invoice): parties, whose pages are billed, what it includes
+    (Peripherals...), granular detail, the prices and the math. (The speeds it offers, and Excerpts..., are in the
+    window's Who ordered card.)"""
     win.inv_parties = QSpinBox()
     win.inv_parties.setRange(1, 20)
     win.inv_parties.setToolTip(PARTIES_TIP.format(**_who_splits(win.s)))
@@ -57,9 +57,6 @@ def invoice(win, inv: QFormLayout) -> None:
     parties = QHBoxLayout()
     parties.setSpacing(8)
     parties.addWidget(win.inv_parties)
-    win.inv_who = QPushButton("Excerpts…")
-    win.inv_who.clicked.connect(lambda: win._who_ordered())
-    parties.addWidget(win.inv_who)
     parties.addStretch(1)
     inv.addRow("Parties:", parties)
     # a transcript of several reporters: whose pages are billed (shown only for such a transcript)

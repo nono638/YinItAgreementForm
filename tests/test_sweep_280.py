@@ -254,8 +254,10 @@ def test_a_detail_box_only_clicked_into_keeps_what_the_ai_found(window):
 
 
 def test_a_detail_box_keeps_nothing_of_another_job(window, tmp_path):
-    """Another job shown under a box with the focus: the box showed (and then wrote) the first job's firm."""
+    """Another job shown under a box with the focus: the box showed (and then wrote) the first job's firm. (Day by
+    day: in a trial, a firm's details typed on one day are every day's, as one row is the firm's for the trial.)"""
     from PySide6.QtTest import QTest
+    window.s.trial_orders = "day"
     on_screen(window)
     a = transcript_pdf(tmp_path / "Roe 6-3.pdf")
     b = transcript_pdf(tmp_path / "Roe 6-4.pdf", date="June 4, 2026")

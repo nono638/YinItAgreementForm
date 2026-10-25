@@ -13,6 +13,7 @@ from minute_filler.batch import (ShownSpeed, _date_key, expand_paths, fill_jobs,
                                  order_firm, order_of, pin_orders, read_docs, set_firm_speed, settle_split_speeds,
                                  speed_shown, spread_orders, tick_firm, trials)
 from minute_filler.deliver import ledger_for
+from minute_filler.excerpts import Run, case_days, firms_of, store
 from minute_filler.invoice import default_speed
 from minute_filler.models import Attorney
 
@@ -137,6 +138,19 @@ def test_an_invoiced_day_stays_as_it_was_billed(s, trial):
     assert not any(j.ticked_keys() for j in trial[1:])
 
 
+def test_an_untick_is_the_whole_trial(tmp_path, s, trial):
+    """A firm unticked in Who ordered orders none of the trial, and no day says it doesn't: a day read later isn't
+    ordered by it, and a tick later is the whole trial again."""
+    counsel = key_of(trial[0], "Counsel")
+    tick_firm(trial, counsel, True, s, shown=trial[0])
+    tick_firm(trial, counsel, False, s, shown=trial[2])
+    assert not any(j.ticked_keys() for j in trial) and not any(j.not_ordered for j in trial)
+    jobs = days_of(group(read_days(tmp_path, s, {"October 5, 2026": 25}, name="later"), s, trial))
+    assert not jobs[-1].ticked_keys()
+    tick_firm(jobs, counsel, True, s, shown=jobs[1])
+    assert all(j.ticked_keys() == [counsel] for j in jobs)
+
+
 def test_a_tick_read_on_one_day_is_the_whole_trial(s, trial):
     """A firm a document ticks on one day (the sender of an e-mail about that day) orders the whole trial."""
     counsel = key_of(trial[2], "Counsel")
@@ -173,6 +187,20 @@ def test_a_firm_unticked_on_a_day_in_excerpts_stays_off_it(tmp_path, s, trial):
     assert not jobs[-1].ticked_keys()
     tick_firm(jobs, counsel, True, s, shown=jobs[0])  # ticked again in Who ordered: the whole trial again
     assert all(j.ticked_keys() == [counsel] for j in jobs) and not any(j.not_ordered & {counsel} for j in jobs)
+
+
+def test_a_day_kept_in_excerpts_says_who_it_leaves_out(s, trial):
+    """A day kept in Excerpts... (excerpts.store): a firm of the trial ordering none of its pages doesn't order
+    the day, so it isn't spread back to it; ordering its pages again, it does."""
+    counsel, advocate = key_of(trial[0], "Counsel"), key_of(trial[0], "Advocate")
+    tick_firm(trial, counsel, True, s, shown=trial[0])
+    tick_firm(trial, advocate, True, s, shown=trial[0])
+    day, firms = next(d for d in case_days(trial) if d.job is trial[1]), firms_of(trial)
+    store(day, [Run(day, 1, day.pages, [counsel])], firms, s)
+    assert trial[1].not_ordered == {advocate}
+    assert not spread_orders(trial, s) and trial[1].ticked_keys() == [counsel]
+    store(day, [Run(day, 1, day.pages, [counsel, advocate])], firms, s)
+    assert not trial[1].not_ordered and order_of(trial, advocate).kind == "whole"
 
 
 def test_part_of_a_day(s, trial):
@@ -222,3 +250,10 @@ def test_the_records_keep_who_orders_some_days_only(s, trial):
     assert origin["job"]["not_ordered"] == [advocate]
     assert job_from_origin(origin, s).not_ordered == {advocate}
     assert "not_ordered" not in job_origin(trial[2])["job"]  # (none: the record is as it always was)
+
+
+def test_a_firm_renamed_keeps_the_days_it_doesnt_order(s, trial):
+    advocate = key_of(trial[0], "Advocate")
+    order_firm(trial, advocate, False, shown=trial[2])
+    trial[0].rename_in_portions(advocate, "advocate partners")
+    assert trial[0].not_ordered == {"advocate partners"}

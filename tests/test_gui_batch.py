@@ -472,8 +472,8 @@ def test_days_invoiced_together_dont_say_no_invoice_yet(window, tmp_path, monkey
 def test_days_generate_all_made_stay_in_every_card(window, tmp_path, monkeypatch):
     """The user, 2026-10-23: with two days of a trial invoiced, Who ordered what and Who pays what showed the day
     shown alone, Who transcribed what both. Generate all leaves the days it made ticked, so every card still shows
-    them both, as the one invoice that billed them (a ✓ on their dates), whichever is shown; pressed again it
-    makes nothing."""
+    them both, as the one invoice that billed them (Who ordered says they are invoiced, with a ✓), whichever is
+    shown; pressed again it makes nothing."""
     from minute_filler.gui import dialogs
     monkeypatch.setattr(dialogs.ClarifyDialog, "exec", lambda self: 0)  # (not expected; never waits)
     window.output_boxes["agreement"].setChecked(False)
@@ -486,10 +486,7 @@ def test_days_generate_all_made_stay_in_every_card(window, tmp_path, monkeypatch
     assert all(j.include and j.made for j in window.jobs) and window._to_generate() == []
     window.job_list.setCurrentItem(window._job_item(second))
     assert window.cur is second
-    t = window.orders
-    assert {t.item(r, 0).text() for r in range(t.rowCount())} == {"6/3/2026 ✓", "6/4/2026 ✓"}
-    assert window.orders_info.text().startswith(
-        "Invoiced already (✓): 6/3/2026, 6/4/2026. Generate all won't bill them again")
+    assert "Invoiced already (✓): 6/3/2026, 6/4/2026. Generate all won't bill them again" in         window.orders_info.text()
     assert window.pays.text().startswith("Invoiced already ✓") and "for these 2 days" in window.pays.text()
     assert window.inv_info.text().startswith("Invoiced already ✓: one invoice for 2 days (90 pp.)")
     assert len({r.day for r in window._take_rows}) == 2
@@ -510,8 +507,7 @@ def test_a_day_invoiced_and_one_to_bill_are_two_invoices_in_the_cards(window, tm
     assert text.count("How these amounts are worked out") == 1
     assert window.fill_all_btn.text().startswith("Generate the 1 day left  (")
     assert window._invoice_group(second) == [second] and window._invoice_group(first) == [first]
-    days = {window.orders.item(r, 0).text() for r in range(window.orders.rowCount())}
-    assert days == {"6/3/2026 ✓", "6/4/2026"}
+    assert "Invoiced already (✓): 6/3/2026. Generate all won't bill it again" in window.orders_info.text()
 
 
 def test_the_price_line_says_what_generate_all_bills(window, tmp_path, monkeypatch):

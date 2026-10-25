@@ -1,8 +1,9 @@
 """Who ordered what, spelled out: Job.order_lines gives a line per day and attorney with the pages it ordered
 (every page, or which excerpt), who shares them and how many of the user's pages that bills; an attorney not
-ticked on a day and a day still waiting for a choice say so. The window shows them in the "Who ordered what"
-card, and Generate all warns before billing a case with a day not decided. The invoices the days ticked come to
-(batch.bill_sets), and every card following the job list's ticks, not the day shown. All names are made up."""
+ticked on a day and a day still waiting for a choice say so. The window's Who ordered card says it per firm (its
+row's What, Speed and Pages, and the line under the table: _show_orders), and Generate all warns before billing a
+case with a day not decided. The invoices the days ticked come to (batch.bill_sets), and every card following the
+job list's ticks, not the day shown. All names are made up."""
 import os
 import time
 
@@ -14,7 +15,6 @@ from minute_filler.models import Attorney
 from helpers import pat_settings, transcript_pdf
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-ALSO, BILLED = 5, 6  # the card's "Also ordered" and "Your pages billed" columns (main_window.ORDER_COLS)
 
 
 def alex():
@@ -125,41 +125,38 @@ def wait(win, until, seconds=20):
 
 
 def two_days(window, tmp_path):
-    """Two days of Roe v. X.Y.: Alex on both, Dana on the first only, with an excerpt."""
+    """Two days of Roe v. X.Y.: Alex on both, Dana on the first only (as Who ordered's What or Excerpts... say it:
+    Job.not_ordered), with an excerpt."""
     window.add_files([str(transcript_pdf(tmp_path / "a.pdf", pages=30, date="June 3, 2026")),
                       str(transcript_pdf(tmp_path / "b.pdf", pages=20, date="June 4, 2026"))])
     wait(window, lambda: len(window.jobs) == 2 and all(j.docs for j in window.jobs))
     first, second = sorted(window.jobs, key=lambda j: j.case.get("dates"))
     first.case.attorneys, second.case.attorneys = [alex(), dana()], [alex()]
     first.portions = [(10, [A, B]), (30, [A])]
+    second.not_ordered = {B}
     window.job_list.setCurrentItem(window.job_list.topLevelItem(window.jobs.index(first)))
     window._show_job()  # the editor shows these attorneys (else the next look at it takes them back)
     return first, second
 
 
-def test_the_card_lists_every_attorney_of_every_day(window, tmp_path):
+def test_who_ordered_says_what_each_firm_orders_of_the_trial(window, tmp_path):
+    """A row per firm of the trial, whichever day is shown: Alex orders the whole trial (ticked), Dana part of the
+    first day (half ticked), both at the forms' speed (they share pages 1-10), and what each is billed; the line
+    under the table says it in words. Shown on the second day, Dana (not named that day) is a row too."""
+    from PySide6.QtCore import Qt
+    from minute_filler.gui.main_window import _VISITOR
     first, second = two_days(window, tmp_path)
-    assert not window.orders_card.isHidden()
-    from minute_filler.gui.main_window import ORDER_COLS
-    assert ORDER_COLS.index("Also ordered") == ALSO and ORDER_COLS.index("Your pages billed") == BILLED
     rows = rows_of(window)
-    assert rows[0][:3] == ["6/3/2026", "Alex B. Counsel", "every page, 1–30"]
-    assert rows[0][ALSO].startswith("Dana Smith (1–10)")
-    assert rows[1][:3] == ["6/3/2026", "Dana Smith", "excerpt: 1–10 of 30"] and rows[1][BILLED] == "10"
-    assert rows[2][1:3] == ["Alex B. Counsel", "every page, 1–20"] and rows[2][ALSO] == "nobody (alone)"
-    assert rows[3][1] == "Dana Smith" and rows[3][2].startswith("not ticked on this day")
-    window.output_boxes["invoice"].setChecked(False)  # no invoice: no card
-    assert window.orders_card.isHidden()
-
-
-def test_the_last_column_keeps_its_heading_however_narrow_the_card(window, tmp_path):
-    """Squeezed into what was left of a narrow card, "Your pages billed" showed no heading (the user's screenshot,
-    2026-10-21): it is as wide as its heading at least."""
-    two_days(window, tmp_path)
-    t = window.orders
-    window.resize(500, window.height())
-    window._show_orders()
-    assert t.columnWidth(BILLED) >= t.horizontalHeader().sectionSizeHint(BILLED)
+    assert rows["Alex B. Counsel"] == (Qt.Checked, "The whole trial (2 days)", "Expedite", "50")
+    assert rows["Dana Smith"] == (Qt.PartiallyChecked, "Part of 6/3/2026", "Expedite", "10")
+    info = window.orders_info.text()
+    assert info.startswith("Alex B. Counsel: the whole trial (2 days), at Expedite.  Dana Smith: part of 6/3/2026, "
+                           "at Expedite.  Generate all bills these 2 days")
+    window.job_list.setCurrentItem(window._job_item(second))
+    assert window.cur is second and rows_of(window) == rows
+    dana_row = next(r for r in range(window.att.rowCount()) if window.att.item(r, 1).text() == "Dana Smith")
+    assert window.att.item(dana_row, 0).data(_VISITOR) and window.att.item(dana_row, 1).font().italic()
+    assert [a.name for a in window._read_attorneys()] == ["Alex B. Counsel"]  # (not a row of this day's)
 
 
 def test_generate_all_warns_about_a_day_not_decided(window, tmp_path, monkeypatch):
@@ -225,9 +222,15 @@ def test_a_typed_page_count_is_marked(tmp_path, s):
 
 
 def rows_of(window):
-    """The text of every cell of the "Who ordered what" card, row by row."""
-    t = window.orders
-    return [[t.item(r, c).text() for c in range(t.columnCount())] for r in range(t.rowCount())]
+    """Who ordered's rows by name: (its tick's state, What, Speed, Pages)."""
+    from minute_filler.gui.main_window import ATT_PAGES, ATT_SPEED, ATT_WHAT
+    t = window.att
+    out = {}
+    for r in range(t.rowCount()):
+        what, speed, pages = t.cellWidget(r, ATT_WHAT), t.cellWidget(r, ATT_SPEED), t.item(r, ATT_PAGES)
+        out[t.item(r, 1).text()] = (t.item(r, 0).checkState(), what.currentText() if what else "",
+                                    speed.currentText() if speed else "", pages.text() if pages else "")
+    return out
 
 
 def one_day(window, tmp_path, pages=30, initials=None, attorneys=None, name="a.pdf"):
@@ -240,29 +243,26 @@ def one_day(window, tmp_path, pages=30, initials=None, attorneys=None, name="a.p
     return window.cur
 
 
-def test_the_card_says_a_day_nobody_ticked_holds_the_case(window, tmp_path):
-    from minute_filler.gui.main_window import NOBODY_DAY
+def test_the_line_says_a_day_nobody_ticked_holds_the_case(window, tmp_path):
+    from PySide6.QtCore import Qt
     first, second = two_days(window, tmp_path)
     second.case.attorneys = [Attorney(name="Alex B. Counsel", firm="Counsel & Counsel", checked=False)]
+    second.not_ordered = {A, B}  # (as Excerpts... says when every firm is unticked on the day)
     window._update_status()
-    rows = rows_of(window)
-    assert [r[:3] for r in rows if r[0] == "6/4/2026"] == [["6/4/2026", "(nobody ticked)", NOBODY_DAY]]
-    assert window.orders_info.text().startswith("⚠ No invoice for these 2 days of the case yet: nobody is ticked")
-    assert all("no invoice yet" in r[BILLED] for r in rows if r[0] == "6/3/2026")  # nothing billed as it stands
+    assert rows_of(window)["Alex B. Counsel"][:2] == (Qt.PartiallyChecked, "6/3/2026")  # (the first day only)
+    assert "⚠ No invoice for these 2 days of the case yet: nobody is ticked on 6/4/2026" in window.orders_info.text()
 
 
-def test_the_card_never_shows_an_empty_table(window, tmp_path):
+def test_a_day_with_no_pages_to_bill_says_none(window, tmp_path):
     one_day(window, tmp_path)
     window.rows["est_pages"].choose("0")
-    rows = rows_of(window)
-    assert len(rows) == 1 and rows[0][2] == "⚠ the Pages field says 0: no invoice for this job"
+    assert rows_of(window)["Alex B. Counsel"][3] == "0 (typed)"
 
 
 def test_a_typed_page_count_says_it_is_what_is_billed(window, tmp_path):
     one_day(window, tmp_path, pages=100)
     window.rows["est_pages"].choose("40")
-    rows = rows_of(window)
-    assert rows[0][2] == "every page (Pages field typed: 40 billed)" and rows[0][BILLED] == "40"
+    assert rows_of(window)["Alex B. Counsel"][3] == "40 (typed)"
 
 
 def test_an_excerpt_of_none_of_my_pages_says_it_gets_no_invoice(window, tmp_path):
@@ -270,60 +270,30 @@ def test_an_excerpt_of_none_of_my_pages_says_it_gets_no_invoice(window, tmp_path
     job.portions = [(4, [A, B]), (10, [A])]  # Dana Smith ordered pages 1-4: the other reporter's
     window._update_status()
     rows = rows_of(window)
-    assert rows[0][BILLED] == "6"
-    assert rows[1][1] == "Dana Smith" and rows[1][BILLED] == "0 (no invoice: none of these pages are yours)"
+    assert rows["Alex B. Counsel"][3] == "6 of 10" and rows["Dana Smith"][3] == "0 of 4: no invoice"
 
 
 def test_a_day_waiting_for_whose_pages_opens_whose_pages(window, tmp_path, monkeypatch):
-    """The card's button and a click on its row both open Whose pages..., not the Excerpts window."""
+    """Who ordered's button opens Whose pages..., not the Excerpts window, while that holds the invoice."""
     import minute_filler.gui.main_window as mw
     one_day(window, tmp_path, pages=8, initials=["ds"] * 8, attorneys=[])  # nobody ticked, none of it Pat's
-    rows = rows_of(window)
-    assert len(rows) == 1 and rows[0][1] == "(nobody ticked)" and rows[0][2].startswith("⚠ Whose pages…")
     assert window.orders_edit.text() == "⚠ Whose pages…"
+    assert window.orders_info.text().startswith("⚠ No invoice yet for 6/3/2026:")
     opened = []
     monkeypatch.setattr(mw.MainWindow, "_whose_pages", lambda self, job, reason="": opened.append("whose"))
     monkeypatch.setattr(mw.MainWindow, "_who_ordered", lambda self: opened.append("excerpts"))
     window.orders_edit.click()
-    window._order_row_clicked(window.orders.item(0, 0))
-    assert opened == ["whose", "whose"]
+    assert opened == ["whose"]
 
 
 def test_unticking_a_day_in_the_job_list_updates_the_card(window, tmp_path):
     from PySide6.QtCore import Qt
     first, second = two_days(window, tmp_path)
-    assert {r[0] for r in rows_of(window)} == {"6/3/2026", "6/4/2026"}
+    assert rows_of(window)["Alex B. Counsel"][1] == "The whole trial (2 days)"
     window.job_list.topLevelItem(window.jobs.index(second)).setCheckState(0, Qt.Unchecked)
-    assert not second.include and {r[0] for r in rows_of(window)} == {"6/3/2026"}
-    assert window.orders_info.text() == "Unticked, so left out: 6/4/2026."
-    window.job_list.topLevelItem(window.jobs.index(first)).setCheckState(0, Qt.Unchecked)  # the day shown: left out
-    info = window.orders_info.text()
-    assert rows_of(window) == [] and window.orders.isHidden()  # (nothing ticked: no table, the line says so)
-    assert info == ("Unticked, so left out: 6/3/2026, 6/4/2026.  "
-                    "Nothing ticked in the job list: tick the days to see them here.")
-    assert "Your pages billed" in window.orders_help.toolTip()  # (how the rows are billed: the ? beside it)
-
-
-def test_every_row_of_the_card_can_be_seen_in_a_narrow_window(window, tmp_path):
-    from PySide6 import QtWidgets
-    from minute_filler.gui.zoom import z
-    name = "Jane Roe v. X.Y. Holding Corporation - trial, morning and afternoon sessions - 6-3-2026.pdf"
-    one_day(window, tmp_path, pages=8, initials=["ds"] * 8, name=name)  # held: a long reason on each row
-    window.show()
-    window.resize(700, 900)
-    for _ in range(5):
-        QtWidgets.QApplication.processEvents()
-    t = window.orders
-    assert t.rowCount() == 2 and all(t.columnWidth(c) <= z(320) for c in range(2, 5))
-    assert t.viewport().height() >= sum(t.rowHeight(r) for r in range(t.rowCount()))
-    window.hide()
-
-
-def test_the_card_follows_the_zoom(window, tmp_path):
-    first, second = two_days(window, tmp_path)
-    height = window.orders.rowHeight(0)
-    window.set_zoom(1.5)
-    assert window.orders.rowHeight(0) > height
+    assert not second.include and rows_of(window)["Alex B. Counsel"][1:] == ("The whole day", "Expedite", "30")
+    assert window.orders_info.text().endswith("Unticked, so left out: 6/4/2026.")
+    assert "Pages counts the pages billed" in window.orders_help.toolTip()  # (how they are billed: the ? beside it)
 
 
 def run_now(self, fn, *args, on_done=None, on_error=None, on_progress=None, **kwargs):
@@ -417,10 +387,10 @@ def test_every_card_follows_the_ticks_not_the_day_shown(window, tmp_path):
     from PySide6.QtCore import Qt
     first, second = two_days(window, tmp_path)
     window.job_list.setCurrentItem(window._job_item(second))
-    assert window.cur is second and {r[0] for r in rows_of(window)} == {"6/3/2026", "6/4/2026"}
+    assert window.cur is second and rows_of(window)["Alex B. Counsel"][1] == "The whole trial (2 days)"
     assert "for these 2 days" in window.pays.text() and window.takes_info.text().startswith("These 2 days")
     assert window._excerpt_group() == [first, second]
     window._job_item(first).setCheckState(0, Qt.Unchecked)
-    assert {r[0] for r in rows_of(window)} == {"6/4/2026"}
+    assert rows_of(window)["Alex B. Counsel"][1] == "The whole day"
     assert "for these 2 days" not in window.pays.text() and window.takes_info.text().startswith("This day")
     assert window._excerpt_group() == [second]

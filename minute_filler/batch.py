@@ -304,7 +304,8 @@ class Job:
     portions: list | None = None
     # The speed each firm ordered this day's pages at, by Attorney.key() (the rate sheet's name: "Daily"); missing =
     # not set: a firm billed alone chooses from its invoice, and the firms of a split order are asked at Generate
-    # (speeds_needed). Set in the "Who ordered what" card, the Excerpts window or Generate's question.
+    # (speeds_needed). Set in the Who ordered card (for every day of the trial), the Excerpts window or
+    # Generate's question.
     speeds: dict = field(default_factory=dict)
     # The firms (Attorney.key()) the user said did NOT order this day of their trial ("Only 6/3/2026" in Who
     # ordered, a firm unticked on this day in Excerpts...): with Settings.trial_orders "trial", a firm ticked on a
@@ -726,8 +727,8 @@ class Job:
         """A Parties number above the firms ticked, while those firms ordered the day at different speeds ("" when
         not): the parties not named have no speed, so what each firm pays of the one original can't be worked out
         (the user, 2026-10-21: the reporter decides, not the app). "Parties says 3, but 2 firms are named and they
-        ordered different speeds, so what the other party pays can't be worked out: tick it in the attorney table
-        and set its speed in Who ordered what, or set Parties to 2". A day split under Excerpts... counts the firms
+        ordered different speeds, so what the other party pays can't be worked out: tick it in Who ordered and
+        set its speed in its row, or set Parties to 2". A day split under Excerpts... counts the firms
         that ordered, not Parties, so it never has this problem."""
         if not self.parties or self.valid_portions() is not None:
             return ""
@@ -740,8 +741,9 @@ class Job:
         more = self.parties - len(keys)
         who = "the other party pays" if more == 1 else f"the other {more} parties pay"
         return (f"Parties says {self.parties}, but {len(keys)} firms are named and they ordered different speeds, so "
-                f"what {who} can't be worked out: tick {'it' if more == 1 else 'them'} in the attorney table and set "
-                f"{'its' if more == 1 else 'their'} speed in Who ordered what, or set Parties to {len(keys)}")
+                f"what {who} can't be worked out: tick {'it' if more == 1 else 'them'} in Who ordered and set "
+                f"{'its' if more == 1 else 'their'} speed in {'its row' if more == 1 else 'their rows'}, or set "
+                f"Parties to {len(keys)}")
 
     def invoice_pages(self) -> int:
         """The pages to bill: the Pages field when typed in (with a transcript or without one: a caption page
@@ -1190,7 +1192,7 @@ class Job:
         self.portions[row] = portion_row(r[0], r[1], own)
 
     def order_lines(self, attorneys: list[Attorney] | None = None) -> list[OrderLine]:
-        """Who orders what, spelled out for the window's "Who ordered what" card: a line per day and attorney,
+        """Who orders what, spelled out (for batch.order_of, the window's Who ordered card): a line per day and attorney,
         with the stretches of pages it ordered (whole day or an excerpt), who shares each of them, and how many
         billed pages that is (see day_mask). attorneys: also give a line ("orders nothing") to these when they
         are not ticked on the day (the other days' attorneys of a joint invoice). While the invoice is held
@@ -1339,7 +1341,7 @@ class FormPolicy(OutputPolicy):
     def problems(job: Job) -> list[str]:
         out = list(job.problems())
         if job.speed_question():  # (the speed they name)
-            out.append(f"{job.speed_question()}: choose the speed (Speed, pages and dates)")
+            out.append(f"{job.speed_question()}: choose the speed (Who ordered → Speed)")
         return out
 
 
@@ -1391,7 +1393,7 @@ def output_policy(key: str) -> type[OutputPolicy]:
 
 @dataclass
 class OrderLine:
-    """One attorney's order of one day, as the "Who ordered what" card shows it (see Job.order_lines). spans:
+    """One attorney's order of one day, as Who ordered counts it (see Job.order_lines, order_of). spans:
     the stretches of the day's pages it ordered, counted from 1 over every page of the day's transcripts
     ([(20, 40)]); whole: every page of the day; shared: the other attorneys who ordered some of the same
     pages, and which; billed: the billed pages among them (what its invoice counts); pages: the day's pages;
@@ -1473,11 +1475,51 @@ def page_fixes(docs: list[Doc]) -> dict:
 
 def joint_origin(days: list[Job], **more) -> dict:
     """The record of a file made for several days at once (their run sheet, the trial's forms, a joint invoice):
-    their documents (opened again, they are read a job per day: MainWindow.open_past_job), `more`, and the takes
-    corrected in them (page_fixes; left out when none was, so the record is as it always was)."""
+    their documents (opened again, they are read a job per day: MainWindow.open_past_job), `more`, the takes
+    corrected in them (page_fixes; left out when none was) and who ordered each day (trial_orders: opened again,
+    the days come back with it, put_back_orders)."""
     fixes = page_fixes([d for j in days for d in j.docs])
     return {"sources": [d.path for j in days for d in j.docs if d.path], "joint": True, **more,
-            **({"page_fixes": fixes} if fixes else {})}
+            **({"page_fixes": fixes} if fixes else {}), "orders": trial_orders(days)}
+
+
+def trial_orders(days: list[Job]) -> list[dict]:
+    """Who ordered each of these days (a trial's), as the record of a file made for them keeps it (joint_origin's
+    "orders"), so a trial opened again comes back with who ordered (put_back_orders): each day's dates, its
+    attorneys as they were (ticks included), the firms it says don't order it (Job.not_ordered) and the speeds."""
+    return [{"dates": j.case.get("dates"), "attorneys": [a.to_dict() for a in j.case.attorneys],
+             "not_ordered": sorted(j.not_ordered), "speeds": dict(j.speeds)} for j in days]
+
+
+def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
+    """Who ordered each day of a trial opened again, as its record kept it (trial_orders, in origin["orders"]):
+    each of `jobs` (read again from the record's documents, a job per day) whose dates a day of it has gets that
+    day's attorneys and ticks (the user's, Job.att_touched), the firms it doesn't order and the speeds; No. of copies
+    follows. An invoiced day is left as it is. Returns the jobs changed; anything not as expected is left out."""
+    rows = origin.get("orders")
+    if not isinstance(rows, list):
+        return []
+    known = set(Attorney.__dataclass_fields__)
+    changed: list[Job] = []
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("dates"), str) or not row["dates"]:
+            continue
+        job = next((j for j in jobs if j.case.get("dates") == row["dates"] and not j.invoiced), None)
+        if job is None:
+            continue
+        atts = [Attorney(**{k: v for k, v in a.items() if k in known and k != "checked" and isinstance(v, str)},
+                         checked=a.get("checked") is True)
+                for a in row.get("attorneys") or [] if isinstance(a, dict)]
+        if atts:
+            job.case.attorneys = atts
+            job.att_touched = True
+        if isinstance(row.get("not_ordered"), list):
+            job.not_ordered = {k for k in row["not_ordered"] if isinstance(k, str) and k}
+        if isinstance(row.get("speeds"), dict):
+            job.speeds = {k: v for k, v in row["speeds"].items() if isinstance(k, str) and isinstance(v, str) and v}
+        job.refresh_copies(s)
+        changed.append(job)
+    return changed
 
 
 def origin_fixes(origin: dict) -> dict[str, dict[int, str]]:
@@ -1770,7 +1812,7 @@ def remerge(job: Job, s: Settings) -> None:
             if k not in current and home is not None and home.key() != k:
                 job.rename_in_portions(k, home.key())
     else:
-        # the rows are the documents' again: a speed set for a firm (Who ordered what, Generate's question) follows
+        # the rows are the documents' again: a speed set for a firm (Who ordered, Generate's question) follows
         # it when a document renames it ("Dana Smith" of "Smith Law" now), else it is lost
         current = {b.key() for b in new.attorneys}
         for a in prev.attorneys:
@@ -2105,13 +2147,15 @@ class SpeedAsk:
     """A firm whose speed Generate asks for on a day (speeds_to_ask): the day's job, the firm (Attorney.key() and
     its name), who it ordered pages with ("Smith Law"; "" for a firm that ordered these pages alone, asked as its
     other pages have a speed or are asked about), the speed the question starts from, and the firm's row (to find
-    it again should a document rename it while the question is on screen)."""
+    it again should a document rename it while the question is on screen). days: the days the question is for,
+    when it is one for several days of the trial ("All 4 days", "6/3/2026, 6/4/2026"; "" = the job's)."""
     job: Job
     key: str
     name: str
     shared_with: str
     speed: str
     attorney: Attorney | None = None
+    days: str = ""
 
 
 def speeds_to_ask(jobs: list[Job], s: Settings) -> list[SpeedAsk]:
@@ -2497,12 +2541,16 @@ def order_firm(days: list[Job], key: str, whole: bool, shown: Job | None = None)
 def tick_firm(days: list[Job], key: str, on: bool, s: Settings, shown: Job | None = None) -> None:
     """A firm ticked or unticked in Who ordered: with Settings.trial_orders "trial", for the whole trial (ticked on
     every day, as order_firm; unticked on every day not invoiced yet, none of them then saying it doesn't, so a
-    tick later is the whole trial again); with "day", on the day shown alone."""
+    tick later is the whole trial again); with "day", on the day shown alone (its row added, as another day has
+    it, when the day doesn't name the firm)."""
     if s.trial_orders != "trial" or len(days) < 2:
+        model = next((a for j in days for a in j.case.attorneys if a.key() == key), None)
         for j in [shown] if shown is not None else days:
-            for a in j.case.attorneys:
-                if a.key() == key:
-                    a.checked = on
+            rows = [a for a in j.case.attorneys if a.key() == key]
+            if on and not rows and model is not None:
+                j.case.attorneys.append(replace(model, checked=True))
+            for a in rows:
+                a.checked = on
             if on:
                 j.not_ordered.discard(key)
             j.att_touched = True

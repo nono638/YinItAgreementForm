@@ -31,14 +31,13 @@ def card_order(win) -> list[str]:
 
 
 def test_the_cards_follow_the_job_and_say_what_is_in_them(window):
-    """Who ordered first (Attorneys right under the case), then the speed, pages and dates; the invoice's cards
-    with what was ordered before what it costs, and the trial's report last."""
-    assert card_order(window) == ["case", "attorneys", "details", "invoice", "orders", "pays", "takes"]
+    """Who ordered first (right under the case: who, what and at what speed, in one card, the user, 2026-10-24),
+    then the pages and dates; the invoice's choices before what it costs, and the trial's report last."""
+    assert card_order(window) == ["case", "attorneys", "details", "invoice", "pays", "takes"]
     titles = {k: c.heading.text() for k, c in window.cards.items()}
-    assert titles == {"case": "Case", "attorneys": "Attorneys: tick who ordered", "details": "Speed, pages and dates",
-                      "invoice": "Invoice", "orders": "Who ordered what", "pays": "Who pays what",
-                      "takes": "Who transcribed what"}
-    assert window.orders_edit.text() == "Excerpts…"
+    assert titles == {"case": "Case", "attorneys": "Who ordered", "details": "Pages and dates", "invoice": "Invoice",
+                      "pays": "Who pays what", "takes": "Who transcribed what"}
+    assert window.orders_edit.text() == "Excerpts…" and window.cards["attorneys"].isAncestorOf(window.orders_edit)
 
 
 def test_a_badge_is_a_pill_only_for_a_value_to_look_at(window):
@@ -177,10 +176,12 @@ def test_before_you_generate_lists_everything_to_look_at_each_a_link_to_its_plac
 
 
 def test_another_day_nobody_is_ticked_on_is_said_on_the_day_shown(window, tmp_path):
-    """Day 2 shown, ticked, and day 1 not: the case gets no invoice, which the pill said only on day 1 ("Ready to
-    fill" on day 2); now day 2 says it too, and the link goes to day 1's attorneys."""
+    """Day by day (Settings -> Options -> Trials): day 2 shown, ticked, and day 1 not: the case gets no invoice,
+    which the pill said only on day 1 ("Ready to fill" on day 2); now day 2 says it too, and the link goes to day
+    1's attorneys. (A tick of the whole trial ticks day 1 too: test_trial_orders.)"""
     from PySide6.QtCore import Qt
     from test_gui_batch import two_days
+    window.s.trial_orders = "day"
     window.output_boxes["invoice"].setChecked(True)
     two_days(window, tmp_path)
     day1, day2 = window.jobs
@@ -195,25 +196,26 @@ def test_another_day_nobody_is_ticked_on_is_said_on_the_day_shown(window, tmp_pa
 
 
 def test_the_invoice_is_a_card_of_the_form_and_its_speeds_are_by_the_rate_sheet(window, qt, tmp_path):
-    """The invoice's choices for this job (Parties, Excerpts…, Whose pages…, Peripherals…, the prices) are a card
-    of the form, above Who ordered what and Who pays what, which they change; hidden while Invoice is unticked.
-    The speeds it offers are under the rate sheet, by the Speed the agreement names (the user, 2026-10-22: the speed
-    was chosen in places apart). Folded, it sums itself up."""
+    """The invoice's choices for this job (Parties, Whose pages…, Peripherals…, the prices) are a card of the
+    form, above Who pays what, which they change; hidden while Invoice is unticked. The speeds it offers are in Who
+    ordered, by the Speed the agreement names (the user, 2026-10-22: the speed was chosen in places apart).
+    Folded, it sums itself up."""
     from test_sweep_270 import counsel, one_day, smith
     card = window.cards["invoice"]
     assert card.isHidden()  # (nothing loaded)
     one_day(window, qt, tmp_path, [counsel(), smith()])
     window._update_status()
     assert not card.isHidden()
-    for w in (window.inv_parties, window.inv_who, window.inv_whose, window.inv_peripherals, window.inv_info,
+    assert window.inv_who is window.orders_edit and window.cards["attorneys"].isAncestorOf(window.inv_who)
+    for w in (window.inv_parties, window.inv_whose, window.inv_peripherals, window.inv_info,
               window.inv_detail):
         assert card.isAncestorOf(w) and not window.foot.isAncestorOf(w)
-    assert all(window.cards["details"].isAncestorOf(cb) for cb in window.inv_speed_boxes.values())
+    assert all(window.cards["attorneys"].isAncestorOf(cb) for cb in window.inv_speed_boxes.values())
     window._fold_card(card, True)
     assert window.cards["invoice"].summary.text().startswith("Parties 2")
     window._fold_card(card, False)
     window.output_boxes["invoice"].setChecked(False)
-    assert card.isHidden() and window.orders_card.isHidden() and window.pays_card.isHidden()
+    assert card.isHidden() and window.pays_card.isHidden()
     window.output_boxes["invoice"].setChecked(True)
     assert not card.isHidden()
 
