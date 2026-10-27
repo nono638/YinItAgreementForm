@@ -52,7 +52,9 @@ def badge_icon(mark: Mark, height: int = TAG_HEIGHT) -> QIcon:
     p.setBrush(colour)
     p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), h / 4, h / 4)
     p.end()
-    return QIcon(pix)
+    icon = QIcon(pix)
+    icon.addPixmap(pix, QIcon.Selected)  # (else Qt tints it on a selected row: orange read as brown)
+    return icon
 
 
 def badge_size(height: int = TAG_HEIGHT) -> tuple[int, int]:

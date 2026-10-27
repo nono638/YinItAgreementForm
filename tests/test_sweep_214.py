@@ -361,3 +361,13 @@ def test_the_square_has_a_lighter_edge_for_the_dark_theme(qt):
     img = badge_icon(navy, 14).pixmap(14, 14).toImage().convertToFormat(QImage.Format_ARGB32)
     assert img.pixelColor(7, 7).name() == tag_color(navy).name()
     assert img.pixelColor(7, 0).lightness() > tag_color(navy).lightness()
+
+
+def test_the_square_keeps_its_colour_on_a_selected_row(qt):
+    """Qt tints an icon on a selected row unless it is given one for that: the square's colour is all it says."""
+    from PySide6.QtGui import QIcon
+    from minute_filler.firm_marks import PLAINTIFF, Mark
+    from minute_filler.gui.badges import badge_icon, tag_color
+    orange = Mark(PLAINTIFF, 0)
+    selected = badge_icon(orange, 14).pixmap(14, 14, QIcon.Selected).toImage()
+    assert selected.pixelColor(7, 7).name() == tag_color(orange).name()
