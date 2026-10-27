@@ -290,7 +290,7 @@ def test_a_run_sheet_goes_in_the_cases_own_folder(tmp_path, s):
     docs, _ = read_docs([str(p) for p in sorted(folder.iterdir())], s)
     done = fill_jobs(group(docs, s), s, outputs=["runsheet"])
     case = tmp_path / "out" / "712345-2021"
-    assert [p.parent for p in done] == [case] and len(sheet_rows(done[0])) == 6
+    assert [p.parent for p in done] == [case / "Trial Runs"] and len(sheet_rows(done[0])) == 6
     assert not old_folder().exists()
     third = job_of(transcript(folder / "Transcript 6-5-2026 Roe v Poe.pdf", [(330, "pr", "", TITLE_1),
                                                                           (331, "ds", "", TALK)], day="June 5, 2026"), s)
@@ -303,7 +303,7 @@ def test_a_run_sheet_goes_in_the_cases_own_folder(tmp_path, s):
 
 def test_a_run_sheet_in_the_old_run_sheets_folder_is_still_added_to(tmp_path, s):
     """A trial whose run sheet an earlier version started in Documents\\YinIt Run Sheets keeps it: the next day's
-    takes go on it there, not on a new one in the case's folder."""
+    takes go on it there, not on a new one in the case's Trial Runs folder."""
     first = job_of(transcript(tmp_path / "Transcript 6-3-2026 Roe v Poe.pdf"), s)
     s.runsheet_dir = str(old_folder())  # (where it was kept)
     a = first.runsheet_opts(s)
@@ -315,6 +315,24 @@ def test_a_run_sheet_in_the_old_run_sheets_folder_is_still_added_to(tmp_path, s)
     generate(second.case, s, case_dir_for(second, s), ["runsheet"], runsheet=b)
     assert b.path == a.path and b.path.parent == old_folder() and not b.created and len(sheet_rows(a.path)) == 6
     assert not list(tmp_path.rglob("out/**/*.xlsx"))
+
+
+def test_a_run_sheet_in_the_case_folder_itself_is_still_added_to(tmp_path, s):
+    """A new run sheet goes in the case folder's Trial Runs folder (the user, 2026-10-26); one 2.13 saved in the
+    case's folder itself is still found there and gets the next day's takes, with no second one in Trial Runs."""
+    first = job_of(transcript(tmp_path / "Transcript 6-3-2026 Roe v Poe.pdf"), s)
+    case = case_dir_for(first, s)
+    s.runsheet_dir = str(case)  # (where 2.13 put it)
+    a = first.runsheet_opts(s)
+    add_takes(first.case, a, s, [])
+    assert a.path.parent == case
+    s.runsheet_dir = ""
+    second = job_of(transcript(tmp_path / "Transcript 6-4-2026 Roe v Poe.pdf", [(320, "ds", "", TITLE_1),
+                                                                             (321, "pr", "", TALK)], day="June 4, 2026"), s)
+    b = second.runsheet_opts(s)
+    generate(second.case, s, case_dir_for(second, s), ["runsheet"], runsheet=b)
+    assert b.path == a.path and not b.created and len(sheet_rows(a.path)) == 6
+    assert not (case / "Trial Runs").exists()
 
 
 def test_a_scan_gets_one_row(tmp_path, s):
@@ -485,7 +503,7 @@ def test_a_later_day_finds_the_trials_run_sheet_where_the_records_say(tmp_path, 
     one = job_of(transcript(tmp_path / "Day1" / "Transcript 6-3-2026 Roe v Poe.pdf"), s)
     a = one.runsheet_opts(s)
     generate(one.case, s, case_dir_for(one, s), ["runsheet"], runsheet=a)
-    assert a.path.parent == tmp_path / "Day1" / "712345-2021"
+    assert a.path.parent == tmp_path / "Day1" / "712345-2021" / "Trial Runs"
     two = job_of(transcript(tmp_path / "Day2" / "Transcript 6-4-2026 Roe v Poe.pdf",
                             [(320, "ds", "", TITLE_1), (321, "pr", "", TALK)], day="June 4, 2026"), s)
     assert case_dir_for(two, s) == tmp_path / "Day2" / "712345-2021" and recorded_folders(two.case, s) == [a.path.parent]

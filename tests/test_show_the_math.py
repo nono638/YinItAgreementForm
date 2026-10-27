@@ -1,11 +1,11 @@
 """Show the math: the window that spells out how the amounts of the invoices just made were reached, in tables
 (by invoice, or the firms side by side, the layout switched and kept; copied as text, saved as a PDF, turned
 off), the note under each invoice (the pages the user wrote, the index and why), the detailed copy of each
-invoice, and the math Generate saves as PDFs next to the invoices (Settings.save_math: each invoice's and one
-for all of them by default; not recorded, opened or printed; none made for the preview, whose tab shows the math;
-the choice under the math itself, and in Settings). Also the recap's jokes (April Fools, "But who's counting?"),
-the New Year yin-yang on the first day of the year the app is used, and "The math" as a tab
-of the preview before saving. All names and numbers are made up; prices are from the bundled "Sample Rates"
+invoice, and the math Generate saves as PDFs in the case's Math folder, or next to the invoices without one
+(Settings.save_math: each invoice's and one for all of them by default; not recorded, opened or printed; none
+made for the preview, whose tab shows the math; the choice under the math itself, and in Settings). Also the
+recap's jokes (April Fools, "But who's counting?"), the New Year yin-yang on the first day of the year the app
+is used, and "The math" as a tab of the preview before saving. All names and numbers are made up; prices are from the bundled "Sample Rates"
 sheet (Regular: original $4.30, copy, e-mailed copy and index $1.00 a page)."""
 import os
 from datetime import date, timedelta
@@ -741,8 +741,8 @@ def test_generate_says_what_it_saved_and_neither_opens_nor_prints_it(tmp_path, m
     win.s.open_after = True
     win.fill()
     saved = math_pdfs(win.cur.saved)
-    assert len(saved) == 1 and saved[0].parent == tmp_path / "out" / "712345-2021"  # (next to the invoice)
-    assert shown == [("This time: 1 PDF next to the invoices.", "both")]
+    assert len(saved) == 1 and saved[0].parent == tmp_path / "out" / "712345-2021" / "Math"  # (the case's)
+    assert shown == [("This time: 1 PDF in the case's Math folder.", "both")]
     assert opened and printed and not [n for n in opened + printed if "the math" in n]
     win.s.save_math = "off"
     win.fill()

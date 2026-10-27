@@ -22,7 +22,7 @@ a glance and OK. It can also copy it or save it as a PDF (everyone's, or only wh
 what" and its Invoice card open it too (live=True), on the invoices as they would be made now, with no numbers
 yet. Wherever the math is shown it is a MathView: tables in either layout, "By invoice" or "Firms side by
 side", with a switch between them that is remembered (Settings.math_layout), and under it MathSaves: which of
-the math Generate saves as PDFs with the invoices (Settings.save_math), changed there at once.
+the math Generate saves as PDFs when it makes the invoices (Settings.save_math), changed there at once.
 
 WelcomeDialog asks a new user the few things the forms can't do without.
 """
@@ -426,13 +426,14 @@ class PreviewDialog(QDialog):
 
 
 COPY_TIP = "Put all of it on the clipboard as text, a line for each charge, to paste into an e-mail"
-SAVES_TIP = ("Generate saves the math as PDFs next to the invoices, so it is there when someone asks later:\n"
+SAVES_TIP = ("Generate saves the math as PDFs in the case's Math folder (next to the invoices without a folder\n"
+             "for each case, or when the invoices have a folder of their own), so it is there when someone asks later:\n"
              "each firm's own (only what that firm owes, to send it) and one of everyone's (every firm's\n"
              "amounts, to look back at the job). Also in Settings → Invoice.")
 
 
 class MathSaves(QWidget):
-    """The row that says which of the math Generate saves with the invoices (Settings.save_math), with a list
+    """The row that says which of the math Generate saves as PDFs (Settings.save_math), with a list
     to change it; a change is saved at once, as the layout switch is. Shown with the math wherever it appears,
     so the reporter sees it is kept and can say otherwise there; the main window counts its files again once the
     math's window closes (MainWindow._math_saves_kept)."""
@@ -443,7 +444,7 @@ class MathSaves(QWidget):
         self.s = s
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        label = QLabel("Save the math with the invoices:")
+        label = QLabel("Generate saves the math:")
         label.setObjectName("muted")
         label.setToolTip(SAVES_TIP)
         self.choice = QComboBox()
@@ -465,10 +466,15 @@ class MathSaves(QWidget):
 
 
 def _saved_math_text(saved: list) -> str:
-    """What MathDialog says Generate saved of the math this time: "This time: 3 PDFs next to the invoices."."""
+    """What MathDialog says Generate saved of the math this time: "This time: 3 PDFs in the case's Math folder."
+    (Settings.folder_for "math"), or "... next to the invoices." (no folder for each case, or the invoices' own)."""
+    from ..settings import SUBFOLDERS
     if not saved:
         return "This time: not saved."
-    return f"This time: {'1 PDF' if len(saved) == 1 else f'{len(saved)} PDFs'} next to the invoices."
+    math = SUBFOLDERS.get("math", "")
+    where = (f"in the case's {math} folder" if math and Path(saved[0]).parent.name.casefold() == math.casefold()
+             else "next to the invoices")
+    return f"This time: {'1 PDF' if len(saved) == 1 else f'{len(saved)} PDFs'} {where}."
 
 
 class MathView(QWidget):
@@ -577,10 +583,10 @@ def math_view(made: list, heading: str, s: Settings | None = None) -> QWidget:
 class MathDialog(QDialog):
     """How the amounts of the invoices just made were reached, charge by charge, in tables (a MathView: by
     invoice, or the firms side by side). OK closes it; Copy all puts it on the clipboard; Save as PDF... saves
-    the layout shown (starting in `folder`, the invoices' folder): everyone's amounts, or, from its menu when
-    there are several firms, only what one firm owes (invoice_math.explain's one_firm, to send that firm: the
-    user, 2026-10-21); "Don't show this anymore" sets Settings.show_math off at once (and saves the settings).
-    Under the math, which of it Generate saves with the invoices (MathSaves) and, after a Generate, what it saved
+    the layout shown (starting in `folder`, where Generate saves the math: Settings.folder_for "math"):
+    everyone's amounts, or, from its menu when there are several firms, only what one firm owes
+    (invoice_math.explain's one_firm, to send that firm: the user, 2026-10-21); "Don't show this anymore" sets Settings.show_math off at once (and saves the settings).
+    Under the math, which of it Generate saves as PDFs (MathSaves) and, after a Generate, what it saved
     this time (`saved`, the PDFs). `live`: the invoices not made yet, as the main window's Who pays what card and
     the Invoice card's link show them (no numbers yet, and nothing to turn off)."""
 

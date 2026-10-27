@@ -296,7 +296,8 @@ them on.</p>
 """),
     T("check-attorneys", CHECK, "Who ordered: tick each firm that ordered",
       "attorney lawyer firm counsel who ordered tick party appearances address phone fax email details row whole "
-      "trial every day all days standing order half ticked only this day what speed pages",
+      "trial every day all days standing order half ticked only this day what speed pages colour color square "
+      "stripe side plaintiff defense",
       """
 <p>A transcript lists everyone who appeared, not who ordered: in the <b>Who ordered</b> card, <b>tick each firm that
 ordered</b>. Each one ticked gets a minute agreement and an invoice. The app ticks only the sender of an e-mail, the
@@ -322,10 +323,10 @@ represents. A firm is one party: one agreement and one invoice, however many of 
 another day names, but not the day shown, is in italics: tick it and it orders the day shown too.</p>
 <p>Click a row to see and change all its details under the table: address (one line per line), phone, fax and
 e-mail. In a trial they are the firm's on every day.</p>
-<p><b>Each firm has a tag</b>, as court exhibits do: the plaintiffs' firms <b>1</b>, <b>2</b>, <b>3</b> in oranges, the
-defense firms <b>A</b>, <b>B</b>, <b>C</b> in blues, any others <b>001</b>, <b>002</b>, with a thin stripe of its colour
-at the left of its name. A firm keeps its tag on every day of a trial, here, in Who pays what and Excerpts…, so you
-can tell the firms apart at a glance.</p>
+<p><b>Each firm has a colour</b>: a small square of it before the firm's name and a thin stripe of it at the
+left. The plaintiffs' firms get warm colours, the defense firms cool ones, any others grey or green; point at a
+firm's square here, or at its column's heading in Excerpts…, to see which side it is. A firm keeps its colour on
+every day of a trial, here, in Who pays what and Excerpts…, so you can tell the firms apart at a glance.</p>
 <p>To tick each day on its own instead, Settings → Options → <i>A firm you tick orders</i>: <i>Only the day
 shown</i>. Two rows that may be one firm are asked about (<a href="topic:check-same-firm">more</a>).</p>
 """),
@@ -433,10 +434,13 @@ workbook: print it from Excel.</p>
 <p>Later, print from <a href="topic:rec-overview">Records</a>: right-click → <i>Print 1 invoice…</i>.</p>
 """),
     T("make-folders", MAKE, "Where the files go: a folder for each case",
-      "folder save to location where saved case folder directory path already there add new beside",
+      "folder save to location where saved case folder directory path already there add new beside subfolder "
+      "invoices math trial runs minute agreements mofr",
       """
 <p>The PDFs and the case's run sheet are saved in a folder for the case, named by its index number ("712345-2021"),
-next to your document or inside the <i>Save to</i> folder chosen in Settings → Options → Folders.</p>
+next to your document or inside the <i>Save to</i> folder chosen in Settings → Options → Folders. Inside it, each
+kind of file has a folder of its own: <b>Minute Agreements</b>, <b>MOFR</b>, <b>Invoices</b> (with their detailed
+copies), <b>Math</b> (how the invoices were added up) and <b>Trial Runs</b> (the run sheet).</p>
 <ul>
 <li><b>Case folder name</b>: <code>{index}</code>, <code>{case}</code>, <code>{date}</code>, <code>{dates}</code>,
 <code>{court}</code>, <code>{county}</code>, <code>{part}</code>, <code>{judge}</code> and words of your own. The
@@ -446,7 +450,8 @@ characters Windows allows in no folder name can't be typed.</li>
 without asking.</li>
 <li>When your document already sits in a folder of that name, that folder is used: no "712345-2021" inside
 "712345-2021".</li>
-<li>Untick <i>A folder for each case, inside Save to</i> to save them all in one folder.</li>
+<li>Untick <i>A folder for each case, inside Save to</i> to save them all in one folder, with no folders
+inside it.</li>
 <li>Minute agreements, MOFRs, invoices and run sheets can each have <b>a folder of their own</b> (same place). An
 output with its own folder keeps it.</li>
 </ul>
@@ -717,9 +722,10 @@ $1.25 · $5.75 a page</i>).</p>
 <p>It is the first tab of the preview, and behind the links under Who pays what and in the Invoice card. With
 previews off it comes in a window after saving: <b>Copy all</b>, <b>Save as PDF…</b> (for an attorney who asks) or
 <b>Don't show this anymore</b> (Settings → Options → <i>Show the math of each invoice</i> turns it back on).</p>
-<p><b>Generate saves it</b> as PDFs next to the invoices: each firm's own ("… - the math.pdf", to send that
-firm), which shows only what that firm owes, and everyone's in one, every firm's amounts, to look back at the job.
-Which is saved (both, either or none) is chosen under the math itself and in Settings → Invoice → <i>Save the
+<p><b>Generate saves it</b> as PDFs in the case's <b>Math</b> folder (next to the invoices when you save
+without a folder for each case, or when the invoices have a folder of their own): each firm's own ("… - the
+math.pdf", to send that firm), which shows only what that firm owes, and everyone's in one, every firm's
+amounts, to look back at the job. Which is saved (both, either or none) is chosen under the math itself and in Settings → Invoice → <i>Save the
 math</i>. <b>Save as PDF…</b> in the math's window does the same: everyone's, or only one firm's.</p>
 """),
     T("inv-rounding", INVOICE, "Rounding", "rounding round cents fraction of a cent exact price a page by hand calculator",
@@ -1107,7 +1113,7 @@ such as Realtime, isn't, and neither is $0.00 (a charge not made at that speed).
     # --------------------------------------------------------------------------------------------------- Run sheet
     T("run-overview", RUNSHEET, "The run sheet of a shared trial",
       "run sheet takes shared trial reporters initials excel spreadsheet who wrote which pages by reporter witness "
-      "folder saved case folder",
+      "folder saved case folder witnesses tab sheets who ordered paid trial runs",
       """
 <p>When several reporters share a trial, each puts their initials at the foot of the pages they write. The run sheet
 keeps track of who wrote what: an Excel sheet with a row per take, with the date, weekday, reporter, the day's and
@@ -1119,10 +1125,21 @@ Run sheet can leave them blank).</p>
 and unticks when one did. Once you click it, it stays as you set it until New job.</li>
 <li>Title pages alone show as half a take (Note: <i>title page only</i>).</li>
 <li>The weekday, take counts and page numbers are formulas, so rows you type in are counted too. Filter the Reporter
-column for one reporter; the <b>By Reporter</b> sheet totals each reporter's takes and pages.</li>
+column for one reporter.</li>
 </ul>
-<p>Each case's run sheet is saved in the case's own folder, with its forms and invoices (a run sheet started
-in <i>Documents\\YinIt Run Sheets</i> by an earlier version is still found and added to there). To keep every run
+<p>Three more sheets help you look back at a trial:</p>
+<ul>
+<li><b>By Reporter</b>: each reporter's takes and pages, their share of the trial's pages, and the days they
+worked.</li>
+<li><b>Witnesses</b>: every running head the transcripts printed ("J. Doe - Plaintiff - Cross"), as printed, with
+the days, the reporters and the pages it was on: also the heads inside a take, not only the first and last.</li>
+<li><b>Who Ordered</b>: from your records, each invoice of the case (the firm, its side, the days, the speed, the
+number, the amount, and whether it is paid), and each firm with a minute agreement but no invoice yet. It is
+written again after Generate makes the invoices, so today's are on it too.</li>
+</ul>
+<p>Each case's run sheet is saved in the case's own folder, in its <b>Trial Runs</b> folder (a run sheet
+saved in the case's folder itself, or started in <i>Documents\\YinIt Run Sheets</i>, by an earlier version is still
+found and added to there). To keep every run
 sheet in one folder instead, choose one in Settings → Options → Folders. <i>Open the run sheet's folder</i>, under
 the Run sheet options, opens the folder of the case shown.</p>
 """),
@@ -1160,7 +1177,8 @@ initials; failing that, the initials are written.</li>
     T("run-one-per-trial", RUNSHEET, "One run sheet per trial: adding to it",
       "add to existing run sheet new run sheet ask open in excel close duplicate takes",
       """
-<p>Before adding, the app looks for the case's run sheet in the case's folder, next to the transcript and in
+<p>Before adding, the app looks for the case's run sheet in the case's folder (and its Trial Runs folder), next
+to the transcript and in
 <i>Documents\\YinIt Run Sheets</i> (where earlier versions kept them): the same index number, or the same case
 name. It then asks whether to add the takes to it or start a new one (the
 <i>If one exists</i> choice in the Run sheet column, or Settings → Run sheet → <i>When the case has one</i>).</p>
@@ -1379,7 +1397,8 @@ take's pages, as printed (<i>DIRECT - PLAINTIFF - JANE ROE</i>), or nothing, for
 <li><b>Invoices for</b> and <i>Invoice details…</i>: the name, address and payment details of each other reporter
 you make invoices for (<a href="topic:inv-reporters">more</a>).</li>
 </ul>
-<p>Run sheets are saved in each case's own folder, unless Options → Folders gives them one.</p>
+<p>Run sheets are saved in each case's own folder (its Trial Runs folder), unless Options → Folders gives them
+one.</p>
 """),
     T("set-ai", SETTINGS, "Settings → AI", "ai settings ollama model url timeout test connection use a local ai model",
       """

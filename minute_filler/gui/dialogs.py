@@ -272,7 +272,7 @@ class SettingsDialog(QDialog):
         self.o_math.setToolTip("How each amount is reached (pages × rate, the copies, the split between parties):\n"
                                "the preview's first tab, The math, or, with previews off, a window after saving\n"
                                "that can copy it or save it as a PDF. For Generate and Generate all.\n"
-                               "(Generate also saves it with the invoices: Invoice tab → Save the math.)")
+                               "(Generate also saves it as PDFs: Invoice tab → Save the math.)")
         self.o_math.setChecked(settings.show_math)
         f.addRow("Invoice math", self.o_math)
         self.o_updates = QCheckBox("Look for a newer version once a day")
@@ -366,10 +366,12 @@ class SettingsDialog(QDialog):
         for key, label in MATH_SAVES.items():
             self.i_save_math.addItem(label, key)
         self.i_save_math.setCurrentIndex(max(0, self.i_save_math.findData(settings.save_math)))
-        self.i_save_math.setToolTip("How each amount was reached, saved as PDFs next to the invoices when Generate "
-                                    "makes them:\neach firm's own (\"... - the math.pdf\", only what that firm owes, "
-                                    "to send it) and everyone's in one\n(every firm's amounts, to look back at the "
-                                    "job). The same choice is under the math itself, in the preview and its window.")
+        self.i_save_math.setToolTip("How each amount was reached, saved as PDFs when Generate makes the invoices:\n"
+                                    "each firm's own (\"... - the math.pdf\", only what that firm owes, to send it) "
+                                    "and everyone's in one\n(every firm's amounts, to look back at the job). They go "
+                                    "in the case's Math folder (next to the invoices\nwithout a folder for each case, "
+                                    "or when the invoices have a folder of their own).\nThe same choice is under the "
+                                    "math itself, in the preview and its window.")
         f.addRow("Save the math", self.i_save_math)
         self.i_email = QCheckBox("Each party also gets an e-mailed copy (Email column of the rate sheet)")
         self.i_email.setChecked(settings.invoice_include_email)
@@ -518,8 +520,9 @@ class SettingsDialog(QDialog):
         intro.setObjectName("muted")
         intro.setWordWrap(True)
         f.addRow(intro)
-        where = QLabel("Each case's run sheet is saved in the case's own folder, with its other files, unless "
-                       "Options → Folders gives run sheets a folder of their own.")
+        where = QLabel("Each case's run sheet is saved in the Trial Runs folder inside the case's own folder (in "
+                       "Save to itself without a folder for each case), unless Options → Folders gives run sheets "
+                       "a folder of their own.")
         where.setWordWrap(True)
         where.setObjectName("muted")
         f.addRow("Folder", where)
@@ -815,12 +818,15 @@ class SettingsDialog(QDialog):
         for key, label in OUTPUTS.items():
             e = QLineEdit(settings.output_dirs.get(key, ""))
             builtin = OUTPUT_FOLDERS.get(key)
-            e.setPlaceholderText(str(Settings().folder_for(key)) if builtin else "Same as Save to")
+            e.setPlaceholderText(str(Settings().folder_for(key)) if builtin
+                                 else "Save to, or its folder inside the case's")
             e.setToolTip(f"Where {label.lower()}s are saved. Blank = "
-                         + (f"{Settings().folder_for(key)}" if builtin else "the Save to folder above") + ".")
+                         + (f"{Settings().folder_for(key)}" if builtin
+                            else "the Save to folder above, or, with a folder for each case, its folder inside "
+                                 "the case's") + ".")
             self.o_dirs[key] = e
             f.addRow(f"{label}s", self._folder_row(e, f"Folder for {label.lower()}s", key))
-        hint = QLabel("Give an output a folder of its own, or leave it blank to save it with the others.")
+        hint = QLabel("Give an output a folder of its own, or leave it blank to save it with the case's other files.")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         f.addRow("", hint)
@@ -837,8 +843,10 @@ class SettingsDialog(QDialog):
         from ..pdfout import CASE_FOLDER_PLACES, FOLDER_FORBIDDEN, case_folder_name
         self.o_case_folders = QCheckBox("A folder for each case, inside Save to")
         self.o_case_folders.setToolTip("Each case's minute agreements, MOFR, invoices, their math and its run sheet go "
-                                       "into a folder of its own, named as below\n(\"...\\Minute Agreements\\712345-2021\")."
-                                       " An output with a folder of its own below keeps it."
+                                       "into a folder of its own inside Save to, named as below,\neach kind in a "
+                                       "folder inside it: Minute Agreements, MOFR, Invoices, Math, Trial Runs\n"
+                                       "(\"D:\\Transcripts\\712345-2021\\Invoices\"). An output with a folder of its "
+                                       "own below keeps it."
                                        "\nWhen your documents already sit in a folder of that name, it is used as "
                                        "it is (no \"712345-2021\" inside it).")
         self.o_case_folders.setChecked(settings.case_folders)
@@ -1499,18 +1507,18 @@ INDEX_PATTERNS_TIP = (
 class SplitSpeedsDialog(QDialog):
     """Asks the speed each firm of a split order ordered at (firms that ordered the same pages commit to one:
     courthouses.speed_upfront), for the firms whose speed isn't set yet (batch.speeds_to_ask): the case's name
-    above its days, then a row per day and firm (its tag before its name, as in the main window), with who it
-    ordered the pages with ("(its speed on its other pages)" for a firm asked because it has a speed on some pages
-    only) and a box of the rate sheet's speeds, set to the speed it starts from (the firm's on its other pages of
-    the case, else the agreement form's), matched loosely ("Expedited" is "Expedite"). MainWindow._ask_split_speeds
-    keeps the answers (Job.speeds); "Go back" makes nothing."""
+    above its days, then a row per day and firm (its colour's square before its name, as in the main window), with
+    who it ordered the pages with ("(its speed on its other pages)" for a firm asked because it has a speed on some
+    pages only) and a box of the rate sheet's speeds, set to the speed it starts from (the firm's on its other pages
+    of the case, else the agreement form's), matched loosely ("Expedited" is "Expedite").
+    MainWindow._ask_split_speeds keeps the answers (Job.speeds); "Go back" makes nothing."""
 
     def __init__(self, asks: list, speeds: list[tuple[str, str]], button: str = "Generate", parent=None,
                  marks: dict | None = None):
         """asks: batch.SpeedAsk each; speeds: the rate sheet's, (label, name) each, cheapest first; button: the
         Generate pressed, in short ("Generate", or "Generate all" for the button that says "Generate all 3 days"),
         named on OK ("Generate all with these speeds"); marks: each firm's mark by its job and key ({id(job):
-        batch.trial_marks of its trial}: a firm can have another mark in another trial), its tag before its name."""
+        batch.trial_marks of its trial}: a firm can have another mark in another trial), its square before its name."""
         from .badges import badge_html
         super().__init__(parent)
         self.setWindowTitle("Which speed did each firm order?")

@@ -18,7 +18,7 @@ day is shown (_show_attorneys, _trial_firms), with its tick (the whole trial, as
 batch.tick_firm; half ticked for some days only, _tick_row), What (the whole trial, the day shown, or Excerpts…:
 _what_box), Speed (the speed billed, by name: _firm_speed_box) and Pages; the row selected is spelled out under it
 (_build_att_details); and a line saying who orders what and what Generate all bills (_show_orders). Each firm of a
-trial is marked by a tag and a thin stripe of its colour wherever it is named: Who ordered, Who pays what,
+trial is marked by a square and a thin stripe of its colour wherever it is named: Who ordered, Who pays what,
 Excerpts… (_marks, _mark_row). While nothing is loaded, the jobs made lately are listed to open again
 (_show_start); fields complete from the records (_fill_completions); New job can be undone for a few seconds
 (_undo_clear); the Records button counts the invoices of a status (Settings.records_count: _count_records). View
@@ -59,7 +59,7 @@ many reporters wrote a case's transcripts until the user clicks it (_auto_runshe
 there is nothing to clear. File -> Lock finished PDFs saves copies whose fields can no longer be changed.
 Generate and Generate all show the files as pictures first (preview.PreviewDialog), with "The math" of the
 invoices, unless that is turned off (then the math comes after saving, preview.MathDialog, unless
-Settings.show_math is off), and the math is saved as PDFs with the invoices as Settings.save_math says (its
+Settings.show_math is off), and the math is saved as PDFs as Settings.save_math says (Settings.folder_for "math"; its
 "Save the math" list is under the math too: _math_saves_kept); the box that says what was saved can print the
 files. File -> Open recent lists the documents opened lately, and Export / Import settings carry the settings
 to another computer. A job once made can be opened again from the Records window, its takes as the user corrected
@@ -103,7 +103,7 @@ from .. import log as logfile
 from ..log import describe, error as log_error, log
 from ..batch import (BATCH_EXT, HELD, MISMATCH_LEAD, NOT_INVOICED, Doc, Job, case_dir_for, case_folders, case_reporters,
                      expand_paths,
-                     fill_jobs, firm_questions, group, ident, index_number_text, input_folders,
+                     fill_jobs, firm_questions, group, ident, index_number_text, input_folders, saved_folders,
                      billed_split_rule, job_from_origin, job_origin, join_entries, new_invoice_set, origin_fixes,
                      out_dir_for,
                      read_loaders, remerge, same_case, split_forgotten)
@@ -123,7 +123,7 @@ from ..courthouses.base import resolve
 from ..settings import LOCAL, OUTPUTS, Settings
 from .dialogs import ClarifyDialog, RunSheetDialog, SettingsDialog
 from .help_window import help_topic_of, open_help
-from .badges import STRIPE_ROLE, TAG_HEIGHT, StripeDelegate, badge_icon, badge_size, tag_color
+from .badges import STRIPE_ROLE, TAG_HEIGHT, StripeDelegate, badge_icon, badge_size, side_name, tag_color
 from .theme import apply_theme
 from .widgets import (ASSETS, ClickLabel, ElidedLabel, QuietCombo, open_path, open_url, plural, refill_combo, repolish,
                       round_corners, rounded, set_checks, show_save_error)
@@ -557,7 +557,7 @@ def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str =
     (the speed its firm ordered: a split order commits to one), a Speed and an Amount column instead.
     rows: invoice_math.who_pays; days: how many days the invoices cover (Generate all); firm_speeds: some firms
     have a speed of their own (Job.speeds), which their agreements name; marks: each firm's mark by its key
-    (batch.trial_marks), shown as its tag (badges.badge_html) and a stripe of its colour at the row's left edge;
+    (batch.trial_marks), shown as its square (badges.badge_html) and a stripe of its colour at the row's left edge;
     link: the link to the math at the end (False: the card puts one under several invoices)."""
     from .badges import badge_html
     import html
@@ -1707,7 +1707,7 @@ class MainWindow(QMainWindow):
             self.att.setColumnHidden(i, True)
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.Stretch)
-        self.att.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (each firm's tag and stripe: _mark_row)
+        self.att.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (each firm's square and stripe: _mark_row)
         self.att.setItemDelegateForColumn(1, StripeDelegate(self.att))
         sized(self.att, "setMinimumHeight", 150)
         self._att_list: list[Attorney] = []  # the attorney each row shows (_show_attorneys): the day shown's first,
@@ -4008,8 +4008,9 @@ class MainWindow(QMainWindow):
             j.att_touched = True
 
     def _marks(self, job: Job | None) -> dict:
-        """The marks of the firms of job's trial, by Attorney.key() (batch.trial_marks: plaintiffs 1, 2, defense
-        A, B, others 001): the same on every day of it, so a firm is told apart at a glance wherever it is named
+        """The marks of the firms of job's trial, by Attorney.key() (batch.trial_marks: each firm a colour of its
+        own, from its side's colours): the same on every day of it, so a firm is told apart at a glance wherever
+        it is named
         (the user, 2026-10-21)."""
         from ..batch import trial_marks
         if job is None:
@@ -4021,18 +4022,22 @@ class MainWindow(QMainWindow):
             return {}
 
     def _mark_row(self, table: QTableWidget, row: int, mark) -> None:
-        """A firm's mark on its row of a table (Who ordered's): its tag beside its name
-        (column 1) and a stripe of its colour at the name's left edge (badges.StripeDelegate); nothing without a
-        mark. No shade behind the row: it read as the amber of a field to check (the user, 2026-10-22)."""
+        """A firm's mark on its row of a table (Who ordered's): a square of its colour beside its name
+        (column 1), the side in its tooltip, and a stripe of its colour at the name's left edge
+        (badges.StripeDelegate); nothing without a mark. No shade behind the row: it read as the amber of a field
+        to check (the user, 2026-10-22)."""
         item = table.item(row, 1)
         if item is None:
             return
         item.setIcon(badge_icon(mark, z(TAG_HEIGHT)) if mark is not None else QIcon())
         item.setData(STRIPE_ROLE, tag_color(mark).name() if mark is not None else None)
+        tick = table.item(row, 0)
+        visitor = VISITOR_TIP if tick is not None and tick.data(_VISITOR) else ""  # (a firm of another day's: says so)
+        item.setToolTip("\n".join(x for x in (visitor, side_name(mark) if mark is not None else "") if x))
 
     def _mark_attorneys(self) -> None:
         """Each row of the attorney table marked as its firm is now (_mark_row): an edit can change a firm's side,
-        its name or the rows before it, and a zoom the tags' size. The rows are those of self.case.attorneys."""
+        its name or the rows before it, and a zoom the squares' size. The rows are those of self.case.attorneys."""
         marks = self._marks(self.cur)
         with QSignalBlocker(self.att):  # (an icon set is an itemChanged: _att_changed would take it as an edit)
             for row, a in enumerate(self._att_list[:self.att.rowCount()]):
@@ -4174,7 +4179,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, lambda d=days: self._orders_changed(d))
         self._show_copies()
         self._update_status()
-        self._mark_attorneys()  # (a party typed can change a tag)
+        self._mark_attorneys()  # (a party typed can change a firm's colour)
 
     def _same_firm_everywhere(self, days: list[Job], before: Attorney, after: Attorney) -> None:
         """A firm's details changed in Who ordered (its name, firm, address, phone, fax, e-mail or party): the same
@@ -5683,16 +5688,16 @@ class MainWindow(QMainWindow):
                 if p not in kept:
                     open_path(p)
         if math and self.s.show_math and not previewed:  # (the preview showed it, with the files)
-            self._show_math(math, self.s.folder_for("invoice", out_dir), [p for p in kept if is_math_file(p)])
+            self._show_math(math, self.s.folder_for("math", out_dir), [p for p in kept if is_math_file(p)])
         made = [p for p in paths if not (sheet and p == sheet.path)]
-        folders = list(dict.fromkeys(p.parent for p in made))  # an output may have a folder of its own
+        folders = saved_folders(made, self.s)  # an output may have a folder of its own
         where = f"\n\nin {folders[0]}" if len(folders) == 1 else "\n\nin " + ", ".join(map(str, folders))
         text = f"Saved {plural(len(made), 'file')}:\n\n" + "\n".join(p.name for p in made) + where if made else ""
         if made and dating.moved():  # ("Dated Tue 10/13/2026, the next business day: today is a Sunday and ...")
             text = f"{dating.note()}\n\n{text}"
         if sheet and sheet.path:
             text += ("\n\n" if text else "") + run_sheet_summary(sheet)
-            folders.append(sheet.path.parent)
+            folders += saved_folders([sheet.path], self.s)
         # (Print...: the PDFs but those kept; the run sheet is a workbook, printed from Excel)
         self._saved_box("Saved", text, list(dict.fromkeys(folders)),
                         files=[p for p in paths if p.suffix.lower() == ".pdf" and p not in kept])
@@ -5740,7 +5745,7 @@ class MainWindow(QMainWindow):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             s = deepcopy(self.s)
             s.output_dir, s.output_dirs = tmp, {}
-            s.save_math = "off"  # (its tab shows the math; Save saves it with the invoices)
+            s.save_math = "off"  # (its tab shows the math; Save then saves it as Settings.save_math says)
             math: list = []
             try:
                 files = generate(deepcopy(case), s, Path(tmp), show, opts, math=math, ordered=ordered, speeds=speeds,
@@ -5829,8 +5834,9 @@ class MainWindow(QMainWindow):
 
     def _run_sheet_for(self, job: Job, button: str = "Generate") -> str | None:
         """The run sheet to add the job's takes to ("" = a new one), as Settings → Run sheet says; asks when the
-        case seems to have one already. It is looked for where a new one would go (the case's folder, before
-        Generate has chosen it: batch.case_dir_for; or the run sheets' own folder under Options → Folders), next to
+        case seems to have one already. It is looked for where a new one would go (the Trial Runs folder of the
+        case's folder, before Generate has chosen it: batch.case_dir_for, runsheet.runsheets_folder; or the run
+        sheets' own folder under Options → Folders), next to
         its transcripts, where the records say the case's run sheets are and in the old run sheets folders
         (runsheet.sheet_folders). None = cancelled, also when a workbook named for the case can't be opened just
         now (runsheet.SheetUnreadable: the user is told which, and to press `button` again; nothing is made)."""
@@ -6155,7 +6161,7 @@ class MainWindow(QMainWindow):
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         s = deepcopy(self.s)
         s.output_dir, s.output_dirs = tmp.name, {}
-        s.save_math = "off"  # (its tab shows the math; Save saves it with the invoices)
+        s.save_math = "off"  # (its tab shows the math; Save then saves it as Settings.save_math says)
         shown = _previewed(outputs)
         math: list = []
         try:  # (before the window is marked busy: a records database that can't be opened left it busy for good)
@@ -6296,7 +6302,7 @@ class MainWindow(QMainWindow):
                     j.made = True  # "Generate all" again only does what is left
             changed = [j for j in chosen if id(j) in changed and any(j is k for k in self.jobs)]
             self._update_status()
-            folders = list(dict.fromkeys(str(p.parent) for p in paths))
+            folders = [str(f) for f in saved_folders(paths, self.s)]
             text = f"Saved {len(paths)} file{'s' if len(paths) != 1 else ''} for {plural(made, 'job')}"
             text += f" in\n{folders[0]}" if len(folders) == 1 else f" in {len(folders)} folders." if folders else "."
             if paths and dating.moved():  # ("Dated Tue 10/13/2026, the next business day: today is a Sunday ...")
@@ -6328,8 +6334,13 @@ class MainWindow(QMainWindow):
                          "Generate all again bills them as they are now:\n" + "\n".join(f"•  {j.title()}" for j in changed[:6]))
             if math and self.s.show_math and not previewed:
                 from ..invoice_math import is_math_file
-                self._show_math(math, Path(folders[0]) if folders else self.s.folder_for("invoice"),
-                                [p for p in paths if is_math_file(p)])
+                saved = [p for p in paths if is_math_file(p)]
+                # (where the math went, or would have gone: the math folder of the first day invoiced; not
+                # folders[0], the folder of the first file saved, which may be a run sheet's)
+                billed = next((copies[id(j)] for j in chosen if copies[id(j)].invoiced), None)
+                where = Path(saved[0]).parent if saved else self.s.folder_for(
+                    "math", out_dir_for(billed, settings) if billed is not None else None)
+                self._show_math(math, where, saved)
             self._saved_box("Batch finished", text, folders, "\n".join(str(p) for p in paths),
                             warn=bool(failed or held))
             self._set_status(f"✓  Saved {len(paths)} file(s)", "warn" if failed or held else "ok")
@@ -7739,9 +7750,10 @@ class MainWindow(QMainWindow):
     def _open_run_sheets_folder(self):
         """Opens the folder of the shown job's run sheet: where the case's run sheet is (runsheet.find_sheets in
         runsheet.sheet_folders: it may be next to the transcripts, where the records say, or in the old run sheets
-        folder), else where it will go (the case's folder, or the folder Settings → Options → Folders gives run
-        sheets, made first if needed). A case folder not made yet is not made for this: the nearest folder of it
-        that is there is opened (for a job that names no case yet, its Save to folder)."""
+        folder), else where it will go (runsheet.runsheets_folder: the Trial Runs folder of the case's folder, or
+        the folder Settings → Options → Folders gives run sheets, made first if needed). A case folder not made
+        yet is not made for this: the nearest folder of it that is there is opened (for a job that names no case
+        yet, its Save to folder)."""
         from ..batch import save_to_for
         job = self.cur
         own = self.s.output_dirs.get("runsheet")
@@ -7763,7 +7775,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Could not open the folder", str(e))
                 return
         else:
-            folder = where
+            folder = runsheets_folder(self.s, where) if named else where  # (its Trial Runs folder, if made yet)
             while not folder.is_dir() and folder.parent != folder:
                 folder = folder.parent
         open_path(folder)
@@ -7958,7 +7970,7 @@ class MainWindow(QMainWindow):
         zooming.reapply()
         self.drop.rezoom()
         self._paste_slim = None  # (its one line is taller or shorter now: _fit_paste sizes it again)
-        self.att.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (the firms' tags at the new size)
+        self.att.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))  # (the firms' squares at the new size)
         self._mark_attorneys()
         self._place_pairs()
         QTimer.singleShot(0, self._place_pairs)  # again once the new sizes are laid out

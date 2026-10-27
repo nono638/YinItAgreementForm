@@ -75,9 +75,10 @@ from .models import (Attorney, Candidate, CaseInfo, Extraction, FIELD_LABELS, Fi
 from .pdfout import case_folder_name, free_folder, is_generated, short_caption
 from .rates import speed_key
 from .records import recorded_cases
-from .runsheet import NO_RUNSHEET, RunSheetOpts, matches, name_rows, read_info, rows_from, transcript_pages
+from .runsheet import (NO_RUNSHEET, RunSheetOpts, matches, name_rows, read_info, refresh_orders, rows_from,
+                       transcript_pages)
 from .takes import fix_marks, my_initials, page_owners
-from .settings import OUTPUT_FOLDERS, OUTPUTS, Settings
+from .settings import OUTPUT_FOLDERS, OUTPUTS, SUBFOLDERS, Settings
 
 BATCH_EXT = {".pdf", ".eml", ".docx", ".txt", ".htm", ".html"} | IMAGE_EXT  # taken from a dropped folder
 Progress = Callable[[int, int, str], None]
@@ -2036,31 +2037,44 @@ def read_loaders(loaders: list[Callable[[], Ingested]], names: list[str], s: Set
     return docs, errors
 
 
+def _case_named(folder: Path, job: Job, s: Settings) -> bool:
+    """The folder is named as the job's case's own folder (case_folder_name), or as one made beside it
+    ("712345-2021 (2)": pdfout.free_folder)."""
+    name = case_folder_name(job.case, s.case_folder_pattern).casefold()
+    return bool(name) and re.sub(r" \(\d+\)$", "", folder.name).casefold() == name
+
+
 def save_to_for(job: Job, s: Settings) -> Path:
-    """The job's Save to folder: Settings.output_dir, else the folder of its first document, else
+    """The job's Save to folder: Settings.output_dir, else the folder of its first document (the case's own folder
+    for one in a folder inside it, "...\\712345-2021\\Invoices\\order.pdf": settings.SUBFOLDERS), else
     Documents/Minute Agreements."""
     if s.output_dir:
         return Path(s.output_dir)
     for d in job.docs:
         if d.path:
-            return Path(d.path).parent
+            folder = Path(d.path).parent
+            subs = {v.casefold() for v in SUBFOLDERS.values() if v}
+            if s.case_folders and folder.name.casefold() in subs and _case_named(folder.parent, job, s):
+                return folder.parent  # (not another "712345-2021" inside its Invoices: in_case_folder)
+            return folder
     return Path.home() / "Documents" / "Minute Agreements"
 
 
 def in_case_folder(job: Job, s: Settings) -> bool:
     """The job's Save to folder (save_to_for) is already named as its case's own folder would be: most often
     Save to is blank and the documents sit in a folder of that name ("...\\712345-2021\\Roe 6-3.pdf"). That folder
-    is the case's, used as it is, not given another "712345-2021" inside it (the user, 2026-10-10)."""
-    name = case_folder_name(job.case, s.case_folder_pattern)
-    return save_to_for(job, s).name.casefold() == name.casefold()
+    is the case's, used as it is, not given another "712345-2021" inside it (the user, 2026-10-10); "712345-2021
+    (2)", one made beside another, too (_case_named)."""
+    return _case_named(save_to_for(job, s), job, s)
 
 
 def out_dir_for(job: Job, s: Settings) -> Path:
     """Where a job's files go: its case's own folder inside the Save to folder (save_to_for) when
     Settings.case_folders is on and one was chosen (Job.folder: see case_folders), else Save to itself, also
-    when Save to is the case's folder already (in_case_folder). (An output with a folder of its own still goes
-    there: Settings.folder_for.) The folder is kept by its name, so a preview made with Save to a temporary folder
-    puts its files in one of that name there."""
+    when Save to is the case's folder already (in_case_folder). (Each kind of file goes in its folder inside the
+    case's, "Invoices", "Trial Runs"..., and an output with a folder of its own goes there: Settings.folder_for.)
+    The folder is kept by its name, so a preview made with Save to a temporary folder puts its files in one of
+    that name there."""
     base = save_to_for(job, s)
     return base / job.folder if s.case_folders and job.folder and not in_case_folder(job, s) else base
 
@@ -2218,11 +2232,26 @@ def settle_split_speeds(jobs: list[Job], s: Settings, outputs: list[str] | None 
 
 
 def _files_in(folder: Path) -> int:
-    """How many files and folders are in `folder` (0 when it isn't there or can't be read)."""
+    """How many files are in `folder`, its subfolders' too ("Invoices", "Trial Runs": Settings.folder_for), so a
+    case's folder holding only subfolders with nothing in them counts as empty (0 too when it isn't there or can't
+    be read)."""
     try:
-        return sum(1 for _ in folder.iterdir()) if folder.is_dir() else 0
+        return sum(1 for f in folder.rglob("*") if f.is_file()) if folder.is_dir() else 0
     except OSError:
         return 0
+
+
+def saved_folders(paths: list, s: Settings) -> list[Path]:
+    """The folders the files saved are in, each once, as the window names and opens them. With a folder for each
+    case (Settings.case_folders), a file in a folder inside its case's own ("...\\712345-2021\\Invoices":
+    settings.SUBFOLDERS) counts as in the case's folder, so the files of one case are one folder. A folder of an
+    output's own (Settings -> Options -> Folders: "D:\\Billing\\Invoices") is named as it is."""
+    def folder(p: Path) -> Path:
+        case = p.parent.parent
+        inside = s.case_folders and any(p.parent == case / sub for kind, sub in SUBFOLDERS.items()
+                                        if sub and not s.own_folder(kind))
+        return case if inside else p.parent
+    return list(dict.fromkeys(folder(p) for p in map(Path, paths)))
 
 
 def input_folders(job: Job) -> list[Path]:
@@ -2296,9 +2325,9 @@ def bill_sets(jobs: list[Job], s: Settings) -> tuple[list[list[Job]], list[Job]]
 
 
 def trial_marks(job: Job, jobs: list[Job]) -> dict:
-    """The marks of the firms of job's trial (firm_marks: plaintiffs 1, 2, defense A, B, others 001), by
-    Attorney.key(): given over the attorneys of all its days among `jobs` (trial_days), earliest day first, so a
-    firm keeps its mark whichever day is shown."""
+    """The marks of the firms of job's trial (firm_marks: each firm a colour of its side's), by Attorney.key():
+    given over the attorneys of all its days among `jobs` (trial_days), earliest day first, so a firm keeps its
+    mark whichever day is shown."""
     from .firm_marks import mark_of, marks
     attorneys = [a for j in trial_days(job, jobs) for a in j.case.attorneys]
     given = marks(attorneys)
@@ -2825,6 +2854,8 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
     done: list[Path] = []
     started: list[Path] = []  # run sheets started by this batch: the other days of the trial go on them too
     sheet_of: dict[int, RunSheetOpts] = {}  # id(job) -> the run sheet its takes went on
+    # each run sheet written: its case and the case of each of its days (its Who Ordered tab, at the end)
+    sheet_cases: dict[Path, tuple[CaseInfo, list[CaseInfo]]] = {}
     for k, unit in enumerate(sheets):  # first: a run sheet open in Excel then stops its case before anything
         if progress:
             progress(k, steps, f"Run sheet for {unit[0].title()}")
@@ -2842,6 +2873,9 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
         for j in unit:
             sheet_of[id(j)] = sheet
             j.saved = list(made)  # (left out when it had every take already)
+        if sheet.path:
+            case, named = sheet_cases.get(sheet.path, (unit_case(unit), []))
+            sheet_cases[sheet.path] = case, named + [j.case for j in unit]
         done += [p for p in made if p not in done]
         if sheet.created and sheet.path and sheet.path not in started:
             started.append(sheet.path)
@@ -2983,6 +3017,8 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
             else:
                 job.invoiced, job.invoice_set = True, billed_as
         done += made
+    for path, (case, named) in sheet_cases.items():  # (the run sheets were written first: the invoices made since)
+        refresh_orders(path, case, s, named)
     for job in jobs:  # every day of a held case says why: they stay to be done again, together
         why = stopped.get(unit_of[id(job)])
         if why and id(job) not in failed:  # (the day it happened on says so itself)
@@ -3033,7 +3069,7 @@ def unit_sheet(unit: list[Job], s: Settings, started: list[Path]) -> RunSheetOpt
     rows = [r for j in unit for r in j.runsheet_opts(s).rows]
     rows.sort(key=lambda r: (r.day or date.max, r.start if r.start is not None else -1))
     name_rows(rows)  # a reporter named on one day's title page is named on the other days too
-    sheet = RunSheetOpts(rows, unit[0].runsheet_to)
+    sheet = RunSheetOpts(rows, unit[0].runsheet_to, days=[j.case for j in unit])
     if sheet.target is None and s.runsheet_existing != "new":
         sheet.target = _started_for(unit[0], started, s)
     return sheet
@@ -3043,7 +3079,7 @@ def unit_case(unit: list[Job]) -> CaseInfo:
     """The case a run sheet unit's record names: the first day's, with every day's dates."""
     if len(unit) == 1:
         return unit[0].case
-    case = deepcopy(unit[0].case)
+    case = deepcopy(min(unit, key=_first_day).case)  # (the earliest: its attorneys are that day's, runsheet._case_day)
     case.set("dates", dates_text(j.case.get("dates") for j in unit), case.fields["dates"].source)
     return case
 

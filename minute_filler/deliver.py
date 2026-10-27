@@ -196,11 +196,14 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
     An invoice needs `invoice` with the page count (a list: the invoices of each reporter billed, see
     batch.Job.invoice_sets; the user's own set, when there is one, gives the pages the records count) and
     prices for every speed set (invoice.Invoices.check), the run sheet `runsheet` with the takes of the
-    transcripts; raises ValueError otherwise, before anything is made. A new run sheet goes into out_dir, the
-    case's folder (or the run sheets' own folder when Settings give them one); an existing one of the case is
-    looked for there, in `folders`, where the records say and in the old run sheets folders
-    (runsheet.sheet_folders, runsheet.choose), and added to where it is. It is written first: when it is open in
-    Excel, nothing is made, and trying again doesn't make the invoices twice.
+    transcripts; raises ValueError otherwise, before anything is made. A new run sheet goes into the Trial Runs
+    folder of out_dir, the case's folder (out_dir itself without a folder for each case, or the run sheets' own
+    folder when Settings give them one: runsheet.runsheets_folder); an existing one of the case is looked for
+    there, at the top of out_dir (where 2.13 and earlier put it), in `folders`, where the records say and in the
+    old run sheets folders (runsheet.sheet_folders, runsheet.choose), and added to where it is. It is written
+    first: when it is open in Excel, nothing is made, and trying again doesn't make the invoices twice. Its Who
+    Ordered tab is written again once the other files are made (runsheet.refresh_orders: an aside, logged when
+    it can't be).
     A run sheet that already had every take is left as it was and is not among the files returned. `invoiced`,
     when given, gets the InvoiceOpts.skip_key ("" for a blank Bill To) of each invoice made, so a run that stops
     part way can be tried again without billing them twice (see InvoiceOpts.skip). `origin`: where the job came
@@ -212,8 +215,9 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
     Settings.invoice_detailed_copy each invoice that doesn't show the granular detail gets a copy that does
     ("... (detailed).pdf", the same number and date; it is among the files returned, and in `detailed` when given,
     but not recorded again). A copy that can't be made is logged and left out: it doesn't stop the run. The
-    math of the invoices is saved next to them as Settings.save_math says (invoice_math.save_math: among the
-    files returned, not recorded; one that can't be saved is logged, as a copy is).
+    math of the invoices is saved in Settings.folder_for "math" (the case's Math folder) as Settings.save_math
+    says (invoice_math.save_math: among the files returned, not recorded; one that can't be saved is logged, as a
+    copy is).
     `cases`: the case of each invoice set, in the same order (a joint invoice's sets each name their own days,
     see batch.joint_invoice_sets); default: `case` for every set.
     `ordered`: the pages each attorney ordered, whoever wrote them (batch.Job.ordered_pages: by Attorney.key(),
@@ -273,4 +277,7 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
     except Exception as e:
         e.made = made  # what was saved before the problem, so the caller can say so
         raise
+    if runsheet is not None and runsheet.path and len(order) > 1:  # (written first: today's invoices on it too)
+        from .runsheet import refresh_orders
+        refresh_orders(runsheet.path, case, s)
     return made

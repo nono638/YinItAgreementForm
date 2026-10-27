@@ -8,9 +8,9 @@ for each charge (its pages, the rate, what it costs, how it is paid, what this f
 for each set of firms billed for the same work and each speed, with a column per firm. It also gives the same as
 plain text, a line per charge, for the clipboard and an e-mail. The tables come from rows() and _foot() of each
 quote, the plain text from _line() and _sum(): the same charges worded twice, so a change of wording goes in both.
-Generate saves it as PDFs next to the invoices it made (save_math, as Settings.save_math says: each firm's own,
-to send the firm that asks, which shows only what that firm owes (explain's one_firm), and one of everyone's, to
-look back at the job), so the answer is still there when the question comes months later.
+Generate saves it as PDFs in the case's Math folder, or next to the invoices (save_math, as Settings.save_math
+says: each firm's own, to send the firm that asks, which shows only what that firm owes (explain's one_firm), and
+one of everyone's, to look back at the job), so the answer is still there when the question comes months later.
 
 How a charge is paid is said in three plain phrases: "Each firm splits this cost" (the original and the judge's
 index of pages ordered together, divided between the firms that ordered each page), "Each firm pays for its
@@ -918,15 +918,17 @@ def is_math_file(path: Path) -> bool:
     return bool(re.search(r" - the math(?: \(\d+\))?\.pdf$", Path(path).name, re.I))
 
 
-def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", layout: str = "invoice") -> list[Path]:
+def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", layout: str = "invoice",
+              folder: Path | None = None) -> list[Path]:
     """Saves the math of the invoices one Generate just made ((FirmInvoice, number, its file) each), as
-    Settings.save_math says (settings.MATH_SAVES), in Settings.math_layout: "each", a PDF next to each invoice,
-    named after it ("Invoice 2026-0012 - Jane Roe v. X.Y. Holding Corporation - Alex B. Counsel - the math.pdf"),
-    to send the firm that asks, showing only what that firm owes (explain's one_firm); "all", one for all of them
-    (everyone's amounts) next to the first ("Invoices 2026-0012 to 2026-0013 - Jane Roe v. X.Y. Holding
-    Corporation - the math.pdf"), to look back at the whole job; "both" (but one invoice alone gets only its own:
-    everyone's would add only the other firms' rows, and the firms together, on pages ordered together at
-    different speeds);
+    Settings.save_math says (settings.MATH_SAVES), in Settings.math_layout, in `folder` (Settings.folder_for
+    "math": the case folder's Math folder, or the invoices' own; None = next to the invoices): "each", a PDF for
+    each invoice, named after it ("Invoice 2026-0012 - Jane Roe v. X.Y. Holding Corporation - Alex B. Counsel -
+    the math.pdf"), to send the firm that asks, showing only what that firm owes (explain's one_firm); "all", one
+    for all of them (everyone's amounts), named after the first ("Invoices 2026-0012 to 2026-0013 - Jane Roe v.
+    X.Y. Holding Corporation - the math.pdf"), to look back at the whole job; "both" (but one invoice alone gets
+    only its own: everyone's would add only the other firms' rows, and the firms together, on pages ordered
+    together at different speeds);
     "off", none. Invoices made in another reporter's name
     (Whose pages...) get "all of them" apart from the user's ("Invoices DS-2026-0001 to DS-2026-0002 - ..."):
     their math is theirs. Never over a file already there (pdfout.unique_path). Each is saved on its own: one
@@ -947,7 +949,7 @@ def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", lay
 
     if save in ("each", "both"):
         for f, number, path in made:
-            keep([(f, number)], path.with_name(path.stem + MATH_SUFFIX), one_firm=True)
+            keep([(f, number)], (folder or path.parent) / (path.stem + MATH_SUFFIX), one_firm=True)
     for reporter in dict.fromkeys(f.opts.reporter for f, _, _ in made):
         theirs = [x for x in made if x[0].opts.reporter == reporter]
         if save == "all" or (save == "both" and len(theirs) > 1):
@@ -956,5 +958,5 @@ def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", lay
                     f"Invoices {numbers[0]} to {numbers[-1]}" if numbers else "Invoices")
             stem = safe_filename(" - ".join(x for x in (name, short_caption(theirs[0][0].case.get("case_name")))
                                             if x))
-            keep([(f, n) for f, n, _ in theirs], theirs[0][2].parent / (stem + MATH_SUFFIX))
+            keep([(f, n) for f, n, _ in theirs], (folder or theirs[0][2].parent) / (stem + MATH_SUFFIX))
     return out

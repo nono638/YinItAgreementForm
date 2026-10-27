@@ -34,7 +34,7 @@ import os
 from dataclasses import dataclass, field, asdict, fields
 from pathlib import Path
 
-from .courthouses import OUTPUT_FOLDERS, OUTPUTS  # (re-exported: the outputs are the courthouse's)
+from .courthouses import OUTPUT_FOLDERS, OUTPUTS, SUBFOLDERS  # (re-exported: the outputs are the courthouse's)
 from .courthouses import current as current_courthouse, holiday_rows, split_rule, split_rules
 from .tracking import (ColourRule, TrackBox, box_rows, clean_boxes, clean_rules, default_boxes, default_rules,
                        rule_rows, rules_280)
@@ -639,7 +639,7 @@ class Settings:
     welcomed: bool = False            # the first-run "Welcome" questions were shown (once, while there is no name)
     show_math: bool = True            # after Generate makes invoices, a window spells out how each amount was reached
     math_layout: str = "invoice"      # one of MATH_LAYOUTS: the math's tables, as last chosen in its window
-    save_math: str = "both"           # one of MATH_SAVES: the math saved as PDFs next to the invoices
+    save_math: str = "both"           # one of MATH_SAVES: the math saved as PDFs (folder_for "math")
     opened_year: str = ""             # the year the app was last opened in ("2026")
     new_year_day: str = ""            # the day it was first opened in a new year: the New Year yin-yang shows all day
 
@@ -808,7 +808,8 @@ class Settings:
 
     @property
     def runsheet_dir(self) -> str:
-        """The run sheets' own folder ("" = the case's folder, with its other files): output_dirs["runsheet"].
+        """The run sheets' own folder ("" = the case's Trial Runs folder, or Save to without a folder for each
+        case: folder_for): output_dirs["runsheet"].
         Kept for older callers and the tests; the folders are output_dirs now (see folder_for)."""
         return self.output_dirs.get("runsheet", "")
 
@@ -819,16 +820,31 @@ class Settings:
             del self.output_dirs["runsheet"]
 
     def folder_for(self, kind: str, general: Path | str | None = None) -> Path:
-        """The folder an output (a key of OUTPUTS) is saved to: its own folder under Settings -> Options ->
-        Folders, else its built-in one (OUTPUT_FOLDERS, a folder under Documents; none in Queens), else
-        `general` (where the job's files go: its case's own folder or its "Save to" folder, see batch.out_dir_for;
-        Documents\\Minute Agreements without one)."""
+        """The folder an output (a key of OUTPUTS, or "math": the invoices' math) is saved to: its own folder
+        under Settings -> Options -> Folders, else its built-in one (OUTPUT_FOLDERS, a folder under Documents; none
+        in Queens), else `general` (where the job's files go: its case's own folder or its "Save to" folder, see
+        batch.out_dir_for; Documents\\Minute Agreements without one). With a folder for each case (case_folders),
+        `general` is the case's, and each kind of file goes in its folder inside it (SUBFOLDERS: "Invoices",
+        "Math", "Trial Runs"...; the user, 2026-10-26). The math goes with the invoices when they have a folder of
+        their own, or the courthouse gives it no folder (Courthouse.math_subfolder "": next to the invoices)."""
+        if kind == "math" and (self.output_dirs.get("invoice") or "invoice" in OUTPUT_FOLDERS
+                               or not SUBFOLDERS.get("math")):
+            return self.folder_for("invoice", general)
         own = self.output_dirs.get(kind, "")
         if own:
             return Path(own)
         if kind in OUTPUT_FOLDERS:
             return Path.home() / "Documents" / OUTPUT_FOLDERS[kind]
-        return Path(general) if general else Path.home() / "Documents" / "Minute Agreements"
+        if not general:
+            return Path.home() / "Documents" / "Minute Agreements"
+        return Path(general) / SUBFOLDERS[kind] if self.case_folders and SUBFOLDERS.get(kind) else Path(general)
+
+    def own_folder(self, kind: str) -> bool:
+        """The output (or "math") goes to a folder of its own (folder_for: set under Settings -> Options ->
+        Folders, or built in, OUTPUT_FOLDERS; the math with the invoices'), not into its case's folder."""
+        if kind == "math" and self.own_folder("invoice"):
+            return True
+        return bool(self.output_dirs.get(kind)) or kind in OUTPUT_FOLDERS
 
     def records_folder(self) -> Path:
         """Where record CSV copies and exports go: records_dir, else Documents\\YinIt Records."""

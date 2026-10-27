@@ -1,73 +1,71 @@
-"""How a firm's mark (firm_marks.Mark: '1', 'A', '001') looks in the window: a small tag in its side's colour with
-the badge in white (badge_icon, beside the firm's name in a table or the Excerpts window's column heading;
-badge_html in rich text), and in a table a thin stripe of the same colour at the left edge of the name
-(StripeDelegate, STRIPE_ROLE). Plaintiffs' firms in oranges, the defense in blues, the others in grey-greens (the
-user, 2026-10-21): orange against blue stays apart for the commoner colour blindness; the firms of one side are
-told apart by their badges, their colours only helping. No shade behind the name (the user, 2026-10-22): a pale
-orange there read as the amber of a field to check, so the colour is only in the tag and the stripe, and none of
-the oranges is that amber. The colours are the same in both themes (white text on them reads in either)."""
+"""How a firm's mark (firm_marks.Mark: its side and its place among its side's firms) looks in the window: a small
+square of its colour, nothing written on it (badge_icon, beside the firm's name in a table or the Excerpts window's
+column heading; badge_html in rich text), and in a table a thin stripe of the same colour at the left edge of the
+name (StripeDelegate, STRIPE_ROLE). Plaintiffs' firms in warm colours, the defense in cool ones, the others in greys
+and greens (the user, 2026-10-21): orange against blue stays apart for the commoner colour blindness. No number or
+letter on the square (the user, 2026-10-26: 1, A, 001 had nothing to do with the firms' names and only confused),
+so the firms of one side are told apart by their colours alone, each its own (firm_marks.SHADES: the run sheet's
+Who Ordered tab colours them alike), and the square's tooltip names the side (SIDE_NAMES). No shade behind the name
+(the user, 2026-10-22): a pale orange there read as the amber of a field to check, so the colour is only in the
+square and the stripe, and none of the colours is that amber. The colours are the same in both themes; the square
+has a lighter edge of its colour, so a dark one (navy, brown) still shows on the dark theme's tables."""
 from __future__ import annotations
 
 import html
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem
 
-from ..firm_marks import DEFENSE, PLAINTIFF, Mark
+from ..firm_marks import DEFENSE, OTHER, PLAINTIFF, Mark, shade_of
 
-# by side, the firms' colours in turn (Mark.shade): a bright and a deep one in turn, so the next firm differs
-SHADES = {
-    PLAINTIFF: ["#ea580c", "#9a3412", "#c2410c", "#7c2d12"],
-    DEFENSE: ["#2563eb", "#0e7490", "#4f46e5", "#1e40af"],
-    "other": ["#047857", "#4b5563", "#15803d"],
-}
+SIDE_NAMES = {PLAINTIFF: "A plaintiffs' firm", DEFENSE: "A defense firm", OTHER: "A firm on neither side"}
 
-TAG_HEIGHT = 18  # a tag's height in a table, before zoom (zoom.z): its badge has to read at a glance
+TAG_HEIGHT = 14  # a square's side in a table, before zoom (zoom.z)
 STRIPE_ROLE = Qt.UserRole + 7  # a table cell's stripe colour ("#ea580c"), drawn by StripeDelegate
 
 
 def tag_color(mark: Mark) -> QColor:
-    """The colour of the firm's tag and stripe."""
-    row = SHADES.get(mark.side, SHADES["other"])
-    return QColor(row[mark.shade % len(row)])
+    """The colour of the firm's square and stripe (firm_marks.shade_of)."""
+    return QColor(shade_of(mark))
+
+
+def side_name(mark: Mark) -> str:
+    """What the square's tooltip says: 'A plaintiffs' firm', 'A defense firm' or 'A firm on neither side'."""
+    return SIDE_NAMES.get(mark.side, SIDE_NAMES[OTHER])
 
 
 def badge_icon(mark: Mark, height: int = TAG_HEIGHT) -> QIcon:
-    """The firm's tag: its badge in white bold on a rounded rectangle of its colour, as wide as the badge needs
-    ('001' wider than '1'). The view showing it needs an icon size as wide (badge_size)."""
+    """The firm's square: a rounded square of its colour with a lighter edge (a dark colour on the dark theme),
+    nothing on it, drawn for the screen's scaling (sharp at 150%). The view showing it needs an icon size as big
+    (badge_size)."""
     w, h = badge_size(height)
-    pix = QPixmap(w, h)
+    screen = QGuiApplication.primaryScreen()
+    dpr = screen.devicePixelRatio() if screen is not None else 1.0
+    pix = QPixmap(round(w * dpr), round(h * dpr))
+    pix.setDevicePixelRatio(dpr)
     pix.fill(Qt.transparent)
     p = QPainter(pix)
     p.setRenderHint(QPainter.Antialiasing)
-    p.setPen(Qt.NoPen)
-    p.setBrush(tag_color(mark))
-    font = QFont()
-    font.setBold(True)
-    font.setPixelSize(max(9, int(h * 0.78)))
-    text_w = QFontMetrics(font).horizontalAdvance(mark.badge) + h // 2
-    box = QRectF((w - max(h, text_w)) / 2, 0, max(h, text_w), h)
-    p.drawRoundedRect(box, h / 4, h / 4)
-    p.setPen(QColor("white"))
-    p.setFont(font)
-    p.drawText(box, Qt.AlignCenter, mark.badge)
+    colour = tag_color(mark)
+    p.setPen(QPen(colour.lighter(170), 1))
+    p.setBrush(colour)
+    p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), h / 4, h / 4)
     p.end()
     return QIcon(pix)
 
 
 def badge_size(height: int = TAG_HEIGHT) -> tuple[int, int]:
-    """The size of a tag (badge_icon): room for three characters ('001') at this height."""
-    return int(height * 2.2), height
+    """The size of a square (badge_icon) of this height."""
+    return height, height
 
 
 def badge_html(mark: Mark | None, name: str) -> str:
-    """A firm's name in rich text with its tag before it ('Dana Smith' after a blue 'A'); just the name (escaped)
-    without a mark."""
+    """A firm's name in rich text with its square before it (a filled square in its colour, then the name,
+    escaped); just the name without a mark."""
     if mark is None:
         return html.escape(name)
-    return (f"<span style='background-color:{tag_color(mark).name()}; color:white'><b>&nbsp;"
-            f"{html.escape(mark.badge)}&nbsp;</b></span>&nbsp;{html.escape(name)}")
+    return f"<span style='color:{tag_color(mark).name()}'>&#9632;</span>&nbsp;{html.escape(name)}"
 
 
 def stripe_width(option: QStyleOptionViewItem) -> int:

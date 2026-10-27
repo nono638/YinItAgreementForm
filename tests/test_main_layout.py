@@ -1,7 +1,7 @@
 """The main window laid out as the job goes (the user, 2026-10-22: the cards felt unintuitive): the cards in the
 order the work is done, named for what is in them, the field badges quiet unless something needs a look, each
-firm marked by its tag and a stripe (not a shade that reads as "check this"), short texts, Generate buttons that
-say what they make, the things to check listed where they can be clicked, the invoice's choices in a card of the
+firm marked by a square and a stripe of its colour (not a shade that reads as "check this"), short texts,
+Generate buttons that say what they make, the things to check listed where they can be clicked, the invoice's choices in a card of the
 form and the Outputs box one row. All names are made up."""
 import pytest
 

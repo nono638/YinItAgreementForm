@@ -3,7 +3,7 @@
 A row per run of pages of a day: its date and weekday (in italics on the day's later runs), the pages (typed in
 the transcript's own page numbers, "141-170", or by place in the day when they aren't known; the runs around a
 run typed make room for it), optionally its place in the day ("1–20 of 85": Settings.excerpt_show_place), a box
-per firm (firms_of: one column for a firm, however many of its attorneys appear, headed by its tag ('1', 'A') as
+per firm (firms_of: one column for a firm, however many of its attorneys appear, headed by its colour's square as
 in the main window; ticked = that firm ordered the run; the boxes of each set of firms ordering together have a
 colour of their own, the colour of that set's line under the table), the pages billed in it and, for each speed
 offered, what each firm that ordered it pays for it. Under the table the same prices by the firms ordering
@@ -75,9 +75,9 @@ class ExcerptsWindow(QDialog):
 
     def __init__(self, s, changed, parent=None, marks=None, trial=None):
         """s: the settings (the rate sheet, the speeds, what this window hides); changed: called after a change
-        is kept on the jobs, so the main window shows it; marks: a job -> the tags of its trial's firms, by
+        is kept on the jobs, so the main window shows it; marks: a job -> the marks of its trial's firms, by
         Attorney.key(), as the main window shows them (MainWindow._marks: every day of the trial loaded, those
-        not on this invoice too, so a firm has the same tag here); without it, those of the days shown. trial:
+        not on this invoice too, so a firm has the same colour here); without it, those of the days shown. trial:
         the jobs shown -> every day of their trials (MainWindow._trial_of), which the table's ticks are pinned on
         (_pin); without it, the days shown."""
         super().__init__(parent)
@@ -248,13 +248,13 @@ class ExcerptsWindow(QDialog):
         t.setColumnCount(len(heads))
         t.setHorizontalHeaderLabels(heads)
         from ..batch import trial_marks
-        from .badges import TAG_HEIGHT, badge_icon, badge_size
+        from .badges import TAG_HEIGHT, badge_icon, badge_size, side_name
         from .zoom import z
-        marks = {}  # (each firm's tag, as elsewhere)
+        marks = {}  # (each firm's square, as elsewhere)
         if self.group:
             try:
                 marks = self.marks(self.group[0]) if self.marks else trial_marks(self.group[0], self.group)
-            except Exception:  # (a tag is a help: never a reason for the table not to show)
+            except Exception:  # (a square is a help: never a reason for the table not to show)
                 marks = {}
         t.setIconSize(QSize(*badge_size(z(TAG_HEIGHT))))
         for c, a in enumerate(firms):
@@ -262,6 +262,7 @@ class ExcerptsWindow(QDialog):
             head.setToolTip(" - ".join(x for x in (a.name, a.firm) if x))
             if marks.get(a.key()) is not None:
                 head.setIcon(badge_icon(marks[a.key()], z(TAG_HEIGHT)))
+                head.setToolTip(f"{head.toolTip()}\n{side_name(marks[a.key()])}".strip())
         t.setRowCount(len(self.runs))
         first = FIRST_FIRM + len(firms)
         # (the speed Generate bills a firm sharing pages without one at, by day: the agreement form's, or the firm's

@@ -1,9 +1,9 @@
 """Each firm of a trial marked the same way wherever the window names it, so the reporter can tell them apart at a
-glance (the user, 2026-10-21): as court exhibits are marked, the plaintiffs' firms are numbered 1, 2, 3, the
-defense firms lettered A, B, C, and any other firm (a side not known, a sender of an e-mail) 001, 002. The window
-shows a mark as a tag before the firm's name and a thin stripe of its colour (gui.badges). Each side has its
-colours (oranges for the plaintiffs, blues for the defense, grey-greens for the others, a pair told apart with the
-commoner colour blindness too), and each firm of a side its own colour of them (Mark.shade).
+glance (the user, 2026-10-21): by a colour, its side's (warm colours for the plaintiffs, cool ones for the defense,
+greys and greens for any other firm: a side not known, a sender of an e-mail), each firm of a side its own colour of
+them (Mark.shade). The window shows a mark as a small square of its colour before the firm's name and a thin stripe
+of it (gui.badges); nothing is written on the square (the user, 2026-10-26: numbers and letters had nothing to do
+with the firms' names).
 
 A firm is one however its attorneys are listed: "Dana Smith" of Smith Law on one day and "Smith Law, LLP" on
 another get the same mark (firm_id). Which side it is on comes from the attorney's party ("Attorneys for
@@ -17,6 +17,14 @@ from dataclasses import dataclass
 from .models import Attorney, firm_key
 
 PLAINTIFF, DEFENSE, OTHER = "plaintiff", "defense", "other"
+# by side, the firms' colours in turn (Mark.shade), each far from the one before: with nothing written on the
+# window's squares (gui.badges), two firms of a side are told apart by these alone (a seventh plaintiffs' firm
+# takes the first again). None is the amber the window marks a field to check with.
+SHADES = {
+    PLAINTIFF: ["#ea580c", "#b91c1c", "#db2777", "#78350f", "#e11d48", "#9a3412"],  # orange, red, pink, brown...
+    DEFENSE: ["#2563eb", "#0d9488", "#7c3aed", "#1e3a8a", "#0891b2", "#4338ca"],    # blue, teal, violet, navy...
+    OTHER: ["#4b5563", "#15803d", "#78716c"],                                         # slate, green, stone
+}
 
 # words ending a firm's name that firm_key keeps but don't tell firms apart ("Smith Law, Attorneys at Law" is
 # Smith Law; firm_key takes off "LLP", "P.C." and the like itself)
@@ -39,7 +47,7 @@ def firm_id(a: Attorney) -> str:
     without a firm, its attorney's name: 'Dana Smith, Esq.' -> 'dana smith esq'), with endings like 'Attorneys at
     Law' taken off as well, and those before them ('Smith Law, LLP, Attorneys at Law' -> 'smith law'); "" for an
     entry naming nobody. Made from key(), so the entries of one key have one id: batch.trial_marks, which goes by
-    key(), gives each entry one mark, and no badge number is given to a firm twice over."""
+    key(), gives each entry one mark, and no colour is given to a firm twice over."""
     key = a.key()
     while (cut := firm_key(_FIRM_ENDINGS.sub("", key))) and cut != key:  # ("Attorneys at Law" alone stays)
         key = cut
@@ -48,30 +56,10 @@ def firm_id(a: Attorney) -> str:
 
 @dataclass(frozen=True)
 class Mark:
-    """A firm's mark: its badge ('1', 'A', '001'), side (PLAINTIFF, DEFENSE or OTHER) and shade (its place among
-    its side's firms, from 0: gui.badges picks the colour)."""
-    badge: str
+    """A firm's mark: its side (PLAINTIFF, DEFENSE or OTHER) and shade (its place among its side's firms, from 0:
+    shade_of gives its colour)."""
     side: str
     shade: int
-
-
-def _letters(n: int) -> str:
-    """0 -> 'A', 25 -> 'Z', 26 -> 'AA', as exhibits run on."""
-    out = ""
-    n += 1
-    while n:
-        n, r = divmod(n - 1, 26)
-        out = chr(65 + r) + out
-    return out
-
-
-def badge(side_: str, n: int) -> str:
-    """The n-th (from 0) badge of a side: plaintiffs '1', '2'; defense 'A', 'B'; others '001', '002'."""
-    if side_ == PLAINTIFF:
-        return str(n + 1)
-    if side_ == DEFENSE:
-        return _letters(n)
-    return f"{n + 1:03}"
 
 
 def marks(attorneys: list[Attorney]) -> dict[str, Mark]:
@@ -84,9 +72,15 @@ def marks(attorneys: list[Attorney]) -> dict[str, Mark]:
         if not key or key in out or a.is_placeholder():
             continue
         s = side(a.party)
-        out[key] = Mark(badge(s, count[s]), s, count[s])
+        out[key] = Mark(s, count[s])
         count[s] += 1
     return out
+
+
+def shade_of(mark: Mark) -> str:
+    """The colour of a firm's mark ("#ea580c"): its side's, in turn (SHADES)."""
+    row = SHADES.get(mark.side, SHADES[OTHER])
+    return row[mark.shade % len(row)]
 
 
 def mark_of(a: Attorney | None, given: dict[str, Mark]) -> Mark | None:

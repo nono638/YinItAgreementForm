@@ -181,11 +181,11 @@ def test_the_excerpts_window_tags_firms_as_the_main_window_does(window, qt, tmp_
     d1.include = False
     window._select_job(d2)
     window._show_job()
-    main = {k: m.badge for k, m in window._marks(d2).items()}
-    assert main == {counsel().key(): "1", smith().key(): "2"}
+    main = window._marks(d2)
+    assert {k: m.shade for k, m in main.items()} == {counsel().key(): 0, smith().key(): 1}
     drawn = []
     real = badges.badge_icon
-    monkeypatch.setattr(badges, "badge_icon", lambda mark, *a: drawn.append(mark.badge) or real(mark, *a))
+    monkeypatch.setattr(badges, "badge_icon", lambda mark, *a: drawn.append(mark) or real(mark, *a))
     window._who_ordered(d2)
     ex = window.excerpts
     assert drawn == [main[a.key()] for a in ex.firms]
@@ -193,8 +193,9 @@ def test_the_excerpts_window_tags_firms_as_the_main_window_does(window, qt, tmp_
 
 
 def test_the_speeds_question_tags_each_trials_firms_as_that_trial_does(window, qt, monkeypatch):
-    """Generate all over two trials, Smith Law a plaintiff ('1') in one and the defense ('A') in the other: the
-    question about the firms' speeds tags it '1' on the first trial's rows (both were 'A')."""
+    """Generate all over two trials, Smith Law a plaintiff in one and the defense in the other: the question
+    about the firms' speeds marks it with a plaintiffs' colour on the first trial's rows and a defense one on the
+    second's (both were the defense's)."""
     import minute_filler.batch as batch
     import minute_filler.gui.dialogs as dialogs
     from minute_filler.batch import Job, SpeedAsk
@@ -220,11 +221,13 @@ def test_the_speeds_question_tags_each_trials_firms_as_that_trial_does(window, q
             return 0
     monkeypatch.setattr(dialogs, "SplitSpeedsDialog", Asked)
     assert window._ask_split_speeds([j1, j2]) is False
-    assert seen[id(j1)][B].badge == "1" and seen[id(j2)][B].badge == "A"
+    assert seen[id(j1)][B].side == "plaintiff" and seen[id(j2)][B].side == "defense"
     dlg = real(  # (the dialog itself shows each row's own: by its job)
         asks, [("Daily", "Daily")], "Generate all", None, seen)
     tags = [lab.text() for lab in dlg.findChildren(qt.QLabel) if "Dana Smith" in lab.text()]
-    assert len(tags) == 2 and "&nbsp;1&nbsp;" in tags[0] and "&nbsp;A&nbsp;" in tags[1]
+    from minute_filler.gui.badges import tag_color
+    assert len(tags) == 2 and tag_color(seen[id(j1)][B]).name() in tags[0] \
+        and tag_color(seen[id(j2)][B]).name() in tags[1]
 
 
 # ------------------------------------------------------------ the records, Who transcribed what

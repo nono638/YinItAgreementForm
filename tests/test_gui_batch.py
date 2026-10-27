@@ -82,7 +82,7 @@ def test_batch_of_documents(window, tmp_path):
     wait(window, lambda: all(j.saved for j in window.jobs))
     saved = sorted(p.relative_to(tmp_path / "out").as_posix() for p in (tmp_path / "out").rglob("*.pdf"))
     assert len(saved) == 2 and saved[1].startswith("712222-2024/") and saved[0].startswith("700001-2025/")
-    assert "712222-2024" in saved[1].split("/")[1]  # (each case in its folder)
+    assert saved[1].split("/")[1] == "Minute Agreements" and "712222-2024" in saved[1].split("/")[2]  # (its folder)
     assert window.job_list.topLevelItem(0).text(0).startswith("✓")
     # nothing left for a second "Generate all"; still ticked, so the cards still show them
     assert all(j.include and j.made for j in window.jobs) and window._to_generate() == []

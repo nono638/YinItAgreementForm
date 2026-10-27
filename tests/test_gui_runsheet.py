@@ -1,9 +1,9 @@
 """The run sheet from the window (off screen): Generate and Generate all ask where the takes go when the case
 has one (once per trial), one run sheet counted per case, a run sheet open in Excel, the Settings → Run sheet tab
 (initials and reporter lines written different ways, the Witness columns) and its folder, the run sheet in the
-case's folder and "Open the run sheet's folder", and work that ends while a question is on screen. Also a take
-corrected in Who transcribed what (double-click or right-click, the "Are you sure?" box, Undo), and a past job's
-corrections coming back with it."""
+case's Trial Runs folder and "Open the run sheet's folder", and work that ends while a question is on screen.
+Also a take corrected in Who transcribed what (double-click or right-click, the "Are you sure?" box, Undo), and a
+past job's corrections coming back with it."""
 import os
 from copy import deepcopy
 
@@ -242,10 +242,10 @@ def test_the_run_sheet_goes_in_the_cases_folder_and_its_link_opens_it(make_windo
     case = tmp_path / "out" / "712345-2021"
     assert opened == [tmp_path / "out"] and not case.exists()
     window.fill()
-    sheet, = case.glob("*.xlsx")
-    assert window.cur.saved == [sheet] and not old_folder().exists()
+    sheet, = (case / "Trial Runs").glob("*.xlsx")  # (the case folder's Trial Runs folder: the user, 2026-10-26)
+    assert window.cur.saved == [sheet] and not old_folder().exists() and not list(case.glob("*.xlsx"))
     window._open_run_sheets_folder()
-    assert opened[-1] == case
+    assert opened[-1] == case / "Trial Runs"
 
 
 def test_a_take_is_corrected_in_who_transcribed_what(make_window, tmp_path, monkeypatch):

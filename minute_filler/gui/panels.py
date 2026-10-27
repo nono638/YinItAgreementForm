@@ -150,8 +150,9 @@ def runsheet(win, rs: QFormLayout) -> None:
     rs.addRow(win.rs_info)
     # under the options, not among them: the folder can be opened while Run sheet is unticked too
     win.rs_folder = QLabel("<a href=\"open\">Open the run sheet's folder</a>")
-    win.rs_folder.setToolTip("Opens the folder this case's run sheet is in, or will go in: the case's own folder,\n"
-                             "with its other files (unless Settings → Options → Folders gives run sheets one)")
+    win.rs_folder.setToolTip("Opens the folder this case's run sheet is in, or will go in: the Trial Runs folder\n"
+                             "inside the case's own folder, or Save to without a folder for each case\n"
+                             "(unless Settings → Options → Folders gives run sheets one)")
     win.rs_folder.linkActivated.connect(lambda _: win._open_run_sheets_folder())
     col = win.option_panels["runsheet"].layout()
     col.insertWidget(col.count() - 1, win.rs_folder)  # above the stretch

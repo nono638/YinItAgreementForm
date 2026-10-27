@@ -10,16 +10,27 @@ The weekday, the take counts and the page numbers are formulas ("Don't write her
 changed by hand is counted too. Witness Start and Witness End get the first and the last running head printed
 in the take, as printed ("DIRECT - PLAINTIFF - JANE ROE"), or are left blank for the user
 (Settings.runsheet_witness): who was on the stand is not read from them. Filtering the Reporter column shows
-that reporter's pages (the total of the rows shown is at the top), and the "By Reporter" sheet adds up each
-reporter's takes and pages.
+that reporter's pages (the total of the rows shown is at the top).
 
-There is one run sheet per case, kept in the case's own folder with its other files (or in the folder Settings
--> Options -> Folders gives run sheets). A transcript's takes are added to the case's run sheet when there is
-one there, next to the transcript, in a folder the records list for the case's run sheets (a trial's days can
-go to different folders) or in Documents\\YinIt Run Sheets (where earlier versions kept them all): see
-sheet_folders. It is found by index number or, since one trial can have several index numbers billed together,
-by case name; otherwise a new one is started. On a run sheet of this app, the rows already there stay in their
-order (with what was typed in them) and each new take goes before the first later one. A run sheet this app did
+It is there to look back at a trial (the user, 2026-10-26: "to jog my memory of what happened, who worked on what
+day, how many pages each person did"), so it has three more tabs: "By Reporter" adds up each reporter's takes and
+pages, with their share of the trial's pages and the days they worked; "Witnesses" lists every running head the
+takes printed, as printed, with the days, reporters and pages it was on (_witnesses: the heads of each take are
+kept on the hidden sheet, so a take of an earlier day still has all of them, not only Witness Start and End);
+"Who Ordered" lists, from the records, each invoice made for the case (the firm, its side, the days, the speed,
+the number, the amount and whether it is paid) and each firm with a minute agreement but no invoice yet
+(order_rows). Generate writes the run sheet first, so Who Ordered is written again once the invoices are made
+(refresh_orders): today's invoices are on it too.
+
+There is one run sheet per case, kept in the Trial Runs folder inside the case's own folder (straight in Save to
+without a folder for each case, or in the folder Settings -> Options -> Folders gives run sheets). A transcript's
+takes are added to the case's run sheet when there is one there, at the top of the case's folder (where 2.13 and
+earlier put it), next to the transcript, in a folder the records list for the case's run sheets (a trial's days
+can go to different folders) or in Documents\\YinIt Run Sheets (where earlier versions kept them all): see
+sheet_folders. One found is added to where it is; it is not moved. It is found by index number or, since one
+trial can have several index numbers billed together, by case name; otherwise a new one is started. On a run
+sheet of this app, the rows already there stay in their order (with what was typed in them) and each new take
+goes before the first later one. A run sheet this app did
 not make (downloaded from Google Sheets, say) gets its rows added at the end, or on a row typed in ahead for that
 day, with its own formulas copied down; it is backed up first.
 
@@ -31,6 +42,7 @@ RunSheets is the output deliver.generate adds the takes through (courthouses.Out
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import shutil
@@ -46,15 +58,15 @@ from .dates import us_date
 from .extract_regex import find_dates, norm_index, strip_line_numbers, title_page_count
 from .pdfout import safe_filename, unique_path
 from .log import error as log_error
-from .models import CaseInfo
+from .models import Attorney, CaseInfo
 from .settings import Settings
 from .takes import TITLE_ONLY, body_pages, find_takes, fix_marks, reporter_label, title_reporters
 
 if TYPE_CHECKING:
     from .deliver import Making
 
-SHEET, BY_REPORTER, META = "Run Sheet", "By Reporter", "YinIt"
-FORMAT = "YinIt run sheet 1"
+SHEET, BY_REPORTER, WITNESSES, ORDERS, META = "Run Sheet", "By Reporter", "Witnesses", "Who Ordered", "YinIt"
+FORMAT = "YinIt run sheet 2"  # (2: the takes' heads kept on the hidden sheet; 1 is read the same)
 BACKUP = "(before YinIt)"  # a run sheet this app didn't make is first copied to "<name> (before YinIt).xlsx"
 OLD_FOLDER = "YinIt Run Sheets"  # under Documents: every run sheet's folder before they went with their case's files
 OLD_DJINNIT_FOLDER = "DjinnIt Run Sheets"  # and before the rename (2.0), when it couldn't be renamed (settings)
@@ -99,6 +111,9 @@ class Row:
     # its pages' running heads as printed (takes.Take.heads: "Proceedings, J. Doe - Plaintiff - Direct"): the Who
     # transcribed what card's, not a column of the run sheet
     heads: str = ""
+    # the same heads one by one, each once (takes.Take.heads), for the Witnesses tab; on a row read back from a run
+    # sheet, those the hidden sheet kept for it (_meta), else its Witness Start and End
+    head_list: list = field(default_factory=list)
     # the transcript it is of (batch.Doc.key()) and where its first page is in that transcript's pages
     # (takes.Take.at), for Correct where this take ends; "" and None for a row not read from a transcript
     doc: str = ""
@@ -130,6 +145,8 @@ class RunSheetOpts:
     added: int = 0
     skipped: int = 0           # takes that were on it already (or given twice)
     added_pages: int = 0       # the pages of the takes added
+    days: list[CaseInfo] = field(default_factory=list)  # the case of each day of the takes (a batch's several): the
+    # attorneys the run sheet keeps for Who Ordered's colours (_kept_attorneys), besides the case written's
 
 
 def run_sheet_summary(opts: RunSheetOpts) -> str:
@@ -186,7 +203,8 @@ def rows_from(ing, day: date | None, s: Settings, front: str = "", fixes: dict[i
         who = reporter_label(t.initials, names, s.reporter_names(), p.name, p.initials, s.title_case_names)
         note = TITLE_ONLY if t.title_only and len(takes) > 1 else "" if t.initials else NOT_FOUND
         rows.append(Row(day, who, t.pages, t.start, t.heads[0] if heads and t.heads else "",
-                        t.last_head if heads else "", note, t.initials, heads=", ".join(t.heads), at=t.at))
+                        t.last_head if heads else "", note, t.initials, heads=", ".join(t.heads),
+                        head_list=list(t.heads), at=t.at))
     return rows
 
 
@@ -287,8 +305,9 @@ def same_name(a: str, b: str) -> bool:
 
 
 def runsheets_folder(s: Settings, general: Path | str | None = None) -> Path:
-    """Where a new run sheet goes: the run sheet's folder under Settings -> Options -> Folders, else `general`,
-    the case's own folder where its other files go (batch.out_dir_for; see Settings.folder_for)."""
+    """Where a new run sheet goes: the run sheets' folder under Settings -> Options -> Folders, else the Trial
+    Runs folder inside `general`, the case's own folder (batch.out_dir_for; `general` itself, Save to, without a
+    folder for each case: see Settings.folder_for)."""
     return s.folder_for("runsheet", general)
 
 
@@ -300,12 +319,14 @@ def old_folder() -> Path:
 
 def sheet_folders(s: Settings, general: Path | str | None, folders: list[Path],
                   case: CaseInfo | None = None) -> list[Path]:
-    """The folders a case's run sheet is looked for in: where a new one would go (runsheets_folder), `folders`
-    (the transcripts' own), the folders of the case's run sheets the records list (recorded_folders: a trial's
+    """The folders a case's run sheet is looked for in: where a new one would go (runsheets_folder), the case's
+    folder itself (`general`: where one went before the Trial Runs folder, 2.13 and earlier), `folders` (the
+    transcripts' own), the folders of the case's run sheets the records list (recorded_folders: a trial's
     days can go to different folders) and the old run sheets folders (old_folder, and Documents\\DjinnIt Run
     Sheets when the rename left it there)."""
     recorded = recorded_folders(case, s) if case is not None else []
-    return list(dict.fromkeys([runsheets_folder(s, general), *map(Path, folders), *recorded, old_folder(),
+    case_dir = [Path(general)] if general else []
+    return list(dict.fromkeys([runsheets_folder(s, general), *case_dir, *map(Path, folders), *recorded, old_folder(),
                                Path.home() / "Documents" / OLD_DJINNIT_FOLDER]))
 
 
@@ -360,10 +381,7 @@ def read_info(path: Path, strict: bool = False) -> Found | None:
         return None
     try:
         if meta_sheet(wb):
-            info = {}
-            for key, value, *_ in wb[meta_sheet(wb)].iter_rows(values_only=True):
-                if key:
-                    info.setdefault(str(key), []).append("" if value is None else str(value))
+            info = _read_meta(wb)
             # "YinIt run sheet 1", any version, or one made under the old name
             if info.get("format", [""])[0].startswith((FORMAT.rsplit(" ", 1)[0], OLD_FORMAT)):
                 return Found(path, (info.get("case") or [""])[0], [i for i in info.get("index", []) if i])
@@ -450,8 +468,8 @@ def choose(case: CaseInfo, s: Settings, folders: list[Path], target: str | None)
 # ------------------------------------------------------------------ writing
 
 def new_path(case: CaseInfo, rows: list[Row], s: Settings, out_dir: Path | str | None = None) -> Path:
-    """A free file name for a new run sheet in runsheets_folder (out_dir: the case's own folder), from
-    Settings.runsheet_filename_pattern and the first day of the takes
+    """A free file name for a new run sheet in runsheets_folder (out_dir: the case's own folder, so its Trial
+    Runs folder), from Settings.runsheet_filename_pattern and the first day of the takes
     ("June 2026 712345-2021 Jane Roe v. Sam Poe - Run Sheet.xlsx")."""
     days = [r.day for r in rows if r.day]
     first = min(days) if days else date.today()
@@ -469,10 +487,11 @@ def new_path(case: CaseInfo, rows: list[Row], s: Settings, out_dir: Path | str |
 def add_takes(case: CaseInfo, opts: RunSheetOpts, s: Settings, folders: list[Path],
               out_dir: Path | str | None = None) -> Path:
     """Adds opts.rows to this case's run sheet (see choose) or a new one, and returns its path. out_dir: the
-    case's own folder, where a new one goes (unless Settings give run sheets a folder: runsheets_folder);
-    folders: where else to look (the transcript's own folder; see sheet_folders). Sets opts.path, created, added,
-    skipped and added_pages. ValueError when there are no rows or the chosen file isn't a run sheet;
-    SheetUnreadable when the case's run sheet can't be opened just now (nothing is started in its place)."""
+    case's own folder: a new one goes in its Trial Runs folder (unless Settings give run sheets a folder:
+    runsheets_folder); folders: where else to look (the transcript's own folder; see sheet_folders). Sets
+    opts.path, created, added, skipped and added_pages. ValueError when there are no rows or the chosen file
+    isn't a run sheet; SheetUnreadable when the case's run sheet can't be opened just now (nothing is started in
+    its place)."""
     if not opts.rows:
         raise ValueError(NO_RUNSHEET)
     with _LOCK:  # one change at a time: the window and a batch may add to the same run sheet
@@ -488,7 +507,7 @@ def add_takes(case: CaseInfo, opts: RunSheetOpts, s: Settings, folders: list[Pat
         else:
             path = path or new_path(case, opts.rows, s, out_dir)
             opts.created = info is None
-            _write_ours(path, case, opts, exists=info is not None)
+            _write_ours(path, case, opts, exists=info is not None, s=s)
         opts.path = path
         return path
 
@@ -609,19 +628,17 @@ def _in_order(old: list[Row], new: list[Row]) -> list[Row]:
     return rows
 
 
-def _write_ours(path: Path, case: CaseInfo, opts: RunSheetOpts, exists: bool) -> None:
+def _write_ours(path: Path, case: CaseInfo, opts: RunSheetOpts, exists: bool, s: Settings | None = None) -> None:
     """Writes a run sheet of this app: a new one, or (exists) the one at path rewritten with its old rows and
-    the new takes in order. Sets opts.added, skipped and added_pages."""
+    the new takes in order, and its tabs (By Reporter, Witnesses, and Who Ordered from the records s names: none
+    without s). Sets opts.added, skipped and added_pages."""
     from openpyxl import Workbook, load_workbook
     if exists:
         wb = load_workbook(path)
         ws = wb[SHEET] if SHEET in wb.sheetnames else wb.worksheets[0]
         old = _read_ours(ws)
-        meta = {}
-        if meta_sheet(wb):
-            for key, value, *_ in wb[meta_sheet(wb)].iter_rows(values_only=True):
-                if key:
-                    meta.setdefault(str(key), []).append("" if value is None else str(value))
+        meta = _read_meta(wb)
+        _restore_heads(old, _kept_heads(meta))
         case_name = (meta.get("case") or [case.get("case_name")])[0] or case.get("case_name")
         indexes = [i for i in meta.get("index", []) if i]
         known = dict(x.split("=", 1) for x in meta.get("reporter", []) if "=" in x)
@@ -629,7 +646,7 @@ def _write_ours(path: Path, case: CaseInfo, opts: RunSheetOpts, exists: bool) ->
         wb = Workbook()
         ws = wb.active
         ws.title = SHEET
-        old, case_name, indexes, known = [], case.get("case_name"), [], {}
+        old, case_name, indexes, known, meta = [], case.get("case_name"), [], {}, {}
     new = [r for r in _unique(opts.rows) if not any(r.same_take(o) for o in old)]
     opts.added, opts.skipped = len(new), len(opts.rows) - len(new)
     opts.added_pages = sum(r.pages or 0 for r in new)
@@ -642,7 +659,12 @@ def _write_ours(path: Path, case: CaseInfo, opts: RunSheetOpts, exists: bool) ->
     known = name_rows(rows, known)
     _fill_sheet(ws, rows, case_name, indexes, case)
     _by_reporter(wb, rows, ws.title)
-    _meta(wb, case_name, indexes, known)
+    _witnesses(wb, rows)
+    attorneys = _kept_attorneys(meta, case, *opts.days)
+    orders = order_rows(case_name, indexes, case, s, _in_turn(attorneys)) if s is not None else None
+    if orders is not None:  # (the records unreadable just now: the tab as it was, not "nothing in the records")
+        _who_ordered(wb, orders)
+    _meta(wb, case_name, indexes, known, rows, attorneys)
     _save(wb, path)
 
 
@@ -755,32 +777,368 @@ def _fill_sheet(ws, rows: list[Row], case_name: str, indexes: list[str], case: C
 
 def _by_reporter(wb, rows: list[Row], sheet: str = SHEET) -> None:
     """The 'By Reporter' sheet: each reporter's takes and pages (formulas over the run sheet, the tab named
-    sheet)."""
-    from openpyxl.styles import Font
+    sheet), their share of all the pages, and the days they have takes on (how many, and which: written from the
+    rows as they are now, so a row typed in Excel counts once the run sheet is written again)."""
+    from openpyxl.styles import Alignment, Font
     if BY_REPORTER in wb.sheetnames:
         del wb[BY_REPORTER]
     ws = wb.create_sheet(BY_REPORTER, 1)
-    for c, (heading, width) in enumerate((("Reporter", 18), ("Takes", 9), ("Pages", 9)), 1):
+    for c, (heading, width) in enumerate((("Reporter", 18), ("Takes", 9), ("Pages", 9), ("Share", 9), ("Days", 7),
+                                          ("Days worked", 60)), 1):
         ws.cell(1, c, heading).font = Font(bold=True)
         ws.column_dimensions[chr(64 + c)].width = width
     tab = "'" + sheet.replace("'", "''") + "'"
     ref = lambda k: f"{tab}!${L[k]}${FIRST}:${L[k]}${LAST}"
     names: dict[str, str] = {}  # COUNTIF and SUMIF don't tell "Dana" from "DANA": one row for both
+    days: dict[str, list[date]] = {}
     for r in rows:
         if r.reporter and not _is_formula(r.reporter):
             names.setdefault(r.reporter.casefold(), r.reporter)
-    for i, name in enumerate(names.values(), 2):
+            if r.day and r.day not in days.setdefault(r.reporter.casefold(), []):
+                days[r.reporter.casefold()].append(r.day)
+    total = len(names) + 2
+    for i, (key, name) in enumerate(names.items(), 2):
         ws.cell(i, 1, name)
         ws.cell(i, 2, f'=COUNTIFS({ref("reporter")},A{i},{ref("note")},"<>{TITLE_ONLY}")')
         ws.cell(i, 3, f'=SUMIF({ref("reporter")},A{i},{ref("pages")})')
-    total = len(names) + 2
+        ws.cell(i, 4, f'=IF(N(C${total})=0,"",C{i}/C${total})').number_format = "0%"
+        worked = sorted(days.get(key, []))
+        ws.cell(i, 5, len(worked))
+        ws.cell(i, 6, ", ".join(us_date(d) for d in worked)).alignment = Alignment(wrap_text=True, vertical="top")
     ws.cell(total, 1, "Total").font = Font(bold=True)
-    ws.cell(total, 2, f"=SUM(B2:B{total - 1})").font = Font(bold=True)
-    ws.cell(total, 3, f"=SUM(C2:C{total - 1})").font = Font(bold=True)
+    # (no reporter named, a scan's takes: 0, not a SUM of the row above that is its own row, a circular reference)
+    ws.cell(total, 2, f"=SUM(B2:B{total - 1})" if names else 0).font = Font(bold=True)
+    ws.cell(total, 3, f"=SUM(C2:C{total - 1})" if names else 0).font = Font(bold=True)
+    every = sorted({r.day for r in rows if r.day})
+    ws.cell(total, 5, len(every)).font = Font(bold=True)  # (the trial's days: a day two reporters shared is one)
 
 
-def _meta(wb, case_name: str, indexes: list[str], reporters: dict[str, str]) -> None:
-    """The hidden sheet that says what the run sheet is about (so it can be found again)."""
+def heads_of(row: Row) -> list[str]:
+    """The running heads of a take, as printed: those read from its pages (Row.head_list), else its Witness Start
+    and End cells (a row typed in, or one of a run sheet made before the heads were kept)."""
+    return row.head_list or [h for h in dict.fromkeys((row.witness_start, row.witness_end)) if h]
+
+
+def witness_rows(rows: list[Row]) -> list[tuple[str, list[date], list[str], int]]:
+    """Each running head the takes printed, as first printed and once ('PROCEEDINGS' and 'Proceedings' are one,
+    as takes.find_takes reads them), in the order of the takes: (the head, the days it was on, the reporters of
+    the takes it was on, the pages of those takes)."""
+    out: dict[str, list] = {}
+    for r in rows:
+        for h in heads_of(r):  # ("== DIRECT ==" too: written as text, _as_text)
+            entry = out.setdefault(h.casefold(), [h, [], [], 0])
+            if r.day and r.day not in entry[1]:
+                entry[1].append(r.day)
+            if r.reporter and r.reporter.casefold() not in {x.casefold() for x in entry[2]}:
+                entry[2].append(r.reporter)
+            entry[3] += r.pages or 0
+    return [(h, sorted(d), who, pages) for h, d, who, pages in out.values()]
+
+
+def _witnesses(wb, rows: list[Row]) -> None:
+    """The 'Witnesses' sheet: every running head the takes printed (witness_rows), as printed: who was on the
+    stand is not read from them, the heads say it in their own words. Always the heads read from the pages, also
+    when Settings.runsheet_witness leaves the Witness cells blank for the user."""
+    from openpyxl.styles import Alignment, Font
+    if WITNESSES in wb.sheetnames:
+        del wb[WITNESSES]
+    ws = wb.create_sheet(WITNESSES, 2)
+    for c, (heading, width) in enumerate((("Running head (as printed)", 48), ("Days", 30), ("Reporters", 24),
+                                          ("Pages of its takes", 10)), 1):
+        cell = ws.cell(1, c, heading)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+        ws.column_dimensions[chr(64 + c)].width = width
+    found = witness_rows(rows)
+    if not found:
+        ws.cell(2, 1, "No running heads read from the transcripts yet.").font = Font(italic=True, color="595959")
+    for i, (head, days, who, pages) in enumerate(found, 2):
+        ws.cell(i, 1, head)
+        ws.cell(i, 2, ", ".join(us_date(d) for d in days))
+        ws.cell(i, 3, ", ".join(who))
+        ws.cell(i, 4, pages)
+        for c in (1, 2, 3):
+            _as_text(ws.cell(i, c))
+            ws.cell(i, c).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.freeze_panes = "A2"
+
+
+ORDER_HEADS = ("", "Firm", "Side", "Attorney", "Days", "Speed", "Invoice No.", "Invoice date", "Amount", "Status")
+ORDER_WIDTHS = (2, 30, 10, 26, 30, 14, 14, 12, 26, 22)
+_SIDES = {"plaintiff": "Plaintiff", "defense": "Defense", "other": "Other"}
+NO_ORDERS = "No minute agreements or invoices for this case in your records yet."
+
+
+def order_rows(case_name: str, indexes: list[str], case: CaseInfo, s: Settings,
+               attorneys: list[Attorney] | None = None) -> list[list] | None:
+    """The Who Ordered tab's rows, from the records (Settings.records_dir), for the case of this name or one of
+    these index numbers (matches, as the case's run sheet is found; a record with other index numbers is another
+    case's, whatever its caption): an invoice each, oldest first ([the firm's colour, firm (or the attorney
+    billed, without one), side, the attorney billed (blank when named as the firm), the days, the speed (paid at,
+    billed, or those offered, for a firm choosing from its invoice), the number, its date, the amount (paid,
+    billed, or the offer), and Open, Paid with its date, or Void, with whose name it is in when made in another
+    reporter's]), then each firm with a minute agreement but no invoice yet (its days, the rest blank).
+    The side and colour are those of the firm's mark among `attorneys` (the trial's, _kept_attorneys; default the
+    case's: firm_marks, as the window shows them), blank for a firm not among them. None when the records can't be
+    read (logged)."""
+    from .deliver import ledger_for  # (deliver imports this module)
+    from .firm_marks import firm_id, marks, shade_of
+    from .invoice_calc import fmt, money
+    try:
+        ledger = ledger_for(s)
+        invoices = ledger.invoices()
+        agreements = ledger.activity(kind="agreement")
+    except Exception as e:  # (the records locked or damaged: the run sheet is still written)
+        log_error("could not read the records for the run sheet's Who Ordered tab", e)
+        return None
+    index = ", ".join(indexes) or case.get("index_no")
+    mine = set(index_numbers(index))
+
+    def ours(name: str, idx: str) -> bool:
+        """The record is this case's (as matches finds its run sheet), and names none but its index numbers."""
+        theirs = index_numbers(idx or "")
+        if mine and theirs and not mine & set(theirs):  # ("Garcia v. City of New York" is many cases)
+            return False
+        return bool(matches(Found(Path(), name or "", theirs), case_name, index))
+
+    given = marks(case.attorneys if attorneys is None else attorneys)
+
+    def money_text(amount: str) -> str:
+        """'98' -> '$98.00'; a record's amount as it is when it isn't a sum of money ("" when there is none)."""
+        if not str(amount or "").strip():
+            return ""
+        try:
+            return fmt(money(amount))
+        except Exception:
+            return amount
+
+    def firm_cells(firm: str, attorney: str) -> list:
+        """The colour, the firm's name (the attorney's, without a firm) and its side, by its mark among
+        `attorneys` (given); no colour and no side for a firm not among them."""
+        mark = given.get(firm_id(Attorney(name=attorney, firm=firm)))
+        return [shade_of(mark) if mark else None, firm or attorney, _SIDES.get(mark.side, "") if mark else ""]
+
+    out, billed = [], set()
+    for inv in sorted((i for i in invoices if ours(i.case_name, i.index_no)), key=lambda i: (i.created, i.invoice_no)):
+        billed.add(firm_id(Attorney(name=inv.bill_to, firm=inv.firm)))
+        billed.add(firm_id(Attorney(name=inv.bill_to)))  # (an agreement logged with the attorney's name only)
+        if inv.status == "paid" and (inv.paid_speed or inv.amount_paid):
+            speed = inv.paid_speed or inv.billed_speed
+            amount = money_text(inv.amount_paid or inv.amounts.get(speed, ""))
+        elif len(inv.amounts) > 1 or inv.billed_speed not in inv.amounts:  # (a firm choosing from its invoice)
+            speed, amount = "offered: " + ", ".join(inv.amounts), inv.offered_text()
+        else:
+            speed, amount = inv.billed_speed, money_text(inv.amounts[inv.billed_speed])
+        status = {"paid": f"Paid {us_date(inv.paid_date)}" if inv.paid_date else "Paid", "void": "Void"}.get(
+            inv.status, "Open")
+        if inv.reporter:
+            status += f" (in {inv.reporter.upper()}'s name)"
+        out.append(firm_cells(inv.firm, inv.bill_to) + [inv.bill_to if inv.firm else "", inv.dates, speed,
+                                                        inv.invoice_no, us_date(inv.created[:10]), amount, status])
+    waiting: dict[str, list] = {}  # firms with an agreement and no invoice: their days, each once
+    for a in sorted((a for a in agreements if ours(a.case_name, a.index_no)), key=lambda a: (a.ts, a.id)):
+        key = firm_id(Attorney(name=a.attorney, firm=a.firm))
+        if not key or key in billed:
+            continue
+        row = waiting.setdefault(key, firm_cells(a.firm, a.attorney) + [a.attorney if a.firm else "", [], "", "",
+                                                                         "", "", "Agreement, no invoice yet"])
+        for d in [x.strip() for x in (a.dates or "").split(",") if x.strip()]:
+            if d not in row[4]:
+                row[4].append(d)
+    for row in waiting.values():
+        row[4] = ", ".join(row[4])
+        out.append(row)
+    return out
+
+
+def _who_ordered(wb, rows: list[list]) -> None:
+    """The 'Who Ordered' sheet: order_rows, under its headings, each firm's colour in the narrow first column."""
+    from openpyxl.styles import Alignment, Font, PatternFill
+    at = wb.sheetnames.index(ORDERS) if ORDERS in wb.sheetnames else min(3, len(wb.sheetnames))
+    if ORDERS in wb.sheetnames:
+        del wb[ORDERS]
+    ws = wb.create_sheet(ORDERS, at)
+    for c, (heading, width) in enumerate(zip(ORDER_HEADS, ORDER_WIDTHS), 1):
+        ws.cell(1, c, heading or None).font = Font(bold=True)
+        ws.column_dimensions[chr(64 + c)].width = width
+    if not rows:
+        ws.cell(2, 2, NO_ORDERS).font = Font(italic=True, color="595959")
+    for i, row in enumerate(rows, 2):
+        colour, *cells = row
+        if colour:
+            ws.cell(i, 1).fill = PatternFill("solid", start_color=colour.lstrip("#"), end_color=colour.lstrip("#"))
+        for c, value in enumerate(cells, 2):
+            cell = ws.cell(i, c, value or None)
+            _as_text(cell)
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+    ws.freeze_panes = "B2"
+
+
+def _orders_now(wb) -> list[list]:
+    """The rows the Who Ordered sheet has now (as _who_ordered wrote them), to tell whether it changed."""
+    if ORDERS not in wb.sheetnames:
+        return []
+    ws = wb[ORDERS]
+    if ws.cell(2, 2).value == NO_ORDERS:
+        return []
+    out = []
+    for r in range(2, ws.max_row + 1):
+        fill = ws.cell(r, 1).fill
+        colour = f"#{fill.start_color.rgb[-6:]}".lower() if fill and fill.fill_type == "solid" else None
+        out.append([colour] + [ws.cell(r, c).value or "" for c in range(2, len(ORDER_HEADS) + 1)])
+    return out
+
+
+def refresh_orders(path: Path | str | None, case: CaseInfo, s: Settings, days: list[CaseInfo] = ()) -> bool:
+    """Writes the Who Ordered sheet of the run sheet at path again (order_rows), after Generate made the case's
+    invoices and agreements: the run sheet is written before them (deliver.generate, batch.fill_jobs). days: the
+    case of each day just generated (batch.fill_jobs: a run sheet's days together), whose attorneys are added to
+    those the run sheet keeps with the case's (_kept_attorneys), so a firm has the colour the window gives it. Not
+    saved when the tab shows the same already and the firms kept are the same, nor for a run sheet this app
+    didn't make.
+    It is an aside: a run sheet open in Excel, or one that can't be read (or the records), is logged and left as
+    it was (False). True when it was saved."""
+    from openpyxl import load_workbook
+    from .firm_marks import firm_id
+    if not path or not Path(path).is_file():
+        return False
+    try:
+        with _LOCK:
+            info = read_info(Path(path))
+            if not info or not info.ours:
+                return False
+            wb = load_workbook(path)
+            meta = _read_meta(wb)
+            kept = _kept_attorneys(meta)
+            trial = _kept_attorneys(meta, case, *days)
+            name = (meta.get("case") or [case.get("case_name")])[0] or case.get("case_name")
+            rows = order_rows(name, [i for i in meta.get("index", []) if i], case, s, _in_turn(trial))
+            if rows is None:
+                return False
+            same = [[r[0].lower() if r[0] else None] + [c or "" for c in r[1:]] for r in rows]
+            firms = lambda found: [(day, firm_id(a), a.party) for day, a in found]
+            if ORDERS in wb.sheetnames and _orders_now(wb) == same and firms(trial) == firms(kept):
+                return False
+            _who_ordered(wb, rows)
+            _set_attorneys(wb[meta_sheet(wb)], trial)
+            _save(wb, Path(path))
+            return True
+    except Exception as e:  # (open in Excel, or synced just now: the invoices are made all the same)
+        log_error("could not write the run sheet's Who Ordered tab again", e)
+        return False
+
+
+def _read_meta(wb) -> dict[str, list[str]]:
+    """What the hidden sheet (_meta) says, by key: {"case": [...], "index": [...], "reporter": [...], ...}."""
+    meta: dict[str, list[str]] = {}
+    if meta_sheet(wb):
+        for row in wb[meta_sheet(wb)].iter_rows(values_only=True):
+            key, value = (tuple(row) + (None, None))[:2]  # (a sheet cut down to one column by hand: no values)
+            if key:
+                meta.setdefault(str(key), []).append("" if value is None else str(value))
+    return meta
+
+
+def _take_key(row: Row) -> str:
+    """What finds a take's heads again on the hidden sheet: its day, first page and reporter."""
+    day = row.day.isoformat() if row.day else ""
+    return f"{day}|{'' if row.start is None else row.start}|{row.reporter.casefold()}"
+
+
+def _json_rows(meta: dict[str, list[str]], key: str, size: int) -> list[list]:
+    """The hidden sheet's rows of this key that are JSON lists of `size` items (what _meta wrote), in order; a
+    cell changed by hand into something else is passed over."""
+    out = []
+    for value in meta.get(key, []):
+        try:
+            item = json.loads(value)
+        except ValueError:
+            continue
+        if isinstance(item, list) and len(item) == size:
+            out.append(item)
+    return out
+
+
+def _kept_heads(meta: dict[str, list[str]]) -> list[tuple[str, list[str]]]:
+    """The heads the hidden sheet kept, a (_take_key, heads) each, in the order of the takes ([] for a run sheet
+    made before they were kept)."""
+    return [(k, h) for k, h in _json_rows(meta, "heads", 2)
+            if isinstance(k, str) and isinstance(h, list) and h and all(isinstance(x, str) for x in h)]
+
+
+def _restore_heads(rows: list[Row], kept: list[tuple[str, list[str]]]) -> None:
+    """Gives the rows read back from the run sheet the heads kept for their takes (_kept_heads), each kept entry
+    to one row: the entry of the row's own day, first page and reporter, else (an earlier take's pages corrected in
+    Excel moved its first page, its reporter renamed) one of its day whose first and last heads are those its
+    Witness cells name. Only while the cells still say what the heads do: a row whose cells were corrected by
+    hand, or one typed in, gets none, and the Witnesses tab reads its cells (heads_of)."""
+    def fits(r: Row, key: str, heads: list[str], exact: bool) -> bool:
+        """The kept entry (key, heads) is the row's: its cells don't say other heads, and it has the row's key
+        (exact), else the row's day (and its reporter when the cells are blank)."""
+        printed = {h.casefold() for h in heads}  # (Witness End is the last head printed: it may repeat one)
+        if any(c and c.casefold() not in printed for c in (r.witness_start, r.witness_end)):
+            return False
+        if exact:
+            return key == _take_key(r)
+        if not key.startswith((r.day.isoformat() if r.day else "") + "|"):
+            return False
+        # (Witness cells left blank, Settings.runsheet_witness "blank", say nothing: then its reporter's too)
+        return bool(r.witness_start or r.witness_end) or key.endswith("|" + r.reporter.casefold())
+
+    left = list(kept)
+    for r in rows:
+        r.head_list = []
+    for exact in (True, False):  # (the exact ones first, so that none is taken by another row of the day)
+        for r in (r for r in rows if not r.head_list):
+            n = next((n for n, (key, heads) in enumerate(left) if fits(r, key, heads, exact)), None)
+            if n is not None:
+                r.head_list = list(left.pop(n)[1])
+
+
+def _case_day(case: CaseInfo) -> str:
+    """The case's first day, ISO ('2026-06-03'); "" without a date."""
+    days = [d for d in (to_date(x) for _, _, x in find_dates(case.get("dates"))) if d]
+    return min(days).isoformat() if days else ""
+
+
+def _kept_attorneys(meta: dict[str, list[str]], *cases: CaseInfo) -> list[tuple[str, Attorney]]:
+    """The attorneys each day of the run sheet named, a (its day, ISO; the attorney) each, earliest day first and
+    in that day's own order: those the hidden sheet keeps (as each day was written), each case's in place of those
+    kept for its day (_case_day: its attorneys as they are now, a party corrected since), placeholders left out.
+    The marks of their firms (firm_marks.marks, each firm by the first of its entries) are then the window's over
+    the trial's days (batch.trial_marks), whichever day is generated first."""
+    from .firm_marks import firm_id
+    days: dict[str, list[Attorney]] = {}
+    for d, n, f, p in _json_rows(meta, "attorney", 4):
+        days.setdefault(str(d or ""), []).append(Attorney(name=str(n or ""), firm=str(f or ""), party=str(p or "")))
+    party: dict[str, str] = {}  # (a party corrected in the window is the firm's on every day: _same_firm_everywhere)
+    for c in cases:
+        days[_case_day(c)] = [Attorney(name=a.name, firm=a.firm, party=a.party) for a in c.attorneys
+                              if not a.is_placeholder()]
+        party.update((firm_id(a), a.party) for a in days[_case_day(c)] if a.party)
+    for a in (a for group in days.values() for a in group):
+        a.party = party.get(firm_id(a), a.party)
+    out = []
+    for day in sorted(days, key=lambda d: d or "9999"):
+        seen = set()  # (one firm once a day)
+        for a in days[day]:
+            if (key := firm_id(a)) and key not in seen:
+                seen.add(key)
+                out.append((day, a))
+    return out
+
+
+def _in_turn(found: list[tuple[str, Attorney]]) -> list[Attorney]:
+    """The attorneys of _kept_attorneys, earliest day first: firm_marks.marks gives the firms their marks in this
+    order, as the window does over the trial's days (batch.trial_marks), whichever day is generated first."""
+    return [a for _, a in found]
+
+
+def _meta(wb, case_name: str, indexes: list[str], reporters: dict[str, str], rows: list[Row] = (),
+          attorneys: list[tuple[str, Attorney]] = ()) -> None:
+    """The hidden sheet that says what the run sheet is about (so it can be found again), the running heads of
+    each take (rows), kept for the Witnesses tab when the run sheet is written again, and the attorneys of its days
+    (_kept_attorneys), for the colours of the Who Ordered tab."""
     while meta_sheet(wb):  # (one made before the rename gets the new name)
         del wb[meta_sheet(wb)]
     ws = wb.create_sheet(META)
@@ -790,8 +1148,21 @@ def _meta(wb, case_name: str, indexes: list[str], reporters: dict[str, str]) -> 
         ws.append(["index", i])
     for initials, name in sorted(reporters.items()):
         ws.append(["reporter", f"{initials}={name}"])
+    for r in rows:
+        if r.head_list:
+            ws.append(["heads", json.dumps([_take_key(r), r.head_list])])
+    _set_attorneys(ws, attorneys)
     ws.append(["updated", datetime.now().isoformat(timespec="seconds")])
     ws.sheet_state = "hidden"
+
+
+def _set_attorneys(ws, attorneys: list[tuple[str, Attorney]]) -> None:
+    """The attorneys' rows of the hidden sheet (_kept_attorneys reads them), in place of those it had."""
+    for r in range(ws.max_row, 0, -1):
+        if ws.cell(r, 1).value == "attorney":
+            ws.delete_rows(r)
+    for day, a in attorneys:
+        ws.append(["attorney", json.dumps([day, a.name, a.firm, a.party])])
 
 
 # ------------------------------------------------------------------ someone else's run sheet
@@ -940,7 +1311,7 @@ class RunSheets:
 
     @staticmethod
     def make(m: Making) -> None:
-        """Adds the takes to the case's run sheet (add_takes; a new one in the case's folder, m.out_dir), recorded
+        """Adds the takes to the case's run sheet (add_takes; a new one in runsheets_folder of m.out_dir), recorded
         with the pages of the takes added; a run sheet that had every take already is left as it was, and not
         recorded."""
         path = add_takes(m.case, m.runsheet, m.s, m.folders or [], m.out_dir)

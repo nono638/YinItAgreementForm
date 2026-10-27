@@ -118,8 +118,9 @@ def test_each_output_can_have_a_folder_of_its_own(folder, s, tmp_path):
     s.output_dirs = {"invoice": str(tmp_path / "Invoices"), "mofr": str(tmp_path / "MOFRs")}
     fill_jobs([roe], s, outputs=["agreement", "mofr", "invoice"])
     where = {p.name.split(" - ")[0].split(" ")[0]: p.parent for p in roe.saved}
-    # (the agreement in the case's own folder inside Save to; the outputs with folders of their own there, flat)
-    assert where == {"Minute": tmp_path / "out" / "712345-2021", "MOFR": tmp_path / "MOFRs",
+    # (the agreement in the case's own folder inside Save to, in its Minute Agreements folder; the outputs with
+    # folders of their own there, flat)
+    assert where == {"Minute": tmp_path / "out" / "712345-2021" / "Minute Agreements", "MOFR": tmp_path / "MOFRs",
                      "Invoice": tmp_path / "Invoices"}
     assert Path(ledger_for(s).invoices()[0].file_path).parent == tmp_path / "Invoices"
 
@@ -127,8 +128,19 @@ def test_each_output_can_have_a_folder_of_its_own(folder, s, tmp_path):
 def test_folder_for_falls_back_and_takes_new_outputs(tmp_path, monkeypatch):
     import minute_filler.settings as settings
     s = Settings()
-    assert s.folder_for("agreement", tmp_path) == tmp_path               # the job's Save to folder
-    assert s.folder_for("runsheet", tmp_path) == tmp_path  # with the case's other files (no built-in folder now)
+    # the case's own folder: each kind in its folder inside it (the user, 2026-10-26)
+    assert s.folder_for("agreement", tmp_path) == tmp_path / "Minute Agreements"
+    assert s.folder_for("mofr", tmp_path) == tmp_path / "MOFR"
+    assert s.folder_for("invoice", tmp_path) == tmp_path / "Invoices"
+    assert s.folder_for("math", tmp_path) == tmp_path / "Math"
+    assert s.folder_for("runsheet", tmp_path) == tmp_path / "Trial Runs"  # (no built-in folder now)
+    s.case_folders = False  # (no folder for each case: the job's Save to folder, flat)
+    assert s.folder_for("agreement", tmp_path) == s.folder_for("math", tmp_path) == tmp_path
+    assert s.folder_for("runsheet", tmp_path) == tmp_path
+    s.case_folders = True
+    s.output_dirs["invoice"] = str(tmp_path / "I")  # (the math goes with invoices that have a folder of their own)
+    assert s.folder_for("math", tmp_path) == tmp_path / "I"
+    del s.output_dirs["invoice"]
     s.output_dirs["agreement"] = str(tmp_path / "A")
     assert s.folder_for("agreement", tmp_path / "x") == tmp_path / "A"
     # an output added later needs nothing more than its key: blank, it goes with the others

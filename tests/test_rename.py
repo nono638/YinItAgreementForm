@@ -138,7 +138,7 @@ def test_a_new_user_gets_the_new_folders():
     s = Settings.load()
     assert settings_dir().name == "YinItAgreementForm" and s.show_yin is True
     assert s.records_folder().name == "YinIt Records" and old_folder().name == "YinIt Run Sheets"
-    assert s.folder_for("runsheet", Path("case")) == Path("case")  # a new run sheet goes with the case's files
+    assert s.folder_for("runsheet", Path("case")) == Path("case") / "Trial Runs"  # with the case's files
     assert not (Path(os.environ["APPDATA"]) / "DjinnItAgreementForm").exists()
 
 

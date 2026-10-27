@@ -50,7 +50,9 @@ class OutputSpec:
     ("Minute agreement"). group: one of GROUPS. mark: the kind its PDFs are labelled with (pdfout.mark: "YinIt
     MOFR"), "" for a file that isn't a PDF; it never changes either, as the preview tells old files apart by it.
     color: its tab in the preview ("" for one never previewed). folder: a folder of its own under Documents
-    when Settings -> Options -> Folders gives none ("" = the job's Save to folder).
+    when Settings -> Options -> Folders gives none ("" = the job's Save to folder). subfolder: the folder it goes
+    in inside the case's own folder ("Invoices": Settings.case_folders, see Settings.folder_for; "" = the case's
+    folder itself).
 
     maker: where the code that makes it is, "module:name" ("minute_filler.fill:Agreements"), imported only when
     a file is made (maker_impl()). It has make(m), which writes the job's files and records each one through
@@ -81,6 +83,7 @@ class OutputSpec:
     mark: str = ""
     color: str = ""
     folder: str = ""
+    subfolder: str = ""
     maker: str = ""
     per: str = "case"
     policy: str = ""
@@ -219,7 +222,10 @@ class Courthouse:
     of Settings -> Dates (Settings.holidays): as that tab says, forms and invoices made on one are dated the next
     business day, and turnaround days in business days don't count them; holiday_weekend: what one of a fixed date
     that falls on a weekend does (Settings.holiday_weekend: "nearest", closed the Friday before or the Monday
-    after, or "none")."""
+    after, or "none").
+
+    math_subfolder: the folder the math of the invoices (invoice_math.save_math) goes in inside the case's own
+    folder, as an output's subfolder does ("" = next to the invoices)."""
     key: str
     name: str
     outputs: tuple[OutputSpec, ...]
@@ -230,6 +236,7 @@ class Courthouse:
     speed_upfront: bool = False
     holidays: tuple[tuple[str, str], ...] = ()
     holiday_weekend: str = "nearest"
+    math_subfolder: str = ""
 
     def modules(self) -> list[str]:
         """Every module its outputs and rules name (maker, policy, panel, split_rules), each once: imported only

@@ -2,9 +2,10 @@
 
 Every module that needs to know which outputs exist asks here (or reads a table built here), instead of naming
 them itself: settings.OUTPUTS and OUTPUT_FOLDERS, records.KINDS, the preview's names and colours (by_mark) and
-batch's forms made once for a trial (keys("form")) all come from the courthouse's outputs. use() switches to
-another courthouse and refreshes these tables in place, so `from .settings import OUTPUTS` keeps working in
-every module (tests use it to try a made-up courthouse); it is not meant to run while work is going on. The
+batch's forms made once for a trial (keys("form")) and the folders inside a case's own (SUBFOLDERS) all come
+from the courthouse's outputs. use() switches to another courthouse and refreshes these tables in place, so
+`from .settings import OUTPUTS` keeps working in every module (tests use it to try a made-up courthouse); it is
+not meant to run while work is going on. The
 court holidays Settings -> Dates starts with are the courthouse's too (holiday_rows).
 
 For now there is one courthouse, Queens Supreme Court, Civil Term (queens_supreme_civil); choosing one in
@@ -18,6 +19,7 @@ from .queens_supreme_civil import COURTHOUSE as QUEENS_SUPREME_CIVIL
 BUILT_IN = (QUEENS_SUPREME_CIVIL,)  # the courthouses that come with the program (the build bundles their makers)
 OUTPUTS: dict[str, str] = {}         # what Generate can make: key -> label, as listed (settings.OUTPUTS)
 OUTPUT_FOLDERS: dict[str, str] = {}  # key -> its own folder under Documents (settings.OUTPUT_FOLDERS)
+SUBFOLDERS: dict[str, str] = {}      # key (or "math") -> its folder inside a case's own (settings.SUBFOLDERS)
 _current: Courthouse | None = None
 
 
@@ -107,6 +109,10 @@ def use(courthouse: Courthouse) -> Courthouse | None:
     OUTPUTS.update((o.key, o.label) for o in courthouse.outputs)
     OUTPUT_FOLDERS.clear()
     OUTPUT_FOLDERS.update((o.key, o.folder) for o in courthouse.outputs if o.folder)
+    SUBFOLDERS.clear()
+    SUBFOLDERS.update((o.key, o.subfolder) for o in courthouse.outputs if o.subfolder)
+    if courthouse.math_subfolder:
+        SUBFOLDERS["math"] = courthouse.math_subfolder
     return before
 
 

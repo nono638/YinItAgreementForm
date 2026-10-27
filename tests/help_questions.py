@@ -23,6 +23,8 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("it fills in names while im typing", ("check-suggestions",)),
     ("which lawyer ordered the transcript", ("check-attorneys", "inv-who-ordered")),
     ("smith law shows up twice", ("check-same-firm",)),
+    ("why is the firm orange", ("check-attorneys",)),
+    ("what do the colored squares by the lawyers mean", ("check-attorneys",)),
     ("how many copies", ("check-copies",)),
     # What it makes
     ("only want the bill not the agreement", ("make-outputs",)),
@@ -30,6 +32,7 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("what is the mofr", ("make-mofr",)),
     ("look at it before it saves", ("make-preview",)),
     ("where are my pdfs saved", ("make-folders", "make-saved")),
+    ("put the invoices in their own folder inside the case", ("make-folders",)),
     ("change the file name", ("make-file-names",)),
     ("stop the lawyer from editing the pdf", ("make-fix-lock",)),
     # Invoices
@@ -90,7 +93,9 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("keep adding days to the trial sheet", ("run-one-per-trial",)),
     ("another reporter made the run sheet", ("run-elsewhere",)),
     ("change the list of reporters names", ("run-reporters", "set-run-sheet")),
-    ("which folder is the run sheet saved in", ("run-overview", "set-run-sheet")),
+    ("which folder is the run sheet saved in", ("run-overview", "set-run-sheet", "make-folders")),
+    ("list of every witness on the run sheet", ("run-overview",)),
+    ("see which firms paid on the run sheet", ("run-overview",)),
     ("a take is wrong the initials were misread", ("run-who-transcribed",)),
     ("leave the witness columns blank", ("set-run-sheet", "run-overview")),
     # Batches

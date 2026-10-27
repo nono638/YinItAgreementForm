@@ -1,12 +1,13 @@
 """A folder for each case (Settings.case_folders, on by default): each job's files go into a folder of its own
 inside Save to, named by a pattern (pdfout.case_folder_name: "712345-2021" by default), with the characters
-Windows forbids kept out. The run sheet goes in it too; an output given a folder of its own keeps that one; the
-command line stays flat. A folder already there with files in it is asked about (add to it, or a new one beside it:
-"712345-2021 (2)"), or not, as Settings say; an empty one is simply used, and a job that chose its folder
-isn't asked again. When the folder the files would go in (the documents' own, or Save to) is already named as the
-case's folder would be, the files go into it, with no folder of that name made inside it, and nothing is asked.
-Generate all asks once for the days of a case, and the preview makes no folder of the real ones. All names are
-made up."""
+Windows forbids kept out, each kind of file in a folder inside it ("Minute Agreements", "Invoices", "Math",
+"Trial Runs": settings.SUBFOLDERS; the user, 2026-10-26), the run sheet too; an output given a folder of its own
+keeps that one; the command line stays flat. A folder already there with files in it is asked about (add to it,
+or a new one beside it: "712345-2021 (2)"), or not, as Settings say; an empty one is simply used, and a job that
+chose its folder isn't asked again. When the folder the files would go in (the documents' own, or Save to) is
+already named as the case's folder would be, the files go into it, with no folder of that name made inside it,
+and nothing is asked. Generate all asks once for the days of a case, and the preview makes no folder of the real
+ones. All names are made up."""
 import os
 import time
 from pathlib import Path
@@ -14,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from minute_filler.batch import (CaseFolder, Job, case_folders, expand_paths, fill_jobs, group, out_dir_for,
-                                 read_docs, settle_case_folders)
+                                 read_docs, saved_folders, settle_case_folders)
 from minute_filler.models import CaseInfo
 from minute_filler.pdfout import case_folder_name, free_folder
 from minute_filler.settings import Settings, clean_folder_pattern
@@ -22,6 +23,11 @@ from minute_filler.settings import Settings, clean_folder_pattern
 from helpers import ROE, invoice_text, make_case, pat_settings
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+def case_of(p: Path) -> Path:
+    """The folder a saved file is in, by its case's folder for one in a folder inside it (batch.saved_folders)."""
+    return saved_folders([p], Settings())[0]
 
 
 def write(folder: Path, name: str, **kw) -> str:
@@ -86,7 +92,8 @@ def test_a_case_s_files_go_into_its_folder_and_the_others_keep_theirs(tmp_path):
     s.output_dirs = {"mofr": str(tmp_path / "MOFRs")}
     jobs = jobs_of(s, write(tmp_path / "in", "a.txt", title="Smith v Jones", index="712222-2024", date="5-22-2026"))
     made = fill_jobs(jobs, s, outputs=["agreement", "mofr"])
-    assert {p.parent for p in made} == {tmp_path / "out" / "712222-2024", tmp_path / "MOFRs"}
+    assert {p.parent for p in made} == {tmp_path / "out" / "712222-2024" / "Minute Agreements", tmp_path / "MOFRs"}
+    assert {case_of(p) for p in made} == {tmp_path / "out" / "712222-2024", tmp_path / "MOFRs"}
     assert jobs[0].folder == jobs[0].folder_named == "712222-2024"
     assert out_dir_for(jobs[0], s) == tmp_path / "out" / "712222-2024"
     s.case_folders = False  # (turned off: Save to itself)
@@ -95,7 +102,7 @@ def test_a_case_s_files_go_into_its_folder_and_the_others_keep_theirs(tmp_path):
     s.case_folders, s.output_dir = True, ""
     other = jobs_of(s, write(tmp_path / "in2", "b.txt", title="Roe v Doe", index="700001-2025", date="6-1-2026"))
     made = fill_jobs(other, s, outputs=["agreement"])
-    assert [p.parent for p in made] == [tmp_path / "in2" / "700001-2025"]
+    assert [p.parent for p in made] == [tmp_path / "in2" / "700001-2025" / "Minute Agreements"]
 
 
 def test_documents_already_in_the_case_s_folder_use_it(tmp_path):
@@ -107,7 +114,7 @@ def test_documents_already_in_the_case_s_folder_use_it(tmp_path):
     jobs = jobs_of(s, write(case, "a.txt", title="Smith v Jones", index="712222-2024", date="5-22-2026"))
     assert case_folders(jobs, s) == []
     made = fill_jobs(jobs, s, outputs=["agreement"])
-    assert [p.parent for p in made] == [case]
+    assert [p.parent for p in made] == [case / "Minute Agreements"]
     jobs[0].folder = jobs[0].folder_named = "712222-2024"  # (as if chosen at an earlier Generate: not nested either)
     assert out_dir_for(jobs[0], s) == case
     # a Save to chosen and named so: the same, the names compared as Windows does (capitals or not)
@@ -121,8 +128,8 @@ def test_documents_already_in_the_case_s_folder_use_it(tmp_path):
 
 
 def test_no_folder_is_asked_about_for_outputs_with_folders_of_their_own(tmp_path):
-    """The run sheet goes in the case's folder too (it went to Documents\\YinIt Run Sheets before: the run sheet
-    alone asked about no folder), unless Settings give run sheets a folder of their own."""
+    """The run sheet goes in the case's folder too, in its Trial Runs (it went to Documents\\YinIt Run Sheets
+    before: the run sheet alone asked about no folder), unless Settings give run sheets a folder of their own."""
     s = pat_settings()
     s.output_dir = str(tmp_path / "out")
     jobs = jobs_of(s, write(tmp_path / "in", "a.txt", title="Smith v Jones", index="712222-2024", date="5-22-2026"))
@@ -227,11 +234,11 @@ def test_generate_asks_about_a_folder_there(window, qt, tmp_path, monkeypatch, b
     window.fill()
     assert "A folder for this case is already there, with 1 file in it" in shown[0]
     assert "\"712222-2024 (2)\"" in shown[0]
-    assert [p.parent.name for p in window.cur.saved] == [folder]
+    assert [case_of(p).name for p in window.cur.saved] == [folder]
     shown.clear()
     window.fill()  # the job's next Generate: no question, the same folder
     assert not any("already there" in t for t in shown)
-    assert {p.parent.name for p in window.cur.saved} == {folder}
+    assert {case_of(p).name for p in window.cur.saved} == {folder}
 
 
 def test_go_back_makes_nothing_and_dont_ask_again_is_kept(window, qt, tmp_path, monkeypatch):
@@ -246,7 +253,7 @@ def test_go_back_makes_nothing_and_dont_ask_again_is_kept(window, qt, tmp_path, 
     answer(monkeypatch, qt, "New folder", never=True)
     window.fill()
     assert window.s.case_folder_existing == "new" and Settings.load().case_folder_existing == "new"
-    assert [p.parent.name for p in window.cur.saved] == ["712222-2024 (2)"]
+    assert [case_of(p).name for p in window.cur.saved] == ["712222-2024 (2)"]
 
 
 def test_an_empty_folder_is_used_without_a_question(window, qt, tmp_path, monkeypatch):
@@ -255,7 +262,7 @@ def test_an_empty_folder_is_used_without_a_question(window, qt, tmp_path, monkey
     shown = answer(monkeypatch, qt, "OK")
     window.fill()
     assert not any("already there" in t for t in shown)
-    assert [p.parent.name for p in window.cur.saved] == ["712222-2024"]
+    assert [case_of(p).name for p in window.cur.saved] == ["712222-2024"]
 
 
 def test_generate_puts_the_files_in_the_document_s_case_folder_without_a_question(window, qt, tmp_path,
@@ -267,7 +274,7 @@ def test_generate_puts_the_files_in_the_document_s_case_folder_without_a_questio
     shown = answer(monkeypatch, qt, "OK")
     window.fill()
     assert not any("already there" in t for t in shown)
-    assert [p.parent for p in window.cur.saved] == [case]
+    assert [case_of(p) for p in window.cur.saved] == [case]
 
 
 def test_generate_all_asks_once_for_the_days_of_a_case(window, qt, tmp_path, monkeypatch):
@@ -283,7 +290,7 @@ def test_generate_all_asks_once_for_the_days_of_a_case(window, qt, tmp_path, mon
     wait(window, qt, lambda: all(j.saved for j in window.jobs))
     asked = [t for t in shown if "already there" in t]
     assert len(asked) == 1 and str(there) in asked[0]
-    folders = sorted({p.parent.name for j in window.jobs for p in j.saved})
+    folders = sorted({case_of(p).name for j in window.jobs for p in j.saved})
     assert folders == ["700001-2025", "712222-2024 (2)"]
 
 

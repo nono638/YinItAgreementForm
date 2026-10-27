@@ -930,6 +930,6 @@ class Invoices:
                         m.detailed.append(copy)
         try:  # an aside too: the invoices are made and recorded
             from .invoice_math import save_math  # (it imports this module)
-            m.made += save_math(made, m.s.save_math, m.s.math_layout)
+            m.made += save_math(made, m.s.save_math, m.s.math_layout, m.folder("math"))
         except Exception as e:
             log_error("could not save the math of the invoices", e)

@@ -490,7 +490,7 @@ def test_a_case_folder_chosen_isnt_kept_after_go_back_at_the_preview(tmp_path, m
     monkeypatch.setattr(PreviewDialog, "exec", lambda self: qt.QDialog.Accepted)
     window.fill()
     wait(window, qt, lambda: window.cur.saved)
-    assert window.cur.folder == "712222-2024 (2)" and {p.parent.name for p in window.cur.saved} == {"712222-2024 (2)"}
+    assert window.cur.folder == "712222-2024 (2)" and {p.parent.parent.name for p in window.cur.saved} == {"712222-2024 (2)"}
 
 
 def test_generate_all_keeps_no_case_folder_after_go_back_at_the_preview(tmp_path, monkeypatch, make_window, qt):
@@ -537,8 +537,8 @@ def test_generate_all_saves_the_math_in_the_layout_last_shown(tmp_path, monkeypa
     used = []
     from minute_filler import invoice_math
     real = invoice_math.save_math
-    monkeypatch.setattr(invoice_math, "save_math", lambda made, save, layout: (
-        save != "off" and used.append(layout)) or real(made, save, layout))  # (the preview's own: off)
+    monkeypatch.setattr(invoice_math, "save_math", lambda made, save, layout, folder=None: (
+        save != "off" and used.append(layout)) or real(made, save, layout, folder))  # (the preview's own: off)
 
     def switched(dlg):
         window.s.math_layout = "firms"  # (the switch on the preview's math tab)

@@ -40,6 +40,9 @@ COURTHOUSE = Courthouse(
               ("Election Day", "Tuesday after the 1st Monday of November"), ("Veterans Day", "November 11"),
               ("Thanksgiving Day", "4th Thursday of November"), ("Christmas Day", "December 25")),
     holiday_weekend="nearest",
+    # inside a case's own folder, each kind of file in a folder of its own (the user, 2026-10-26): the outputs'
+    # subfolder, and this one for the math of the invoices
+    math_subfolder="Math",
     outputs=(
         OutputSpec(
             "agreement", "Minute agreement", "form", mark="agreement", color="#2563eb",
@@ -48,7 +51,7 @@ COURTHOUSE = Courthouse(
                 "with the pages that attorney ordered (whoever wrote them)\n"
                 "(Generate all: one per attorney for all the days of a case on one invoice,\n"
                 "when Settings → Options says one for the whole case)",
-            words=("minute agreement form", "minute agreement forms"),
+            words=("minute agreement form", "minute agreement forms"), subfolder="Minute Agreements",
             asks=("firms", "parties", "speed", "speeds", "fields", "attorney"),
             panel="minute_filler.gui.panels:agreement", panel_pos=0),
         OutputSpec(
@@ -57,18 +60,19 @@ COURTHOUSE = Courthouse(
             tip="The court's Minute Order Form/Receipt (your parts of it)\n"
                 "(Generate all: one for all the days of a case on one invoice,\n"
                 "when Settings → Options says one for the whole case)",
-            words=("MOFR", "MOFRs"), asks=("firms", "parties", "speed", "speeds", "fields"),
+            words=("MOFR", "MOFRs"), subfolder="MOFR", asks=("firms", "parties", "speed", "speeds", "fields"),
             panel="minute_filler.gui.panels:mofr", panel_pos=2),
         OutputSpec(  # (its tooltip says whether the job has pages to bill: MainWindow._refresh_outputs)
             "invoice", "Invoice", "billing", mark="invoice", color="#16a34a",
             maker="minute_filler.invoice:Invoices", per="attorney", policy="minute_filler.batch:InvoicePolicy",
-            words=("invoice", "invoices"), asks=("firms", "parties", "speeds", "attorney"),
+            words=("invoice", "invoices"), subfolder="Invoices", asks=("firms", "parties", "speeds", "attorney"),
             panel="minute_filler.gui.panels:invoice", card="Invoice", panel_pos=1),
         # an Excel workbook, so never previewed; its tooltip too says whether the job can have one. It goes in the
-        # case's folder with the other files: the user, 2026-10-23, "they are particular to each case" (it went to
-        # Documents\YinIt Run Sheets before, still looked in: runsheet.old_folder)
+        # case's Trial Runs folder: the user, 2026-10-23, "they are particular to each case" (it went to the top
+        # of the case's folder in 2.13, and to Documents\YinIt Run Sheets before; both still looked in:
+        # runsheet.sheet_folders)
         OutputSpec(
-            "runsheet", "Run sheet", "sheet",
+            "runsheet", "Run sheet", "sheet", subfolder="Trial Runs",
             maker="minute_filler.runsheet:RunSheets", policy="minute_filler.batch:RunSheetPolicy",
             words=("run sheet", "run sheets"), panel="minute_filler.gui.panels:runsheet", panel_pos=3),
     ),

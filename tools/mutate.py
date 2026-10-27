@@ -161,10 +161,6 @@ MODULES: dict[str, dict] = {
         "equivalent": [
             ("@dataclass(frozen=True)", "@dataclass(frozen=False)",
              "frozen only stops a Mark from being changed and makes it hashable; nothing does either"),
-            ("if side_ == PLAINTIFF:", "if side_ >= PLAINTIFF:",
-             'a side is "plaintiff", "defense" or "other" (side), and only "plaintiff" sorts from "plaintiff" on'),
-            ("if side_ == DEFENSE:", "if side_ <= DEFENSE:",
-             '"plaintiff" has returned above, and "other" sorts after "defense"'),
         ],
     },
 }
