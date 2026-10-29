@@ -96,6 +96,25 @@ def test_your_pages_unknown_until_whose_first_pages_are_said(tmp_path, s):
     assert count_runs([run])[id(run)].your_transcribed == 4
 
 
+def test_a_job_of_two_dates_counts_every_reporters_pages(tmp_path, s):
+    """Two dates read as one job (ordered whole: its one run is as long as the pages the user's invoice bills).
+    Its totals were that run's length, the user's 10 pages, not the 20 the two reporters wrote."""
+    s.batch_combine_dates = True
+    docs, errors = read_docs([str(transcript_pdf(tmp_path / "D1.pdf", 10, initials=MIXED)),
+                              str(transcript_pdf(tmp_path / "D2.pdf", 10, date="June 4, 2026", initials=MIXED))], s)
+    assert not errors
+    job, = group(docs, s)
+    job.case.attorneys = [alex(), dana()]
+    day, = case_days([job])
+    assert not day.splittable and day.pages == 10
+    run = Run(day, 1, day.pages, [alex().key()])
+    assert counted([run]) == [(10, 10, 20, 20)]
+    for d in job.transcripts():  # (Whose pages... bills Dana's: none of the user's pages are billed)
+        job.page_basis[d.key()] = DS
+    run = Run(case_days([job])[0], 1, 10, [alex().key()])
+    assert counted([run]) == [(0, 10, 20, 20)]
+
+
 # ------------------------------------------------------------------ the Who ordered window
 
 @pytest.fixture
@@ -133,6 +152,12 @@ def test_the_window_has_the_four_counts(excerpts):
     assert cells(w, first + 3) == ["5", "0", "3"]
 
 
+def test_the_pages_nobody_ordered_are_every_reporters(excerpts):
+    """Pages 6-7, Dana's, are ordered by nobody: the summary's Nobody line counts them, as Total pages
+    transcribed does (it counted the user's pages only, none here, and wasn't shown)."""
+    assert "Nobody: 2 pp. (not billed)" in excerpts.summary.text()
+
+
 def test_a_count_hidden_under_columns_is_kept(excerpts):
     from minute_filler.gui.excerpts import FIRST_FIRM
     w = excerpts
@@ -167,12 +192,29 @@ def test_a_run_chosen_on_a_filtered_table_is_the_one_removed(excerpts):
     assert [(r.start, r.end) for r in w.runs] == [(1, 5), (6, 10)]
 
 
+def test_a_run_hidden_by_the_filter_is_chosen_no_longer(excerpts):
+    """The run chosen (pages 6-7, Dana's only) is hidden as Only your pages is ticked: Split run and the Delete
+    key no longer act on it unseen, and a drawing again doesn't choose it again."""
+    w = excerpts
+    w.table.selectRow(1)
+    w.only_mine.setChecked(True)
+    assert w._chosen() is None and w.problem.text() == "Choose a run in the table first."
+    w._remove()
+    w._split()
+    assert [(r.start, r.end) for r in w.runs] == [(1, 5), (6, 7), (8, 10)]
+    w.table.selectRow(1)  # (as a drawing again did: _show kept the row chosen before)
+    w._show()
+    assert w._chosen() is None
+
+
 def test_only_your_pages_is_disabled_when_none_can_be_told(qt, tmp_path, s):
     from minute_filler.gui.excerpts import UNKNOWN, ExcerptsWindow
     job = front_job(tmp_path, s)
+    s.excerpt_only_mine = True  # (ticked on another job: it filters nothing here, so no Clear filter)
     w = ExcerptsWindow(s, lambda: None)
     w.load([job])
     assert not w.only_mine.isEnabled() and w.only_mine.toolTip() == UNKNOWN
+    assert w.clear_filter.isHidden() and len(shown_rows(w)) == w.table.rowCount()
     w.deleteLater()
 
 
@@ -233,6 +275,10 @@ def test_save_a_copy_saves_the_takes_shown(window, tmp_path, monkeypatch):
     w._save_takes()
     ws = load_workbook(tmp_path / "w.xlsx").active
     assert [ws.cell(r, 2).value for r in (2, 3)] == ["DS", "DS"] and ws.cell(4, 1).value is None
+    w.takes_who["DS"].setChecked(False)  # (no take shown: nothing to save, and the button says so)
+    assert not w.takes_save.isEnabled()
+    w.takes_clear.click()
+    assert w.takes_save.isEnabled()
 
 
 def test_your_takes_are_highlighted_unless_settings_say_not(window):
@@ -244,7 +290,12 @@ def test_your_takes_are_highlighted_unless_settings_say_not(window):
     assert theirs.background().style() == Qt.NoBrush and not theirs.font().bold()
     w.s.takes_highlight_mine = False
     w._show_takes()
-    assert w.takes.item(0, 1).background().style() == Qt.NoBrush
+    assert w.takes.item(0, 1).background().style() == Qt.NoBrush and not w.takes.item(0, 1).font().bold()
+    w.s.takes_highlight_mine = True
+    w._set_theme("dark")  # (tinted again in the dark theme's green, the takes not read again)
+    from minute_filler.gui.theme import DARK
+    assert w.takes.item(0, 1).background().color().name() == DARK["ok_bg"].lower()
+    w._set_theme("light")
 
 
 def test_settings_save_the_highlight_box(qt):

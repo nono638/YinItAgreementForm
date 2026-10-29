@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
 from .. import courthouses
 from ..batch import pin_orders, speeds_to_ask
 from ..excerpts import (
-    Day, Run, billed_in, carve, case_days, count_runs, firms_of, prices, remove, runs_of, store, whole_day,
+    Day, Run, carve, case_days, count_runs, firms_of, prices, remove, runs_of, store, whole_day,
 )
 from ..invoice import default_speed, own_words, shared_words
 from ..invoice_calc import fmt
@@ -430,7 +430,7 @@ class ExcerptsWindow(QDialog):
             t.setColumnWidth(c, t.columnWidth(c) + z(10))  # out "Immediate · …": the box's margin isn't counted)
         t.horizontalHeader().setSectionResizeMode(PAGES, QHeaderView.Interactive)
         t.setColumnWidth(PAGES, max(t.columnWidth(PAGES), z(110)))
-        if 0 <= keep < t.rowCount():
+        if 0 <= keep < t.rowCount() and not t.isRowHidden(keep):  # (a run Only your pages hides isn't chosen)
             t.selectRow(keep)
         self._loading = False
         self.summary.setText(self._summary(p, shown))
@@ -483,7 +483,9 @@ class ExcerptsWindow(QDialog):
             fastest = max(kinds, key=lambda sp: order.get(sp, -1))
             how = f" ({rule.run_note(fastest)})" if len(kinds) > 1 else ""
             lines.append(f"{swatch}{who}: {pages} pp. - {pays}{how}")
-        nobody = sum(billed_in(r.day, r) for r in self.runs if not r.keys)
+        # (every reporter's pages, as the table's Total pages transcribed has them, not only the invoice's: the
+        # user, 2026-10-29)
+        nobody = sum(self._counts[id(r)].total_transcribed for r in self.runs if not r.keys)
         if nobody:
             lines.append(f"Nobody: {nobody} pp. (not billed)")
         if p.firms:
@@ -608,7 +610,8 @@ class ExcerptsWindow(QDialog):
     def _apply_filter(self) -> None:
         """Hides, while Only your pages is ticked, each run with none of the user's pages (one whose pages can't be
         told stays shown), and says how many are shown; Clear filter is there only meanwhile. The rows are
-        hidden, not taken out: row r is still self.runs[r], for the buttons and the right-click."""
+        hidden, not taken out: row r is still self.runs[r], for the buttons and the right-click. A row hidden is
+        chosen no longer (else Split run or the Delete key acted on a run not shown)."""
         known = [c for c in self._counts.values() if c.your_transcribed is not None]
         self.only_mine.setEnabled(bool(known) or not self.runs)
         self.only_mine.setToolTip("Shows only the runs with pages you transcribed, billed or not" if known or
@@ -620,7 +623,10 @@ class ExcerptsWindow(QDialog):
             hide = on and c is not None and c.your_transcribed == 0
             self.table.setRowHidden(r, hide)
             shown += not hide
-        self.clear_filter.setVisible(self.only_mine.isChecked())
+        if self.table.isRowHidden(self.table.currentRow()):
+            self.table.clearSelection()
+            self.table.setCurrentCell(-1, -1)
+        self.clear_filter.setVisible(on)
         self.filter_note.setText(f"Showing {shown} of {len(self.runs)} runs" if on else "")
 
     def _save_settings(self) -> None:
@@ -691,9 +697,9 @@ class ExcerptsWindow(QDialog):
             self._keep(day, runs)
 
     def _chosen(self) -> Run | None:
-        """The run of the row chosen; None, after asking for one, when no row is."""
+        """The run of the row chosen; None, after asking for one, when no row is (or it is hidden: _apply_filter)."""
         r = self.table.currentRow()
-        if not 0 <= r < len(self.runs):
+        if not 0 <= r < len(self.runs) or self.table.isRowHidden(r):
             self.problem.setText("Choose a run in the table first.")
             return None
         return self.runs[r]
@@ -702,7 +708,7 @@ class ExcerptsWindow(QDialog):
         """Chooses the row of the run that holds a page of a day (its job; the table may have been read afresh
         since, with new days and runs)."""
         row = next((k for k, r in enumerate(self.runs) if r.day.job is job and r.start <= page <= r.end), None)
-        if row is not None:
+        if row is not None and not self.table.isRowHidden(row):
             self.table.selectRow(row)
 
     def _split(self) -> None:
@@ -774,7 +780,8 @@ class ExcerptsWindow(QDialog):
             self.problem.setText("The table changed meanwhile: there are no excerpts left to remove.")
             return
         r = self.table.currentRow()
-        chosen = (self.runs[r].day.job, self.runs[r].start) if 0 <= r < len(self.runs) else None
+        shown = 0 <= r < len(self.runs) and not self.table.isRowHidden(r)
+        chosen = (self.runs[r].day.job, self.runs[r].start) if shown else None
         change = {id(d) for d in days}
         runs = []
         for day in self.days:

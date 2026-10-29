@@ -665,6 +665,8 @@ class Job:
         """Which pages of the stretch Excerpts... counts (portion_pages) the user wrote, page by page, whatever
         Whose pages... bills (the Who ordered window's "Your pages transcribed"); None when that can't be told for
         some transcript (your_pages_of) or the stretch isn't the transcripts' pages (the Pages field typed in)."""
+        if self.pages_typed():
+            return None
         out: list[bool] = []
         for d in self.transcripts():
             if self.your_pages_of(d) is None:
