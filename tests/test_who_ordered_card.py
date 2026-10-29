@@ -1,8 +1,8 @@
 """The Who ordered card (the user, 2026-10-24: "It should be in one place, and it should be intuitive who's
 ordering"): a row per firm of the trial, whichever day is shown; a tick is the whole trial (Settings.trial_orders),
 a half tick a firm ordering some days only, which a click makes the whole trial, then none, then puts back as it
-was; What makes a firm the whole trial or the day shown, or opens Excerpts…; Speed names the speed billed and sets
-it for every day; the Speed of the forms is every day's. A firm another day names is a row of the day shown too,
+was; What makes a firm the whole trial or the day shown, or opens Who ordered which pages…; Speed names the speed
+billed and sets it for every day; the Speed of the forms is every day's. A firm another day names is a row of the day shown too,
 and ticked it orders that day. Day by day, a tick is the day shown's, as before. All names are made up."""
 import os
 import time

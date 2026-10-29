@@ -37,7 +37,8 @@ def test_the_cards_follow_the_job_and_say_what_is_in_them(window):
     titles = {k: c.heading.text() for k, c in window.cards.items()}
     assert titles == {"case": "Case", "attorneys": "Who ordered", "details": "Pages and dates", "invoice": "Invoice",
                       "pays": "Who pays what", "takes": "Who transcribed what"}
-    assert window.orders_edit.text() == "Excerpts…" and window.cards["attorneys"].isAncestorOf(window.orders_edit)
+    assert window.orders_edit.text() == "Who ordered which pages…"
+    assert window.cards["attorneys"].isAncestorOf(window.orders_edit)
 
 
 def test_a_badge_is_a_pill_only_for_a_value_to_look_at(window):

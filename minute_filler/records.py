@@ -339,6 +339,40 @@ def csv_text(value):
     return value
 
 
+def _inside(path: str, folder: Path) -> bool:
+    """The file `path` is in `folder` or in a folder inside it (the letters' case aside, as Windows has it)."""
+    p, f = Path(path).parts, Path(folder).parts
+    return len(p) > len(f) and [x.casefold() for x in p[:len(f)]] == [x.casefold() for x in f]
+
+
+def moved_origin(data: dict, old: Path, new: Path) -> bool:
+    """A record's origin (batch.job_origin, joint_origin) once the folder `old` is `new`: the documents read
+    ("sources") and what is kept by their path (page_fixes; the job's page_basis and front_owner) that were in it
+    are now in `new`. Changed in place; True when anything was."""
+    changed = False
+
+    def moved(p):
+        nonlocal changed
+        if not isinstance(p, str) or not p or not _inside(p, old):
+            return p
+        changed = True
+        return str(Path(new) / Path(*Path(p).parts[len(Path(old).parts):]))
+
+    def keys(d):
+        return {moved(k): v for k, v in d.items()} if isinstance(d, dict) else d
+
+    if isinstance(data.get("sources"), list):
+        data["sources"] = [moved(p) for p in data["sources"]]
+    if "page_fixes" in data:
+        data["page_fixes"] = keys(data["page_fixes"])
+    job = data.get("job")
+    if isinstance(job, dict):
+        for k in ("page_basis", "front_owner", "page_fixes"):
+            if k in job:
+                job[k] = keys(job[k])
+    return changed
+
+
 def _from_row(cls, row: sqlite3.Row, **override):
     """A dataclass from a database row: NULL becomes the field's default, unknown columns are dropped (the
     invoices' "idx" column is Invoice.index: INDEX is a word of SQL)."""
@@ -572,6 +606,39 @@ class Ledger:
     def set_notes(self, invoice_no: str, notes: str) -> None:
         """Replaces the invoice's notes."""
         self._run("UPDATE invoices SET notes=? WHERE invoice_no=?", (notes, invoice_no))
+
+    def dates_in(self, folder: Path, gone: bool = False) -> list[str]:
+        """The dates (as the activity has them: "10/13/2026, 10/14/2026") of the files made into `folder` or a
+        folder inside it, still there (their record in the trash too: the trash never deletes a file): the days a
+        case's own folder holds (batch.case_folders names it for them). gone: those of the files made there that
+        were deleted since instead (a day made by mistake: its folder's name loses it)."""
+        rows = self._rows("SELECT file_path, dates FROM activity WHERE file_path <> ''")
+        return [r["dates"] for r in rows if r["dates"] and _inside(r["file_path"], folder)
+                and Path(r["file_path"]).exists() != gone]
+
+    def move_folder(self, old: Path, new: Path) -> int:
+        """A folder was renamed (a case's own, given more days: batch.move_case_folders): the activity's and the
+        invoices' files in it, or in a folder inside it, are now under `new`, and so are the documents a record's
+        origin names there (moved_origin: Open this job again reads them from there), in one step. Returns how
+        many rows changed."""
+        steps = []
+        for table, key in (("activity", "id"), ("invoices", "invoice_no")):
+            for r in self._rows(f"SELECT {key}, file_path FROM {table} WHERE file_path <> ''"):
+                if _inside(r["file_path"], old):
+                    rest = Path(*Path(r["file_path"]).parts[len(Path(old).parts):])
+                    steps.append((f"UPDATE {table} SET file_path=? WHERE {key}=?", (str(Path(new) / rest), r[key])))
+        for r in self._rows("SELECT id, origin FROM activity WHERE origin IS NOT NULL AND origin != ''"):
+            try:
+                data = json.loads(r["origin"])
+            except ValueError:
+                continue
+            if isinstance(data, dict) and moved_origin(data, old, new):
+                # (every row of one origin is written the same way: the rows still match each other, as
+                # invoiced_from compares them by their text)
+                steps.append(("UPDATE activity SET origin=? WHERE id=?", (json.dumps(data), r["id"])))
+        if steps:
+            self._run_all(steps)
+        return len(steps)
 
     def set_amounts(self, invoice_no: str, amounts: dict) -> None:
         """Replaces what each speed of the invoice costs ({"Regular": "$63.00"}), for when an amount was
@@ -1072,12 +1139,15 @@ def past_values(path: Path | None = None) -> dict[str, list[str]]:
     return out
 
 
-def recent_jobs(limit: int = 6, path: Path | None = None) -> list[tuple[str, str, str, str]]:
-    """The jobs made lately, newest first, one per case and date: (case name, dates, when made as an ISO time,
+def recent_jobs(limit: int = 5, path: Path | None = None, days: int = 0,
+                now: datetime | None = None) -> list[tuple[str, str, str, str]]:
+    """The jobs made lately, newest first, one per case and date: (case name, dates, when last made as an ISO time,
     origin: what MainWindow.open_past_job opens). Only those that can be opened again (with an origin), not those in
-    the trash; [] without a database, or when it can't be read."""
+    the trash, and with days, only those made again or first in the last that many days (0: any time); [] without a
+    database, or when it can't be read."""
+    since = ((now or datetime.now()) - timedelta(days=days)).isoformat(timespec="seconds") if days > 0 else ""
     rows = _read_rows(path, "SELECT case_name, dates, ts, origin FROM activity WHERE deleted IS NULL AND origin IS "
-                            "NOT NULL AND origin != '' ORDER BY ts DESC, id DESC LIMIT 500") or []
+                            "NOT NULL AND origin != '' AND ts >= ? ORDER BY ts DESC, id DESC LIMIT 500", (since,)) or []
     out, seen = [], set()
     for r in rows:
         case, dates = " ".join(str(r["case_name"] or "").split()), str(r["dates"] or "").strip()

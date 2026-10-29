@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
 from .. import __version__, courthouses
 from ..models import Attorney, FIELD_LABELS
 from ..settings import (AGREEMENT_FALLBACKS, AI_TICKS, CASE_FOLDER_EXISTING, CASE_FOLDER_PATTERN, DETAIL_ITEMS,
-                        INDEX_RULES, INDEX_SHARED, MATH_SAVES, OUTPUT_FOLDERS, OUTPUTS, ROUNDINGS, RUNSHEET_WITNESS,
-                        SPLIT_SPEEDS, TRIAL_ORDERS,
+                        INDEX_RULES, INDEX_SHARED, MATH_SAVES, OUTPUT_FOLDERS, OUTPUTS, RECENT_JOBS_DAYS_MAX,
+                        RECENT_JOBS_MAX, ROUNDINGS, RUNSHEET_WITNESS, SPLIT_SPEEDS, TRIAL_ORDERS,
                         SPEEDS, TURNAROUND_FROM, ReporterProfile,
                         TEXT_PLACEHOLDERS, TEXT_PLACES, TEXT_WHEN, Settings, clean_folder_pattern,
                         default_invoice_texts, reporter_key)
@@ -229,7 +229,8 @@ class SettingsDialog(QDialog):
         self.o_trial.setCurrentIndex(max(0, self.o_trial.findData(settings.trial_orders)))
         self.o_trial.setToolTip(
             "A trial (days of one case): a firm you tick in Who ordered orders every day of it, days you drop in\n"
-            "later too, at one speed; What in its row makes it one day, or some days or pages (Excerpts…).\n"
+            "later too, at one speed; What in its row makes it one day, or some days or pages\n"
+            "(Who ordered which pages…).\n"
             "Only the day shown: each day is ticked on its own.")
         f.addRow("A firm you tick orders", self.o_trial)
         self._folders(f, settings)
@@ -255,6 +256,7 @@ class SettingsDialog(QDialog):
                                "Also Ctrl + and Ctrl − in the window, or Ctrl and the mouse wheel;\n"
                                "Ctrl 0 goes back to 100 %.")
         f.addRow("Zoom", self.o_zoom)
+        self._recent_jobs_row(f, settings)
         self._index_patterns_rows(f, settings)
         self.o_fuzzy_numbers = QCheckBox("Fuzzy search matches numbers loosely too")
         self.o_fuzzy_numbers.setToolTip("Records → the search box's Fuzzy box. Ticked: numbers are matched like words, "
@@ -833,36 +835,42 @@ class SettingsDialog(QDialog):
 
     def _case_folder_rows(self, f: QFormLayout, settings: Settings) -> None:
         """The Folders rows about a folder for each case inside Save to (Settings.case_folders): the box, the
-        folder's name (a pattern of placeholders; the characters Windows forbids can't be typed) with an example
-        from a made-up case, and what to do when the folder is already there (Settings.case_folder_existing). The
-        last two are greyed out while the box is unticked."""
+        folder's name (a pattern of placeholders; only letters, digits, spaces and - , _ ( ) can be typed:
+        pdfout.PATTERN_UNSAFE_RE) with an example from a made-up case, and what to do when the folder is already
+        there (Settings.case_folder_existing), greyed out while the box is unticked; then whether the documents
+        read are copied beside the files (Settings.save_inputs)."""
         from PySide6.QtCore import QRegularExpression
         from PySide6.QtGui import QRegularExpressionValidator
 
         from ..models import CaseInfo
-        from ..pdfout import CASE_FOLDER_PLACES, FOLDER_FORBIDDEN, case_folder_name
+        from ..pdfout import CASE_FOLDER_PLACES, FOLDER_ALLOWED, case_folder_name
         self.o_case_folders = QCheckBox("A folder for each case, inside Save to")
         self.o_case_folders.setToolTip("Each case's minute agreements, MOFR, invoices, their math and its run sheet go "
                                        "into a folder of its own inside Save to, named as below,\neach kind in a "
                                        "folder inside it: Minute Agreements, MOFR, Invoices, Math, Trial Runs\n"
-                                       "(\"D:\\Transcripts\\712345-2021\\Invoices\"). An output with a folder of its "
-                                       "own below keeps it."
-                                       "\nWhen your documents already sit in a folder of that name, it is used as "
-                                       "it is (no \"712345-2021\" inside it).")
+                                       "(\"D:\\Transcripts\\712345-2021 6-3,4-2026 Roe v Poe\\Invoices\"). An output "
+                                       "with a folder of its own below keeps it."
+                                       "\nWhen your documents already sit in the case's folder (its name starts with "
+                                       "the index number), it is used as it is.\nWhen more days of a trial are made "
+                                       "later, the case's folder is renamed to name them too.")
         self.o_case_folders.setChecked(settings.case_folders)
         f.addRow("", self.o_case_folders)
-        self.o_case_pattern = QLineEdit(settings.case_folder_pattern)
+        # (cleaned first: a pattern saved before with a character no longer allowed, "{index}.{case}", would leave
+        # the box refusing every key, its whole text never valid)
+        self.o_case_pattern = QLineEdit(clean_folder_pattern(settings.case_folder_pattern))
         self.o_case_pattern.setPlaceholderText(CASE_FOLDER_PATTERN)
-        # (none of the characters Windows forbids in a folder name can be typed or pasted: \ / : * ? " < > | and
-        # the control characters, Tab among them)
+        # (only what every file system takes can be typed or pasted, besides the placeholders' braces: letters,
+        # accented ones too, digits, spaces and - , _ ( ), as pdfout.PATTERN_UNSAFE_RE keeps; Qt's \w is ASCII alone
+        # without the Unicode option)
         self.o_case_pattern.setValidator(QRegularExpressionValidator(
-            QRegularExpression(r'[^<>:"/\\|?*\x00-\x1f]*'), self.o_case_pattern))
+            QRegularExpression(r"[\w ,()\-{}]*", QRegularExpression.UseUnicodePropertiesOption), self.o_case_pattern))
         places = " ".join("{" + p + "}" for p in CASE_FOLDER_PLACES)
         self.o_case_pattern.setToolTip(f"The case folder's name. Placeholders: {places}\n"
-                                       "({index} 712345-2021, {case} the short caption, {date} the first day, "
-                                       "{dates} \"6-3-2026 to 6-4-2026\").\n"
-                                       f"Not allowed in a folder name, so they can't be typed: "
-                                       f"{' '.join(FOLDER_FORBIDDEN)}")
+                                       "({index} 712345-2021, {days} the days \"10-13,14,15-2026\", {case} the short "
+                                       "caption, {date} the first day, {dates} \"6-3-2026 to 6-4-2026\").\n"
+                                       f"Only letters, digits and {FOLDER_ALLOWED} can be typed. What the documents "
+                                       "say is kept to those too (\"Jones v. USA Hauling\" is \"Jones v USA "
+                                       "Hauling\"),\nso the folder can go to any computer or cloud drive.")
         example = CaseInfo()
         for key, value in (("case_name", "Jane Roe v. X.Y. Holding Corporation"), ("index_no", "712345/2021"),
                            ("dates", "6/3/2026, 6/4/2026"), ("court", "Supreme"), ("county", "Queens"),
@@ -878,7 +886,7 @@ class SettingsDialog(QDialog):
             name = case_folder_name(example, self.o_case_pattern.text().strip() or CASE_FOLDER_PATTERN)
             name = name if len(name) <= 70 else name[:69] + "…"
             self.o_case_hint.setText(f"e.g. \"{name}\"\nPlaceholders: {places}\n"
-                                     f"Not allowed in a folder name: {' '.join(FOLDER_FORBIDDEN)}")
+                                     f"Only letters, digits and {FOLDER_ALLOWED}")
         self.o_case_pattern.textChanged.connect(show_example)
         show_example()
         f.addRow("Case folder name", self.o_case_pattern)
@@ -887,12 +895,24 @@ class SettingsDialog(QDialog):
         for key, label in CASE_FOLDER_EXISTING.items():
             self.o_case_existing.addItem(label, key)
         self.o_case_existing.setCurrentIndex(max(0, self.o_case_existing.findData(settings.case_folder_existing)))
-        self.o_case_existing.setToolTip("When Generate finds the case's folder already there with files in it "
-                                        "(the case made before, or another with the same name)")
+        self.o_case_existing.setToolTip("When Generate finds a folder of the very same name already there with files "
+                                        "in it (the same days made before, or another case of that name).\n"
+                                        "A later day of a case joins the case's folder without asking, the folder "
+                                        "renamed for its days;\nwith \"Make a new one beside it\", it gets a folder of "
+                                        "its own instead.")
         f.addRow("If it's already there", self.o_case_existing)
         for w in (self.o_case_pattern, self.o_case_existing, self.o_case_hint):
             self.o_case_folders.toggled.connect(w.setEnabled)
             w.setEnabled(settings.case_folders)
+        self.o_save_inputs = QCheckBox("Copy the documents read into an \"Inputs\" folder beside the files")
+        self.o_save_inputs.setToolTip("At Generate, the transcripts, e-mails and photos the files were made from "
+                                      "(and pasted text, as a .txt file)\nare copied into an Inputs folder in the "
+                                      "case's folder (in Save to without case folders), to look back at should a "
+                                      "file come out wrong.\nOff as a rule: it keeps a second copy of every "
+                                      "transcript. A document already where the files go (in the case's folder) "
+                                      "isn't copied.")
+        self.o_save_inputs.setChecked(settings.save_inputs)
+        f.addRow("", self.o_save_inputs)
 
     def _folder_row(self, edit: QLineEdit, title: str, key: str | None) -> QHBoxLayout:
         """[folder] [Browse...] [Open] for one of the Folders rows."""
@@ -1093,6 +1113,37 @@ class SettingsDialog(QDialog):
                 self.tabs.setCurrentIndex(i)
                 return
 
+    def _recent_jobs_row(self, f: QFormLayout, settings: Settings) -> None:
+        """Options -> Recent jobs: whether the start card lists the jobs made lately, how many (RECENT_JOBS_MAX at
+        most, so the card stays short) and how lately made (the user, 2026-10-28)."""
+        self.o_recent = QCheckBox("List them while nothing is open,")
+        self.o_recent.setToolTip("The Recent jobs card at the top of an empty window: click a job to open it again.\n"
+                                 "Unticked, the card only says how to begin.")
+        self.o_recent.setChecked(settings.recent_jobs_show)
+        self.o_recent_count = QSpinBox()
+        self.o_recent_count.setRange(1, RECENT_JOBS_MAX)
+        self.o_recent_count.setValue(settings.recent_jobs_count)
+        self.o_recent_count.setToolTip(f"How many jobs it lists at most ({RECENT_JOBS_MAX} at most).")
+        self.o_recent_days = QSpinBox()
+        self.o_recent_days.setRange(0, RECENT_JOBS_DAYS_MAX)
+        self.o_recent_days.setPrefix("in the last ")  # ("made in the last 30 days", "made at any time")
+        self.o_recent_days.setSuffix(" days")
+        self.o_recent_days.setSpecialValueText("at any time")  # (0)
+        self.o_recent_days.setValue(settings.recent_jobs_days)
+        self.o_recent_days.setToolTip("A job made (or made again) longer ago than this isn't listed.\n"
+                                      "0: any time.")
+        line = QHBoxLayout()
+        line.addWidget(self.o_recent)
+        line.addWidget(QLabel("up to"))
+        line.addWidget(self.o_recent_count)
+        line.addWidget(QLabel("made"))
+        line.addWidget(self.o_recent_days)
+        line.addStretch(1)
+        for w in (self.o_recent_count, self.o_recent_days):
+            w.setEnabled(settings.recent_jobs_show)
+            self.o_recent.toggled.connect(w.setEnabled)
+        f.addRow("Recent jobs", line)
+
     def _index_patterns_rows(self, f: QFormLayout, settings: Settings) -> None:
         """Options -> Index numbers: the user's own index number patterns (Settings.index_patterns), one per line,
         tried as well as the app's own (the user, 2026-10-21: they should be the user's to change), what is wrong
@@ -1186,6 +1237,8 @@ class SettingsDialog(QDialog):
         s.output_dir, s.filename_pattern = self.o_dir.text().strip(), self.o_pattern.text().strip() or s.filename_pattern
         s.theme = self.o_theme.currentText()
         s.zoom = self.o_zoom.value() / 100
+        s.recent_jobs_show = self.o_recent.isChecked()
+        s.recent_jobs_count, s.recent_jobs_days = self.o_recent_count.value(), self.o_recent_days.value()
         s.fuzzy_numbers = self.o_fuzzy_numbers.isChecked()
         s.preview_before_saving = self.o_preview.isChecked()
         s.recaps, s.check_updates = self.o_recaps.isChecked(), self.o_updates.isChecked()
@@ -1225,6 +1278,7 @@ class SettingsDialog(QDialog):
         # (the box refuses those characters typed or pasted, but not in the pattern it started with: a settings
         # file edited by hand)
         s.case_folder_pattern = clean_folder_pattern(self.o_case_pattern.text())
+        s.save_inputs = self.o_save_inputs.isChecked()
         s.case_folder_existing = self.o_case_existing.currentData()
         s.runsheet_existing = self.r_existing.currentData()
         s.runsheet_witness = self.r_witness.currentData()
@@ -1572,7 +1626,7 @@ class SplitSpeedsDialog(QDialog):
         grid.setColumnStretch(2, 2)
         lay.addLayout(grid)
         lay.addWidget(_tip("The speeds are kept with each day: change them later in the Who ordered card, or in "
-                           "the Excerpts window. Settings → Invoice can bill the speeds Who ordered shows without "
+                           "Who ordered which pages…; Settings → Invoice can bill the speeds Who ordered shows without "
                            "asking."))
         buttons = QDialogButtonBox()
         buttons.addButton(f"{button} with these speeds", QDialogButtonBox.AcceptRole)

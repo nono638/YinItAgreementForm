@@ -35,7 +35,7 @@ INPUT = "What you can put in"
 CHECK = "Checking what was read"
 MAKE = "What it makes"
 INVOICE = "Invoices"
-EXCERPTS = "Excerpts and speeds"
+EXCERPTS = "Pages ordered and speeds"
 RECORDS = "Records"
 DATES = "Dates and business days"
 RATES = "Rate sheets"
@@ -116,8 +116,8 @@ one with something to check (<a href="topic:batch-job-list">more</a>).</li>
 ordered, what and at what speed), <i>Pages and dates</i>, then, when an invoice is to be made, <i>Invoice</i> and
 <i>Who pays what</i>, and for a trial <i>Who transcribed what</i>. Each folds to one line that sums it up
 (<a href="topic:start-room">more</a>). While nothing is open, a <b>Recent jobs</b> card at the top of the form lists
-the jobs made lately: click one to open it again. <i>Recent documents ▾</i> on it lists the documents you opened
-lately.</li>
+the jobs made lately (3 at first, made in the last 30 days: Settings → Options → <i>Recent jobs</i>): click one to open
+it again. <i>Recent documents ▾</i> on it lists the documents you opened lately.</li>
 <li><b>The status</b> (top right): what still needs a look, such as <i>⚠ 1 missing, 2 to check</i>. Its tooltip
 lists them, and a click goes to the first one.</li>
 <li><b>Records</b> (top right, next to New job and Settings): your invoices and every file made
@@ -240,7 +240,7 @@ as <i>⚠ 1 missing, 2 to check: Index Number is missing ›</i>:</p>
 <ul>
 <li><b>missing</b>: a required field is blank;</li>
 <li><b>to check</b>: the job's own checks (nobody ticked, two rows that may be one firm, a speed to choose,
-Whose pages… or Excerpts… to decide) and the warnings under the fields (a page count to check, a date on a weekend
+Whose pages… or Who ordered which pages… to decide) and the warnings under the fields (a page count to check, a date on a weekend
 or a court holiday);</li>
 <li><b>to review</b>: guesses (amber fields).</li>
 </ul>
@@ -307,7 +307,7 @@ tick is the whole trial</b>: every day of it, and the days you drop in later, at
 are ordered. A box half filled is a firm that ordered some days or pages only.</p>
 <ul>
 <li><b>What</b>: <i>The whole trial (4 days)</i>; <i>Only 6/4/2026</i>, the day shown; or <i>Some days or
-pages…</i>, which opens <a href="topic:exc-table">Excerpts…</a>, the table of every day and every firm. A firm that
+pages…</i>, which opens <a href="topic:exc-table">Who ordered which pages…</a>, the table of every day and every firm. A firm that
 ordered some days says which: <i>6/3/2026 and 6/5/2026</i>, <i>part of 6/4/2026</i>.</li>
 <li><b>Speed</b>: the speed the firm is billed, by name (<a href="topic:inv-who-ordered">more</a>).</li>
 <li><b>Pages</b>: the pages its invoice bills: <i>412</i>, or <i>300 of 412</i> when some are another
@@ -325,8 +325,8 @@ another day names, but not the day shown, is in italics: tick it and it orders t
 e-mail. In a trial they are the firm's on every day.</p>
 <p><b>Each firm has a colour</b>: a small square of it before the firm's name and a thin stripe of it at the
 left. The plaintiffs' firms get warm colours, the defense firms cool ones, any others grey or green; point at a
-firm's square here, or at its column's heading in Excerpts…, to see which side it is. A firm keeps its colour on
-every day of a trial, here, in Who pays what and Excerpts…, so you can tell the firms apart at a glance.</p>
+firm's square here, or at its column's heading in Who ordered which pages…, to see which side it is. A firm keeps its colour on
+every day of a trial, here, in Who pays what and Who ordered which pages…, so you can tell the firms apart at a glance.</p>
 <p>To tick each day on its own instead, Settings → Options → <i>A firm you tick orders</i>: <i>Only the day
 shown</i>. Two rows that may be one firm are asked about (<a href="topic:check-same-firm">more</a>).</p>
 """),
@@ -346,7 +346,7 @@ or <b>Forget all</b>: after Save, the jobs open now are read again and you're as
 <p><i>No. of copies</i> is the number of ordering parties, as the invoice counts them: the firms ticked, or the
 <i>Parties</i> number of the Invoice card when you change it. It follows every change of who is ticked, unless you
 typed a number.</p>
-<p>On a day split under <a href="topic:exc-table">Excerpts…</a>, it is the firms that ordered pages.</p>
+<p>On a day split under <a href="topic:exc-table">Who ordered which pages…</a>, it is the firms that ordered pages.</p>
 """),
     # ------------------------------------------------------------------------------------------------ What it makes
     T("make-outputs", MAKE, "The Outputs box: choosing what to make, and Generate",
@@ -435,21 +435,38 @@ workbook: print it from Excel.</p>
 """),
     T("make-folders", MAKE, "Where the files go: a folder for each case",
       "folder save to location where saved case folder directory path already there add new beside subfolder "
-      "invoices math trial runs minute agreements mofr",
+      "invoices math trial runs minute agreements mofr inputs copy documents transcripts rename folder name days "
+      "characters",
       """
-<p>The PDFs and the case's run sheet are saved in a folder for the case, named by its index number ("712345-2021"),
-next to your document or inside the <i>Save to</i> folder chosen in Settings → Options → Folders. Inside it, each
-kind of file has a folder of its own: <b>Minute Agreements</b>, <b>MOFR</b>, <b>Invoices</b> (with their detailed
-copies), <b>Math</b> (how the invoices were added up) and <b>Trial Runs</b> (the run sheet).</p>
+<p>The PDFs and the case's run sheet are saved in a folder for the case, named by its index number, its days and
+its caption ("234567-2026 10-13,14,15-2026 Jones v USA Hauling"), next to your document or inside the <i>Save to</i>
+folder chosen in Settings → Options → Folders. Inside it, each kind of file has a folder of its own: <b>Minute
+Agreements</b>, <b>MOFR</b>, <b>Invoices</b> (with their detailed copies), <b>Math</b> (how the invoices were added
+up) and <b>Trial Runs</b> (the run sheet).</p>
 <ul>
-<li><b>Case folder name</b>: <code>{index}</code>, <code>{case}</code>, <code>{date}</code>, <code>{dates}</code>,
-<code>{court}</code>, <code>{county}</code>, <code>{part}</code>, <code>{judge}</code> and words of your own. The
-characters Windows allows in no folder name can't be typed.</li>
-<li><b>If it's already there</b>, with files in it: Generate asks whether to add to it or make a new one beside it
-("712345-2021 (2)"), or does one of them without asking if you prefer. The same job generating again uses its folder
-without asking.</li>
-<li>When your document already sits in a folder of that name, that folder is used: no "712345-2021" inside
-"712345-2021".</li>
+<li><b>Case folder name</b>: <code>{index}</code>, <code>{days}</code> (the days, "10-13,14,15-2026"),
+<code>{case}</code>, <code>{date}</code>, <code>{dates}</code>, <code>{court}</code>, <code>{county}</code>,
+<code>{part}</code>, <code>{judge}</code> and words of your own. A folder's name keeps only letters, digits, spaces
+and - , _ ( ): anything else is taken out ("Jones v. USA Hauling" is "Jones v USA Hauling"), so the folder can go
+to any computer or cloud drive.</li>
+<li>The days of a trial made together share one folder. A day made <b>later</b> renames the case's folder to name it
+too ("...10-13,14,15,16-2026..."), folders made by earlier versions ("712345-2021") too, and Records follows. When
+a file in it is open and Windows won't rename it, the new files go into it as it is, and it is renamed next
+time (the Saved box says so). A day that was made by mistake and deleted since (in Records) leaves the name.</li>
+<li><b>If it's already there</b>: when a folder of the very same name has files in it, Generate asks whether to add
+to it or make a new one beside it ("712345-2021 10-13-2026 Roe v Poe (2)"), or does one of them without asking if
+you prefer. A later day joins the case's folder without asking, the folder renamed for its days; with <i>Make a new
+one beside it</i>, it gets a folder of its own instead. The same job generating again uses its folder without
+asking.</li>
+<li>When your document already sits in the case's folder (one whose name starts with its index number, "712345-2021
+Roe"), that folder is used as it is: no other case folder inside it, and a later day doesn't rename it (your
+documents are read from it). Another folder in <i>Save to</i> that only starts with the index number ("712345-2021
+Transcripts from the clerk") is not renamed or filled.</li>
+<li><b>Copy the documents read into an "Inputs" folder beside the files</b> (off at first): the transcripts,
+e-mails and photos the files were made from, and pasted text as a .txt file, are copied into an <b>Inputs</b>
+folder in the case's folder (in <i>Save to</i> without case folders), to look back at should a file come out
+wrong. It keeps a second copy of every transcript; a document already in the case's folder isn't copied, and none
+is copied twice.</li>
 <li>Untick <i>A folder for each case, inside Save to</i> to save them all in one folder, with no folders
 inside it.</li>
 <li>Minute agreements, MOFRs, invoices and run sheets can each have <b>a folder of their own</b> (same place). An
@@ -542,7 +559,7 @@ delivery date</a> follow the speed.</p>
 <i>Invoice</i> is ticked in the Outputs box), shows the prices before you generate, and holds this job's choices
 for its invoice:</p>
 <ul>
-<li><b>Parties</b>: the number of ordering parties (who ordered which pages is <a href="topic:exc-table">Excerpts…</a>,
+<li><b>Parties</b>: the number of ordering parties (who ordered which pages is <a href="topic:exc-table">Who ordered which pages…</a>,
 in Who ordered);</li>
 <li><b>Whose pages…</b>, on a transcript several reporters wrote (<a href="topic:inv-reporters">more</a>);</li>
 <li><b>Peripherals…</b>: the e-mailed copy and the index for this job (<a href="topic:inv-peripherals">more</a>);</li>
@@ -610,7 +627,7 @@ own (DS-2026-0001).</p>
 <p>The <b>Who pays what</b> card, under the Invoice card, sums up each firm's invoice: its pages, how it ordered them
 (<i>70 alone + 50 shared by 2</i>) and what it pays at each speed offered, in all and per page, for every day
 ticked in the job list. It follows every tick at once: days, attorneys, speeds, Parties, Peripherals… and
-Excerpts…. With more than one invoice (a day invoiced already beside one still to bill, or several cases), each has
+Who ordered which pages…. With more than one invoice (a day invoiced already beside one still to bill, or several cases), each has
 its own heading; one made already says <i>invoiced already ✓</i>.</p>
 <p><i>How these amounts are worked out…</i> opens the whole <a href="topic:inv-math">math</a>.</p>
 """),
@@ -622,11 +639,11 @@ its own heading; one made already says <i>invoiced already ✓</i>.</p>
 the job list, whichever day is shown (<a href="topic:check-attorneys">ticking who ordered</a>):</p>
 <ul>
 <li><b>What</b>: <i>The whole trial (4 days)</i>, a list of days, or <i>part of 6/4/2026</i> for some pages. Change
-it there: the whole trial, only the day shown, or <i>Some days or pages…</i> (<a href="topic:exc-table">Excerpts…</a>).</li>
+it there: the whole trial, only the day shown, or <i>Some days or pages…</i> (<a href="topic:exc-table">Who ordered which pages…</a>).</li>
 <li><b>Speed</b>, by name. Firms that ordered the same pages are each billed one speed: while none is chosen for a
 firm, it is the Speed of the forms at the top of the card (<i>Expedite</i>), and that is what is billed. A firm
 ordering alone shows <i>They choose: Regular or Expedite</i>: its invoice lists each speed offered. Choose a speed
-in the row and it is the firm's for every day of the trial; <i>Several (set in Excerpts…)</i> when its days or
+in the row and it is the firm's for every day of the trial; <i>Several (set in Who ordered which pages…)</i> when its days or
 pages differ.</li>
 <li><b>Pages</b>: how many of its pages are billed: on a transcript of several reporters only yours; <i>0 of 40: no
 invoice</i> when none of them are; <i>(typed)</i> when it is the Pages field's number.</li>
@@ -662,7 +679,7 @@ makes them all. Each button's tooltip lists the files it makes.</li>
     T("inv-undecided", INVOICE, "A day not decided yet", "undecided go back and decide go on anyway nobody ticked held "
       "not invoiced",
       """
-<p>When Generate all includes a day whose invoice waits for a choice (Excerpts… to check, Whose pages… to answer,
+<p>When Generate all includes a day whose invoice waits for a choice (Who ordered which pages… to check, Whose pages… to answer,
 or a firm's speed to change in Who ordered), or a case with a day nobody is ticked on, it says which
 first:</p>
 <ul>
@@ -740,7 +757,7 @@ first, then multiplied, $6.61 × 1,000 = $6,610.00, so a firm checking it with a
 </ul>
 <p>The math says which was used (<i>$6.6125 a page, rounded to $6.61, × 1,000 pages</i>). With granular detail,
 the charges of an invoice split evenly end with what each party pays (<i>= $26,450.00, split 4 ways: $6,610.00
-each</i>). The prices in <a href="topic:exc-table">Excerpts…</a> are rounded the same way. The
+each</i>). The prices in <a href="topic:exc-table">Who ordered which pages…</a> are rounded the same way. The
 <a href="topic:inv-spreadsheet">spreadsheet template</a> always rounds as Exact does.</p>
 """),
     T("inv-spreadsheet", INVOICE, "The invoice spreadsheet template", "spreadsheet excel google sheets template workbook "
@@ -753,12 +770,13 @@ workbook that prices invoices the same way when every party orders every page (i
 <a href="topic:inv-rounding">Rounding</a> set to the price a page, its amounts can differ from the app's by up to
 half a cent a page ($6,612.50 there, $6,610.00 here, for 1,000 pages).</p>
 """),
-    # ------------------------------------------------------------------------------------------- Excerpts and speeds
-    T("exc-table", EXCERPTS, "Excerpts…: who ordered which pages",
-      "excerpt part of the transcript some pages runs page range split run remove run partial order firm ordered "
-      "only",
+    # ------------------------------------------------------------------------------- Pages ordered and speeds
+    T("exc-table", EXCERPTS, "Who ordered which pages…: a firm that ordered some pages only (an excerpt)",
+      "excerpt excerpts part of the transcript some pages runs page range split run remove run partial order firm "
+      "ordered only how to use steps button pages ordered each firm",
       """
-<p>When one firm ordered the whole trial and others only some pages, open <b>Excerpts…</b> (in Who ordered, or
+<p>When one firm ordered the whole trial and others only some pages (an excerpt), open <b>Who ordered which
+pages…</b> (the button under the firms in Who ordered, or
 <i>Some days or pages…</i> in a firm's <i>What</i>). It is one table for every day of the case on that invoice (every day ticked, as a rule):</p>
 <ul>
 <li>each row is a <b>run of pages</b> of a day, typed in the transcript's own printed page numbers
@@ -772,8 +790,9 @@ run next to it, so every page stays in a run;</li>
 <p>For each run it shows the pages billed and what each firm pays; under it, what each group of firms ordering
 together pays and each firm's invoice, as you type. Pages ordered together split the original and the judge's
 index; each firm pays its own copy, e-mailed copy and index. A run nobody ticks is billed to nobody.</p>
-<p>The window stays open beside the main window and follows what you change there. When the day's page count changes
-so that the rows no longer end on its last page, the <i>Prices</i> line says <i>Excerpts… needs checking</i> and no
+<p>The <b>?</b> beside the button, and the one at the top of the window, show these steps in short.
+The window stays open beside the main window and follows what you change there. When the day's page count changes
+so that the rows no longer end on its last page, the <i>Prices</i> line says <i>Who ordered which pages… needs checking</i> and no
 invoice is made for that day until you fix them.</p>
 <p>Example (no index): with $4.30 originals and $1.00 copies and e-mailed copies, 40 pages ordered by Dana Smith
 alone and 50 by both attorneys cost Dana Smith 40 × $6.30 + 50 × ($2.15 + $2.00) = $459.50, and the other attorney 50 × $4.15 =
@@ -787,8 +806,8 @@ $207.50.</p>
 ordering by itself gets the invoice that lists every speed to choose from.</p>
 <ul>
 <li>Each firm's speed is in its row of <a href="topic:inv-who-ordered">Who ordered</a>, by name: the forms' speed
-while none is chosen. Choose another there, or, for one run, by right-clicking the firm's box in Excerpts…
-(<i>Dana Smith on this run at… ▸</i>). The boxes above the Excerpts table set the speed of all a firm's pages.</li>
+while none is chosen. Choose another there, or, for one run, by right-clicking the firm's box in Who ordered which pages…
+(<i>Dana Smith on this run at… ▸</i>). The boxes above its table set the speed of all a firm's pages.</li>
 <li>Generate bills the speeds shown. With Settings → Invoice → <i>Firms ordering the same pages</i> set to ask, it
 asks <i>Which speed did each firm order?</i> first, one line per firm for the whole trial.</li>
 </ul>
@@ -904,14 +923,15 @@ the file.</p>
 <p>Click a heading to sort by it. <i>Back to the usual columns</i> resets them.</p>
 """),
     T("rec-reopen", RECORDS, "Opening a job again", "reopen open again corrected invoice another day past job previous "
-      "redo recent jobs",
+      "redo recent jobs start card how many hide days old",
       """
 <p>Right-click an invoice, or a file under <i>Everything made</i>, and choose <b>Open this job again</b>: the case
-comes back into the main window as you left it (the fields, who was ticked, Peripherals… and Excerpts…). The
+comes back into the main window as you left it (the fields, who was ticked, Peripherals… and Who ordered which pages…). The
 documents it was read from are read again when they are still where they were. Use it for a corrected invoice, or to
 add another day of the case.</p>
-<p>An empty main window also lists your recent jobs: click one to open it again. File → Open recent lists the
-documents and folders you opened lately.</p>
+<p>An empty main window also lists your recent jobs: click one to open it again. How many it lists (3 at first, 5 at most),
+how lately made (30 days at first) and whether it lists them at all are under Settings → Options → <i>Recent
+jobs</i>. File → Open recent lists the documents and folders you opened lately.</p>
 """),
     T("rec-change", RECORDS, "Correcting an invoice: Change amounts… and Void",
       "change amounts corrected amount void cancel cancelled wrong invoice mistake not counted",
@@ -1219,7 +1239,7 @@ of its own, left unticked.</li>
 the word index) and <i>Yours</i> (the pages with your initials at the foot of the page; <b>?</b> until it can tell).
 Hover over a job for its full name, index number and documents.</p>
 <p><b>The ticks say which jobs count.</b> Every card on the right (Who ordered, Who pays what, Who transcribed
-what; the Excerpts window, the ticked days of the shown day's invoice) shows every ticked job, whichever one is
+what; the Who ordered which pages window, the ticked days of the shown day's invoice) shows every ticked job, whichever one is
 shown, and Generate all makes them (not those made already, but for the invoice of a made day still to bill).
 Untick a job
 to see what difference it makes: it is greyed and left out, but not removed, so ticking it brings it back. Everything
@@ -1231,7 +1251,7 @@ Your choice is kept. A job's documents stay in the order they were read. Right-c
 <ul>
 <li><b>✓</b> marks a job already made.</li>
 <li><b>⚠</b> marks one that failed or needs a look: something required is missing, nobody is ticked, Whose pages… or
-Excerpts… to choose, Parties counting a party no firm named (on pages ordered at different speeds), index numbers
+Who ordered which pages… to choose, Parties counting a party no firm named (on pages ordered at different speeds), index numbers
 that don't match, more than two speeds on the same pages, or no pages to bill.
 Hover over it to see what.</li>
 </ul>
@@ -1318,9 +1338,12 @@ case (every day on its invoice)</i> (<a href="topic:inv-several-days">more</a>).
 <li><b>A firm you tick orders</b>: <i>The whole trial (days added later too)</i>, or <i>Only the day shown</i>
 (<a href="topic:check-attorneys">more</a>).</li>
 <li><b>Folders</b>: <i>Save to</i>, <i>A folder for each case, inside Save to</i>, <i>Case folder name</i>, <i>If
-it's already there</i>, and a folder for each kind of file (<a href="topic:make-folders">more</a>).</li>
+it's already there</i>, <i>Copy the documents read into an "Inputs" folder</i>, and a folder for each kind of file
+(<a href="topic:make-folders">more</a>).</li>
 <li><b>File name</b> and <b>MOFR file name</b> (<a href="topic:make-file-names">more</a>).</li>
 <li><b>Theme</b> and <b>Zoom</b> (<a href="topic:start-room">more</a>).</li>
+<li><b>Recent jobs</b>: <i>List them while nothing is open</i>, <i>up to</i> 3 (5 at most), <i>made in the last</i>
+30 days (at first; 0 is <i>at any time</i>) (<a href="topic:rec-reopen">more</a>).</li>
 <li><b>Records search</b>: <i>Fuzzy search matches numbers loosely too</i> (<a href="topic:rec-search">more</a>).</li>
 <li><b>Index numbers</b>: patterns of your own (<a href="topic:check-index">more</a>).</li>
 <li><b>Recaps</b>: <i>Show a recap of last month (and last year) when Records is first opened</i>.</li>
@@ -1514,7 +1537,7 @@ wheel)</td></tr>
 <tr><td><b>Ctrl+Tab</b> / <b>Ctrl+Shift+Tab</b></td><td>In the preview: the next file, the one before (also
 <b>Ctrl+PgDn</b> / <b>Ctrl+PgUp</b>)</td></tr>
 <tr><td><b>Ctrl+Z</b></td><td>In Records: undo the last change</td></tr>
-<tr><td><b>Delete</b></td><td>In Records: delete the records selected (to the trash); in Excerpts…: remove the
+<tr><td><b>Delete</b></td><td>In Records: delete the records selected (to the trash); in Who ordered which pages…: remove the
 run</td></tr>
 <tr><td><b>F2</b></td><td>In Records: type a note</td></tr>
 <tr><td><b>Ctrl+F</b></td><td>In this help: go to the search box</td></tr>

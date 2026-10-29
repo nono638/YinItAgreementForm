@@ -19,7 +19,9 @@ from .queens_supreme_civil import COURTHOUSE as QUEENS_SUPREME_CIVIL
 BUILT_IN = (QUEENS_SUPREME_CIVIL,)  # the courthouses that come with the program (the build bundles their makers)
 OUTPUTS: dict[str, str] = {}         # what Generate can make: key -> label, as listed (settings.OUTPUTS)
 OUTPUT_FOLDERS: dict[str, str] = {}  # key -> its own folder under Documents (settings.OUTPUT_FOLDERS)
-SUBFOLDERS: dict[str, str] = {}      # key (or "math") -> its folder inside a case's own (settings.SUBFOLDERS)
+SUBFOLDERS: dict[str, str] = {}      # key (or "math", "inputs") -> its folder inside a case's own (settings.SUBFOLDERS)
+# the folder the documents read are copied into, inside a case's own (Settings.save_inputs), whatever the courthouse
+INPUTS_FOLDER = "Inputs"
 _current: Courthouse | None = None
 
 
@@ -113,6 +115,7 @@ def use(courthouse: Courthouse) -> Courthouse | None:
     SUBFOLDERS.update((o.key, o.subfolder) for o in courthouse.outputs if o.subfolder)
     if courthouse.math_subfolder:
         SUBFOLDERS["math"] = courthouse.math_subfolder
+    SUBFOLDERS["inputs"] = INPUTS_FOLDER
     return before
 
 

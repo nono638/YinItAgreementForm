@@ -47,6 +47,10 @@ OLD_APP_NAMES = ("DjinnItAgreementForm", "MinuteAgreementFiller")
 # The folders under Documents named after the app, as they were called before the rename -> now
 OLD_DOCUMENT_FOLDERS = {"DjinnIt Records": "YinIt Records", "DjinnIt Run Sheets": "YinIt Run Sheets"}
 RECENT_MAX = 10  # how many documents and folders File -> Open recent keeps
+# the start card's Recent jobs: how many it can list (the user, 2026-10-28: "a sensible ceiling of 5 so it won't
+# overcrowd the GUI") and the most days back it can be told to look (0: any time)
+RECENT_JOBS_MAX = 5
+RECENT_JOBS_DAYS_MAX = 999
 RATE_SHEETS_OK_KEPT = 20  # how many incomplete rate sheets used anyway are remembered (Settings.rate_sheets_ok)
 # What belongs to this computer and this copy of the app: left out of an exported settings file, and kept as
 # it is when one is imported (an incomplete rate sheet used anyway here is warned about on another computer)
@@ -318,7 +322,9 @@ CASE_FOLDER_EXISTING = {
     "add": "Add the files to it",
     "new": "Make a new one beside it (\"712345-2021 (2)\")",
 }
-CASE_FOLDER_PATTERN = "{index}"  # the name of a case's own folder (pdfout.case_folder_name): "712345-2021"
+# the name of a case's own folder (pdfout.case_folder_name): "712345-2021 10-13,14,15-2026 Jones v USA Hauling", its
+# index number, its days and its caption (the user, 2026-10-28; it was "{index}" alone before v17)
+CASE_FOLDER_PATTERN = "{index} {days} {case}"
 # Settings -> Dates: the day the turnaround days are counted from (workdays.turnaround_start): key -> label
 TURNAROUND_FROM = {"form": "the date on the form", "today": "the day you make it"}
 # what a court holiday that falls on a weekend does (workdays.Holidays): key -> label
@@ -329,11 +335,12 @@ HOLIDAY_WEEKEND = {
 
 
 def clean_folder_pattern(pattern: str) -> str:
-    """A case folder pattern with each character Windows allows in no folder name made a "-" ("{index} / {case}"
-    -> "{index} - {case}": the Settings window lets none be typed, but a settings file can be edited by hand);
-    a blank one is CASE_FOLDER_PATTERN."""
-    from .pdfout import FORBIDDEN_RE
-    return " ".join(FORBIDDEN_RE.sub("-", pattern).split()) or CASE_FOLDER_PATTERN
+    """A case folder pattern with each character a folder's name doesn't keep (pdfout.PATTERN_UNSAFE_RE: all but
+    letters, digits, spaces, - , _ ( ) and the placeholders' braces) made a space ("{index} / {case}" -> "{index}
+    {case}": the Settings window lets none be typed, but a settings file can be edited by hand); a blank one is
+    CASE_FOLDER_PATTERN."""
+    from .pdfout import PATTERN_UNSAFE_RE
+    return " ".join(PATTERN_UNSAFE_RE.sub(" ", pattern).split()) or CASE_FOLDER_PATTERN
 
 
 # When the AI's answer may tick an attorney as the one who ordered: key -> label (see Settings.ai_ticks)
@@ -521,14 +528,18 @@ class Settings:
     # Output
     form_choice: str = "ucs"          # "ucs", "clean" or "original" (see fill.FORMS)
     include_instructions: bool = True  # keep the UCS form's instructions page (page 2)
-    settings_version: int = 16        # bumped when from_dict must change something in older files
+    settings_version: int = 17        # bumped when from_dict must change something in older files
     output_dir: str = ""              # blank = next to the first input file, else Documents\Minute Agreements
     output_dirs: dict = field(default_factory=dict)  # a folder for one output (key of OUTPUTS); none = as above
-    # each case's files in a folder of its own inside the one above ("...\Minute Agreements\712345-2021"), named
+    # each case's files in a folder of its own inside the one above ("...\712345-2021 6-3,4-2026 Roe v Poe"), named
     # by case_folder_pattern (pdfout.case_folder_name); an output with a folder of its own keeps it
     case_folders: bool = True
     case_folder_pattern: str = CASE_FOLDER_PATTERN
     case_folder_existing: str = "ask"  # one of CASE_FOLDER_EXISTING
+    # copy the documents read (transcripts, e-mails, photos; pasted text as a .txt) into an "Inputs" folder beside
+    # the outputs (folder_for "inputs"), to look back at what a file was made from. Off as a rule: it keeps a
+    # second copy of every transcript (the user, 2026-10-28)
+    save_inputs: bool = False
     filename_pattern: str = FILENAME_PATTERN  # {case} {index} {attorney} {date} (of the minutes) {today}
     batch_combine_dates: bool = False  # batch: all days of a case on one form instead of one form per day
     # Generate all: the days of a case that share an invoice (invoice_joint) get one minute agreement per attorney
@@ -635,6 +646,12 @@ class Settings:
     job_weekday: bool = True
     zoom: float = 1.0                 # Ctrl + / Ctrl - zoom (1.0 = 100 %), on top of the Windows display scaling
     recent_files: list = field(default_factory=list)  # documents and folders opened, newest first (Open recent)
+    # the start card, while nothing is open: whether it lists the jobs made lately, how many (RECENT_JOBS_MAX at
+    # most; 3 at first, "2 or 3", the user said) and how lately made, in days (0: any time) (Settings -> Options; the
+    # user, 2026-10-28)
+    recent_jobs_show: bool = True
+    recent_jobs_count: int = 3
+    recent_jobs_days: int = 30
     preview_before_saving: bool = True  # Generate shows the files as pictures first; saved only on Save
     welcomed: bool = False            # the first-run "Welcome" questions were shown (once, while there is no name)
     show_math: bool = True            # after Generate makes invoices, a window spells out how each amount was reached
@@ -826,7 +843,10 @@ class Settings:
         batch.out_dir_for; Documents\\Minute Agreements without one). With a folder for each case (case_folders),
         `general` is the case's, and each kind of file goes in its folder inside it (SUBFOLDERS: "Invoices",
         "Math", "Trial Runs"...; the user, 2026-10-26). The math goes with the invoices when they have a folder of
-        their own, or the courthouse gives it no folder (Courthouse.math_subfolder "": next to the invoices)."""
+        their own, or the courthouse gives it no folder (Courthouse.math_subfolder "": next to the invoices).
+        "inputs" (the documents read, Settings.save_inputs) is always the "Inputs" folder inside `general`."""
+        if kind == "inputs":  # (the documents read, Settings.save_inputs: beside the outputs, in their own folder)
+            return Path(general or Path.home() / "Documents" / "Minute Agreements") / SUBFOLDERS["inputs"]
         if kind == "math" and (self.output_dirs.get("invoice") or "invoice" in OUTPUT_FOLDERS
                                or not SUBFOLDERS.get("math")):
             return self.folder_for("invoice", general)
@@ -1056,6 +1076,8 @@ class Settings:
             s.math_layout = "invoice"
         if s.save_math not in MATH_SAVES:
             s.save_math = "both"
+        s.recent_jobs_count = min(max(1, s.recent_jobs_count), RECENT_JOBS_MAX)
+        s.recent_jobs_days = min(max(0, s.recent_jobs_days), RECENT_JOBS_DAYS_MAX)
         s.invoice_detail_items = [k for k in s.invoice_detail_items if isinstance(k, str) and k in DETAIL_ITEMS]
         s.excerpt_hidden_speeds = [k for k in s.excerpt_hidden_speeds if isinstance(k, str)]
         s.index_patterns = ([x for x in s.index_patterns if isinstance(x, str) and x.strip()]
@@ -1151,6 +1173,13 @@ class Settings:
             s.job_sort = ["Date", "ascending"]
         if version < 16 and "takes" not in s.folded_cards:  # v16: Who transcribed what starts folded
             s.folded_cards.append("takes")
+        # v17: the math is saved again for everyone (the user, 2026-10-28: most want it; it can be turned off again
+        # under Settings -> Invoice), and a case's folder named by the old default ("{index}") gets the new one,
+        # its days and caption too
+        if version < 17 and s.save_math == "off":
+            s.save_math = "both"
+        if version < 17 and s.case_folder_pattern == "{index}":
+            s.case_folder_pattern = CASE_FOLDER_PATTERN
         s.records_count = s.records_count.strip()
         s.settings_version = cls.settings_version
         return s

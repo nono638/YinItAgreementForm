@@ -120,7 +120,8 @@ def test_each_output_can_have_a_folder_of_its_own(folder, s, tmp_path):
     where = {p.name.split(" - ")[0].split(" ")[0]: p.parent for p in roe.saved}
     # (the agreement in the case's own folder inside Save to, in its Minute Agreements folder; the outputs with
     # folders of their own there, flat)
-    assert where == {"Minute": tmp_path / "out" / "712345-2021" / "Minute Agreements", "MOFR": tmp_path / "MOFRs",
+    assert roe.folder.startswith("712345-2021 ")  # (its days and caption after the index number)
+    assert where == {"Minute": tmp_path / "out" / roe.folder / "Minute Agreements", "MOFR": tmp_path / "MOFRs",
                      "Invoice": tmp_path / "Invoices"}
     assert Path(ledger_for(s).invoices()[0].file_path).parent == tmp_path / "Invoices"
 

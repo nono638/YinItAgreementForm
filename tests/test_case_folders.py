@@ -1,7 +1,8 @@
 """A folder for each case (Settings.case_folders, on by default): each job's files go into a folder of its own
-inside Save to, named by a pattern (pdfout.case_folder_name: "712345-2021" by default), with the characters
-Windows forbids kept out, each kind of file in a folder inside it ("Minute Agreements", "Invoices", "Math",
-"Trial Runs": settings.SUBFOLDERS; the user, 2026-10-26), the run sheet too; an output given a folder of its own
+inside Save to, named by a pattern (pdfout.case_folder_name: "712345-2021 6-3,4-2026 Jane Roe v XY Holding
+Corporation" by default; these tests of where the files go name it "{index}" alone, as before v17), with only
+the characters every file system takes, each kind of file in a folder inside it ("Minute Agreements",
+"Invoices", "Math", "Trial Runs": settings.SUBFOLDERS; the user, 2026-10-26), the run sheet too; an output given a folder of its own
 keeps that one; the command line stays flat. A folder already there with files in it is asked about (add to it,
 or a new one beside it: "712345-2021 (2)"), or not, as Settings say; an empty one is simply used, and a job that
 chose its folder isn't asked again. When the folder the files would go in (the documents' own, or Save to) is
@@ -20,9 +21,18 @@ from minute_filler.models import CaseInfo
 from minute_filler.pdfout import case_folder_name, free_folder
 from minute_filler.settings import Settings, clean_folder_pattern
 
-from helpers import ROE, invoice_text, make_case, pat_settings
+from helpers import ROE, invoice_text, make_case
+from helpers import pat_settings as _pat_settings
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+def pat_settings() -> Settings:
+    """Pat's settings with the case folders named by the index number alone ("712222-2024"), as these tests of
+    where the files go were written (the default names the days and the caption too: test_case_folder_days)."""
+    s = _pat_settings()
+    s.case_folder_pattern = "{index}"
+    return s
 
 
 def case_of(p: Path) -> Path:
@@ -39,20 +49,21 @@ def write(folder: Path, name: str, **kw) -> str:
 
 
 # ------------------------------------------------------------------ the name
-def test_the_folder_is_named_by_the_pattern_without_what_windows_forbids():
+def test_the_folder_is_named_by_the_pattern_with_only_what_every_file_system_takes():
     roe = make_case({**ROE, "dates": "6/4/2026, 6/3/2026"})
     assert case_folder_name(roe, "{index}") == "712345-2021"
-    assert case_folder_name(roe, "{index} - {case}") == "712345-2021 - Jane Roe v. X.Y. Holding Corporation"
+    assert case_folder_name(roe, "{index} - {case}") == "712345-2021 - Jane Roe v XY Holding Corporation"
     assert case_folder_name(roe, "{date}") == "6-3-2026" and case_folder_name(roe, "{dates}") == "6-3-2026 to 6-4-2026"
+    assert case_folder_name(roe, "{days}") == "6-3,4-2026"
     assert case_folder_name(roe, "{county} {court} Part {part}") == "Queens Supreme Part 14"
     odd = make_case({"case_name": "Roe v. Poe: Part 2", "index_no": "712345/2021"})
-    assert case_folder_name(odd, "{case}") == "Roe v. Poe- Part 2"  # (":" is no part of a folder name)
+    assert case_folder_name(odd, "{case}") == "Roe v Poe Part 2"  # (":" and "." are taken out, not replaced)
     # a blank placeholder goes with what is around it; none left: the caption, else words
     no_index = make_case({"case_name": "Jane Roe v. X.Y. Holding Corporation"})
-    assert case_folder_name(no_index, "{index} ({dates})") == "Jane Roe v. X.Y. Holding Corporation"
+    assert case_folder_name(no_index, "{index} ({dates})") == "Jane Roe v XY Holding Corporation"
     assert case_folder_name(make_case({**ROE, "dates": ""}), "{index} ({dates})") == "712345-2021"
     assert case_folder_name(make_case({**ROE, "index_no": ""}), "{index} - {case}") == \
-        "Jane Roe v. X.Y. Holding Corporation"
+        "Jane Roe v XY Holding Corporation"
     assert case_folder_name(CaseInfo(), "{index}") == "No index number"
     assert case_folder_name(roe, "{index} {fax}") == "712345-2021 {fax}"  # (not known: as typed)
     assert case_folder_name(roe, "CON") == "CON_" and case_folder_name(roe, "lpt1") == "lpt1_"  # (devices)
@@ -72,12 +83,13 @@ def test_a_new_folder_beside_one_there(tmp_path):
 
 def test_the_settings_keep_the_pattern_clean():
     s = Settings()
-    assert (s.case_folders, s.case_folder_pattern, s.case_folder_existing) == (True, "{index}", "ask")
-    assert clean_folder_pattern("{index} / {case}") == "{index} - {case}" and clean_folder_pattern("  ") == "{index}"
+    assert (s.case_folders, s.case_folder_pattern, s.case_folder_existing) == (True, "{index} {days} {case}", "ask")
+    assert clean_folder_pattern("{index} / {case}") == "{index} {case}"
+    assert clean_folder_pattern("  ") == "{index} {days} {case}"
     loaded = Settings.from_dict({"case_folder_pattern": "{index}|{case}", "case_folder_existing": "bogus",
-                                 "case_folders": False})
+                                 "case_folders": False, "settings_version": 17})
     assert (loaded.case_folders, loaded.case_folder_pattern, loaded.case_folder_existing) == \
-        (False, "{index}-{case}", "ask")
+        (False, "{index} {case}", "ask")
 
 
 # ------------------------------------------------------------------ where the files go
@@ -307,16 +319,16 @@ def test_the_preview_writes_nothing_in_the_real_folders(tmp_path, make_window, m
     assert not (tmp_path / "out").exists() and not win.cur.saved
 
 
-def test_the_settings_window_refuses_what_windows_forbids(qt):
+def test_the_settings_window_refuses_what_a_folder_name_doesnt_keep(qt):
     from PySide6.QtTest import QTest
     from minute_filler.gui.dialogs import SettingsDialog
-    dlg = SettingsDialog(pat_settings())
-    assert dlg.o_case_folders.isChecked() and dlg.o_case_pattern.text() == "{index}"
-    assert 'e.g. "712345-2021"' in dlg.o_case_hint.text()
+    dlg = SettingsDialog(_pat_settings())
+    assert dlg.o_case_folders.isChecked() and dlg.o_case_pattern.text() == "{index} {days} {case}"
+    assert 'e.g. "712345-2021 6-3,4-2026 Jane Roe v XY Holding Corporation"' in dlg.o_case_hint.text()
     dlg.o_case_pattern.clear()
-    QTest.keyClicks(dlg.o_case_pattern, "{index}/|:*?\"<> {case}")
+    QTest.keyClicks(dlg.o_case_pattern, "{index}/|:*?\"<>.'& {case}")
     assert dlg.o_case_pattern.text() == "{index} {case}"
-    assert 'e.g. "712345-2021 Jane Roe v. X.Y. Holding Corporation"' in dlg.o_case_hint.text()
+    assert 'e.g. "712345-2021 Jane Roe v XY Holding Corporation"' in dlg.o_case_hint.text()
     dlg.o_case_existing.setCurrentIndex(dlg.o_case_existing.findData("add"))
     dlg.accept()
     again = Settings.load()

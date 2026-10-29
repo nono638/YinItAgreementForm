@@ -229,7 +229,7 @@ def test_portions_that_no_longer_fit_are_kept_to_be_checked(tmp_path, s):
     assert [p.pages for p in job.invoice_orders()[0].portions] == [10, 20]
     job.case.set("est_pages", "3")  # typed in: the last row no longer ends on the last page
     assert job.valid_portions() is None and job.portions == rows  # kept, not dropped
-    assert job.portions_check() == "Excerpts… needs checking (its rows don't end on this day's 3 pages)"
+    assert job.portions_check() == "Who ordered which pages… needs checking (its rows don't end on this day's 3 pages)"
     assert files_to_make([job], ["invoice"], s) == 0
     job.case.set("est_pages", "30")
     assert job.valid_portions() == rows and not job.portions_check()
@@ -284,11 +284,11 @@ def test_rows_naming_an_attorney_no_longer_ticked_bill_nobody_until_checked(tmp_
     job.portions = [(10, [A]), (30, [A, B])]
     job.case.attorneys[1].checked = False
     assert job.valid_portions() is None and job.portions == [(10, [A]), (30, [A, B])]
-    assert job.portions_check() == "Excerpts… needs checking (it names an attorney no longer ticked)"
+    assert job.portions_check() == "Who ordered which pages… needs checking (it names an attorney no longer ticked)"
     assert files_to_make([job], ["invoice"], s) == 0
     fill_jobs([job], s, outputs=["agreement", "invoice"])
     assert not ledger_for(s).invoices() and not job.invoiced
-    assert job.error == "invoice not made: check Excerpts… for 6/3/2026"
+    assert job.error == "invoice not made: check Who ordered which pages… for 6/3/2026"
     assert [p.name.split(" - ")[0] for p in job.saved] == ["Minute Agreement"]  # the rest is made
     job.portions = [(10, [A]), (30, [A])]  # names only Alex: fine (one firm may order a day in runs)
     assert job.portions_problem() == "" and job.valid_portions() == [(10, [A]), (30, [A])]
@@ -334,7 +334,7 @@ def test_portions_of_a_day_name_only_its_own_attorneys(tmp_path, s):
     fill_jobs(jobs, s, outputs=["invoice"])
     assert {(i.bill_to, i.dates) for i in ledger_for(s).invoices()} == {("Alex B. Counsel", "6/4/2026"),
                                                                        ("Dana Smith", "6/4/2026")}
-    assert not jobs[0].invoiced and "check Excerpts… for 6/3/2026" in jobs[0].error and jobs[1].invoiced
+    assert not jobs[0].invoiced and "check Who ordered which pages… for 6/3/2026" in jobs[0].error and jobs[1].invoiced
 
 
 @pytest.mark.usefixtures("split_orders_choose")

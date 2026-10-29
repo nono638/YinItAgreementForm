@@ -71,7 +71,7 @@ def test_a_day_waiting_for_a_choice_says_so(tmp_path, s):
     assert len(lines) == 2 and all(l.note.startswith("⚠ Whose pages") for l in lines)
     job.page_basis[job.docs[0].key()] = "*"
     job.portions = [(3, [A, B]), (5, [A])]  # rows that no longer end on the day's pages
-    assert all("Excerpts… needs checking" in l.note for l in job.order_lines())
+    assert all("Who ordered which pages… needs checking" in l.note for l in job.order_lines())
 
 
 def test_bill_sets_are_the_invoices_to_make_and_those_made(tmp_path, s):
@@ -169,7 +169,7 @@ def test_generate_all_warns_about_a_day_not_decided(window, tmp_path, monkeypatc
     import minute_filler.gui.main_window as mw
     monkeypatch.setattr(mw.Runner, "start", lambda self, *a, **k: started.append(a))
     window.fill_all_jobs()
-    assert shown and "Excerpts… needs checking" in shown[0] and "6/3/2026" in shown[0]
+    assert shown and "Who ordered which pages… needs checking" in shown[0] and "6/3/2026" in shown[0]
     assert not started  # went back: nothing made
 
 
@@ -368,7 +368,7 @@ def test_after_go_on_anyway_a_held_day_is_not_a_failure(window, tmp_path, monkey
                         lambda self, title, text, folders, details="", warn=False: boxes.append((text, warn)))
     window.fill_all_jobs()
     (text, warn), = boxes
-    assert "1 day not invoiced, as you chose:" in text and "check Excerpts… for 6/3/2026" in text
+    assert "1 day not invoiced, as you chose:" in text and "check Who ordered which pages… for 6/3/2026" in text
     assert "could not be saved" not in text and not warn and "for 1 job" in text
 
 

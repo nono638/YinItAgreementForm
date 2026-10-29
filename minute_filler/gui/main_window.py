@@ -15,11 +15,11 @@ place (_show_todo).
 Who ordered is who ordered, what and at what speed, in one place (the user, 2026-10-24): the speed the agreement
 forms name (the trial's, every day of it) beside the speeds offered, then a row per firm of the trial, whichever
 day is shown (_show_attorneys, _trial_firms), with its tick (the whole trial, as a rule: Settings.trial_orders,
-batch.tick_firm; half ticked for some days only, _tick_row), What (the whole trial, the day shown, or Excerpts…:
-_what_box), Speed (the speed billed, by name: _firm_speed_box) and Pages; the row selected is spelled out under it
-(_build_att_details); and a line saying who orders what and what Generate all bills (_show_orders). Each firm of a
-trial is marked by a square and a thin stripe of its colour wherever it is named: Who ordered, Who pays what,
-Excerpts… (_marks, _mark_row). While nothing is loaded, the jobs made lately are listed to open again
+batch.tick_firm; half ticked for some days only, _tick_row), What (the whole trial, the day shown, or Who ordered
+which pages…: _what_box), Speed (the speed billed, by name: _firm_speed_box) and Pages; the row selected is spelled
+out under it (_build_att_details); and a line saying who orders what and what Generate all bills
+(_show_orders). Each firm of a trial is marked by a square and a thin stripe of its colour wherever it is named: Who ordered, Who pays what,
+Who ordered which pages… (_marks, _mark_row). While nothing is loaded, the jobs made lately are listed to open again
 (_show_start); fields complete from the records (_fill_completions); New job can be undone for a few seconds
 (_undo_clear); the Records button counts the invoices of a status (Settings.records_count: _count_records). View
 zooms, picks the theme, folds the cards and shows or hides the job list's Day column. F1 opens the manual at the
@@ -105,7 +105,7 @@ from ..batch import (BATCH_EXT, HELD, MISMATCH_LEAD, NOT_INVOICED, Doc, Job, cas
                      expand_paths,
                      fill_jobs, firm_questions, group, ident, index_number_text, input_folders, saved_folders,
                      billed_split_rule, job_from_origin, job_origin, join_entries, new_invoice_set, origin_fixes,
-                     out_dir_for,
+                     copy_inputs, follow_moves, move_case_folders, moved_path, out_dir_for,
                      read_loaders, remerge, same_case, split_forgotten)
 from ..extract_llm import OllamaExtractor
 from ..extract_regex import find_dates, use_firm_answers
@@ -122,6 +122,7 @@ from .. import courthouses
 from ..courthouses.base import resolve
 from ..settings import LOCAL, OUTPUTS, Settings
 from .dialogs import ClarifyDialog, RunSheetDialog, SettingsDialog
+from .excerpts import show_how_to
 from .help_window import help_topic_of, open_help
 from .badges import STRIPE_ROLE, TAG_HEIGHT, StripeDelegate, badge_icon, badge_size, side_name, tag_color
 from .theme import apply_theme
@@ -147,11 +148,11 @@ ATT_TIPS = {
     0: "Tick each firm that ordered. In a trial a tick is the whole trial, days added later too (Settings →\n"
        "Options → A firm you tick orders); a box half filled is a firm that ordered some days or pages only (What says which).",
     ATT_WHAT: "What the firm ordered: the whole trial (or day), only the day shown, or some days or pages\n"
-              "(Excerpts…, one table of every day and firm)",
+              "(Who ordered which pages…, one table of every day and firm)",
     ATT_SPEED: "The speed the firm is billed: firms ordering the same pages are billed the speed shown\n"
                "(Settings → Invoice can have Generate ask instead); a firm ordering alone may choose\n"
                "from its invoice, among the speeds offered. Different speeds on different days or pages: "
-               "Excerpts…",
+               "Who ordered which pages…",
     ATT_PAGES: "The pages its invoice bills of what it ordered: on a transcript of several reporters only\n"
                "yours (or those chosen under Whose pages…), of the pages it ordered",
 }
@@ -230,7 +231,7 @@ UNTICKED_ROW = "Unticked: left out of the cards on the right and of Generate all
 MADE_ROW = ("Ticked: the cards on the right show this day. Made already (✓): Generate all leaves it out,\n"
             "but for its invoice while that is still to make (click it, then \"{one}\" makes it all again).")
 TICK_TIP = ("Ticked: this day counts. The cards on the right (who ordered, who pays, who transcribed\n"
-            "what, Excerpts…) show every ticked day, and Generate all makes them.\n"
+            "what, Who ordered which pages…) show every ticked day, and Generate all makes them.\n"
             "Unticked (greyed): left out of both, to see the difference it makes. Nothing is removed:\n"
             "tick it again to bring it back.")
 YOURS_TIP = ("Yours: the pages with your initials at the foot of the page (your initials: Settings → My info).\n"
@@ -301,7 +302,8 @@ ORDERS_HELP = ("Each firm is billed for what its row says it ordered and nothing
                "Pages counts the pages billed of it: on a transcript of several reporters only yours (or those\n"
                "chosen under Whose pages…), and the Pages field's number when you typed one. Firms that ordered\n"
                "the same pages are each billed one speed; a firm ordering alone may choose one from its invoice.\n"
-               "Some days or pages only: Excerpts…, one table of every day of the trial and every firm.")
+               "Some days or pages only: Who ordered which pages…, one table of every day of the trial and\n"
+               "every firm.")
 WHO_ORDERED_TIP = ("Who ordered, what and at what speed. Each ticked firm gets a minute agreement (and an invoice)\n"
                    "of its own: the agreement shows the pages it ordered, whoever wrote them; the invoice bills\n"
                    "your pages of them. In a trial, every firm of every day is listed, and a tick is the whole trial.")
@@ -347,8 +349,8 @@ EST_PAGES_TIP = ("Counted from the transcript PDF: every page, whoever wrote it 
                  "more than a quarter of the PDF (rounded up; 5 pages of a short one), the field turns amber\n"
                  "and a warning under it says so.\n"
                  "Each attorney's minute agreement shows the pages that attorney ordered (the whole day,\n"
-                 "or its excerpt under Excerpts…); the MOFR the pages anyone ordered. Your invoice bills\n"
-                 "only your own pages of them (Invoice card: Billed).\n"
+                 "or its excerpt under Who ordered which pages…); the MOFR the pages anyone ordered.\n"
+                 "Your invoice bills only your own pages of them (Invoice card: Billed).\n"
                  "A number you type is yours: your invoice bills it, and it is the day's pages on every\n"
                  "agreement (an excerpt counts its pages of it). Typed below the PDF's count, Generate asks\n"
                  "about the index when the two would decide it differently. No transcript (a caption page\n"
@@ -367,7 +369,7 @@ AGREEMENT_SPEED_TIP = ("The speed written on the minute agreement forms (and the
 PARTIES_TIP = ("How many parties ordered: they split {shared},\n"
                "and each pays for its own {own} (normally the number of ticked attorneys).\n"
                "No. of copies on the forms follows it.")
-WHO_TIP = ("Excerpts: one attorney ordered the whole transcript and another only pages 20 to 40?\n"
+WHO_TIP = ("Some pages only: one attorney ordered the whole transcript and another only pages 20 to 40?\n"
            "A table of every day of the case on that invoice: type each run of pages and tick the firms\n"
            "that ordered it, with the prices as you go. Pages ordered together split {shared}.")
 WHOSE_TIP = ("Several reporters wrote this transcript (the initials at the foot of the pages change).\n"
@@ -1385,8 +1387,8 @@ class MainWindow(QMainWindow):
         self.jobs_label = QLabel("Jobs")
         self.jobs_label.setObjectName("fieldLabel")
         self.jobs_label.setToolTip("⚠ = something to check before Generate (a field missing, no attorney ticked,\n"
-                                   "Whose pages… or Excerpts… to choose, Parties counting a party no firm\n"
-                                   "named, a speed to choose, documents whose\n"
+                                   "Whose pages… or Who ordered which pages… to choose, Parties counting a party\n"
+                                   "no firm named, a speed to choose, documents whose\n"
                                    "index numbers don't match, more than two speeds on the same pages, no pages\n"
                                    "to bill...). Hover over a job to see what. ✓ = saved.\n\n" + TICK_TIP + "\n\n"
                                    + YOURS_TIP)
@@ -1761,14 +1763,25 @@ class MainWindow(QMainWindow):
         hint.setWordWrap(True)
         br.addWidget(add)
         br.addWidget(self.att_remove)
+        # Who ordered which pages… (it was "Excerpts…", at the far right, hard to find: the user, 2026-10-28): who
+        # ordered which pages of each day, day by day (the window of exceptions); Whose pages... when that is what
+        # holds the invoice (_show_orders). Beside the row's own buttons, outlined in the accent's colour, with a ?
+        # that says how to use it (excerpts.show_how_to)
+        self.orders_edit = QPushButton("Who ordered which pages…")
+        self.orders_edit.setObjectName("pages")
+        self.orders_edit.setProperty("help_topic", "exc-table")  # (F1 on it: its own topic, not the card's)
+        self.orders_edit.clicked.connect(self._edit_orders)
+        self.inv_who = self.orders_edit  # (the one Who ordered which pages… button: it was the Invoice card's too)
+        br.addSpacing(8)
+        br.addWidget(self.orders_edit)
+        self.orders_how = QToolButton()
+        self.orders_how.setText("?")
+        self.orders_how.setObjectName("quick")
+        self.orders_how.setToolTip("How to use Who ordered which pages…: when a firm ordered only some pages")
+        self.orders_how.clicked.connect(lambda: show_how_to(self, self.show_help))
+        br.addWidget(self.orders_how)
         br.addSpacing(12)
         br.addWidget(hint, 1)
-        # Excerpts...: who ordered which pages of each day, day by day (the window of exceptions); Whose pages...
-        # when that is what holds the invoice (_show_orders)
-        self.orders_edit = QPushButton("Excerpts…")
-        self.orders_edit.clicked.connect(self._edit_orders)
-        self.inv_who = self.orders_edit  # (the one Excerpts… button: it was the Invoice card's too)
-        br.addWidget(self.orders_edit, 0, Qt.AlignTop)
         cl.addLayout(br)
         # what Generate makes of the orders, in words (_show_orders: who orders what at which speed, the days
         # invoiced already, left out, nobody ordered, held); how they are billed is the ? button's (ORDERS_HELP)
@@ -2464,11 +2477,20 @@ class MainWindow(QMainWindow):
         fields complete from, and the Records button's count. At startup and after the records change."""
         from ..records import past_values, recent_jobs
 
+        self._reading_recent = getattr(self, "_reading_recent", 0) + 1
+        n = self._reading_recent
+
         def jobs_read(found) -> None:
+            if n != self._reading_recent:  # (an older read, ending after Settings changed the list: dropped)
+                return
             self._recent_jobs = list(found or [])
             self._show_start()
 
-        self.runner.start(recent_jobs, on_done=jobs_read, on_error=lambda _m: None)
+        if self.s.recent_jobs_show:  # (as many and as lately made as Settings -> Options say)
+            self.runner.start(recent_jobs, self.s.recent_jobs_count, days=self.s.recent_jobs_days, on_done=jobs_read,
+                              on_error=lambda _m: None)
+        else:
+            jobs_read([])  # (the card says how to begin, without the list)
         self.runner.start(past_values, on_done=self._fill_completions, on_error=lambda _m: None)
         self._count_records()
 
@@ -3814,8 +3836,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_order_cells(self) -> None:
         """Who ordered's ticks, What, Speed and Pages again (_show_order_cells) for the rows shown, without counting
-        as an edit: the days ticked in the job list, a speed, Excerpts… or the speeds offered may have changed
-        them. Only while the table shows the day shown's rows (else _show_case is about to show them afresh)."""
+        as an edit: the days ticked in the job list, a speed, Who ordered which pages… or the speeds offered may have
+        changed them. Only while the table shows the day shown's rows (else _show_case is about to show them afresh)."""
         if (self._att_stale or len(self._att_list) != self.att.rowCount()
                 or self._att_own != len(self.case.attorneys)):
             return
@@ -3824,8 +3846,8 @@ class MainWindow(QMainWindow):
 
     def _what_box(self, key: str, order, days: list[Job]) -> QuietCombo:
         """A firm's What in Who ordered: what it orders of the days counted (TrialOrder.words), and what it can be
-        made: the whole trial, only the day shown, or some days or pages (Excerpts…). A single day: the whole day or
-        some pages."""
+        made: the whole trial, only the day shown, or some days or pages (Who ordered which pages…). A single day:
+        the whole day or some pages."""
         box = QuietCombo()
         several = len(days) > 1
         if not several or order.kind != "whole":
@@ -3842,8 +3864,8 @@ class MainWindow(QMainWindow):
         return box
 
     def _what_chosen(self, key: str, what) -> None:
-        """A firm's What chosen: the whole trial, only the day shown (batch.order_firm), or Excerpts… for some
-        days or pages. The table follows after the box's own signal (it is built afresh with the table)."""
+        """A firm's What chosen: the whole trial, only the day shown (batch.order_firm), or Who ordered which pages…
+        for some days or pages. The table follows after the box's own signal (it is built afresh with the table)."""
         from ..batch import order_firm
         if what == "some":
             self._who_ordered(self.cur)
@@ -3861,8 +3883,9 @@ class MainWindow(QMainWindow):
         """A firm's Speed in Who ordered: the speed it is billed on the days counted, by name (batch.speed_shown:
         the one chosen for it, else, ordering pages with another firm, the speed of the forms, which Generate
         bills without asking), "They choose: Regular or Expedite" while it orders alone and none is chosen (its
-        invoice offers the speeds offered), or "Several (set in Excerpts…)"; then the rate sheet's speeds. A speed
-        the rate sheet doesn't have is kept, and says so. The user, 2026-10-24: the row names the speed."""
+        invoice offers the speeds offered), or "Several (set in Who ordered which pages…)"; then the rate sheet's
+        speeds. A speed the rate sheet doesn't have is kept, and says so. The user, 2026-10-24: the row names the
+        speed."""
         from ..batch import speed_shown
         billable = [j for j in days if not j.invoiced]
         shown = speed_shown(billable, key, self.s)
@@ -3870,7 +3893,7 @@ class MainWindow(QMainWindow):
         together = any(key in j.split_keys() for j in billable)
         box = QuietCombo()
         if shown.kind == "several":
-            box.addItem("Several (set in Excerpts…)", "*")
+            box.addItem("Several (set in Who ordered which pages…)", "*")
         # (alone, or where firms together choose too; or, whatever the days say, when its invoice will offer them)
         if not (together and courthouses.speed_upfront()) or shown.kind == "choose":
             box.addItem("They choose: " + _or([sp.name for sp in self.s.offered_speeds()]), "")
@@ -4382,10 +4405,10 @@ class MainWindow(QMainWindow):
                            for j in odd[:8]) + ("\n…" if len(odd) > 8 else "")
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("Parties and Excerpts disagree")
+        box.setWindowTitle("Parties and pages ordered disagree")
         box.setText(f"{lines}\n\nThe invoices and No. of copies count the firms that ordered pages under "
-                    "Excerpts…, not the Parties number. If a firm that ordered is missing, go back and tick it "
-                    "under Excerpts….")
+                    "Who ordered which pages…, not the Parties number. If a firm that ordered is missing, go back "
+                    "and tick it under Who ordered which pages…")
         back = box.addButton("Go back", QMessageBox.RejectRole)
         go_on = box.addButton("Go on (count the firms ticked)", QMessageBox.AcceptRole)
         box.setDefaultButton(back)
@@ -5204,8 +5227,8 @@ class MainWindow(QMainWindow):
 
     def _job_checks(self) -> list[str]:
         """What the job on screen needs looked at besides its blank required fields: the job list's ⚠ lines
-        (Job.issues: nobody ticked, a speed to choose, Whose pages…, Excerpts… or Parties, index numbers that
-        don't match, no pages to bill...), without the "… is missing" ones the pill counts already."""
+        (Job.issues: nobody ticked, a speed to choose, Whose pages…, Who ordered which pages… or Parties, index
+        numbers that don't match, no pages to bill...), without the "… is missing" ones the pill counts already."""
         missing = {f"{FIELD_LABELS[k]} is missing" for k in self.case.missing_required()}
         return [i for i in self.cur.issues(self._outputs()) if i not in missing]
 
@@ -5213,12 +5236,12 @@ class MainWindow(QMainWindow):
         """Everything the job on screen needs looked at before Generate, each with where it is fixed, in this
         order (not Generate's, which asks about the index numbers first): the required fields blank; nobody
         ticked, two rows that may be one firm, a speed to choose, index numbers that don't match, Whose pages… or
-        Excerpts… or Parties, another day of the case nobody is ticked on (no invoice for the case: it goes to that
-        day), no pages to bill, no transcript for the run sheet (the job's checks, _job_checks, with the firm
-        question and the case's other days, which those don't list); the page count to check and a date on a
-        weekend or a court holiday (the warnings under those fields); any other check (nowhere to go); then the
-        guessed fields, in one line. The status pill names the first and goes to it; the Before you generate box
-        shows them all (_show_todo)."""
+        Who ordered which pages… or Parties, another day of the case nobody is ticked on (no invoice for the case: it
+        goes to that day), no pages to bill, no transcript for the run sheet (the job's checks, _job_checks, with the
+        firm question and the case's other days, which those don't list); the page count to check and a date on a
+        weekend or a court holiday (the warnings under those fields); any other check (nowhere to go); then the guessed
+        fields, in one line. The status pill names the first and goes to it; the Before you generate box shows them all
+        (_show_todo)."""
         job, case = self.cur, self.case
         if job.is_empty():
             return []
@@ -5612,7 +5635,7 @@ class MainWindow(QMainWindow):
         if not self._ask_index_numbers([job]) or job not in self.jobs:
             return
         # the case's own folder inside Save to (Settings.case_folders): asked about when it has files already
-        folder_was = job.folder, job.folder_named  # (put back when nothing is saved: asked about next time)
+        folder_was = job.folder, job.folder_named, job.folder_from  # (put back when nothing is saved: asked again)
         if not self._case_folder([job], outputs) or job not in self.jobs:
             return
         case = job.case
@@ -5630,7 +5653,7 @@ class MainWindow(QMainWindow):
             # what is saved is what was shown: the case as it is now, whatever comes in while the preview is up
             case = deepcopy(case)
             if not self._preview(case, outputs, opts, ordered, speeds, dating.day):
-                job.folder, job.folder_named = folder_was
+                job.folder, job.folder_named, job.folder_from = folder_was
                 return
             previewed = self._math_previewed
             if job not in self.jobs:  # (a read that ended meanwhile put its documents with another job)
@@ -5641,6 +5664,15 @@ class MainWindow(QMainWindow):
         keys: list[str] = []  # the attorneys invoiced
         math: list = []  # (FirmInvoice, number) of each invoice made: "The math" shows how its amounts were reached
         detailed: list[Path] = []  # the invoices' detailed copies: kept for later, not opened or printed now
+        # the case's folder named for fewer days gets this day's too, before anything is saved into it; the run
+        # sheet chosen in it and the record of the job as it was shown (its documents, Whose pages...) follow
+        from ..records import moved_origin
+        moved, folder_problems = self._move_case_folders([job])
+        for src, dst in moved:
+            moved_origin(origin, src, dst)
+            if sheet is not None and sheet.target:
+                sheet.target = moved_path(sheet.target, src, dst)
+        out_dir = out_dir_for(job, self.s)
         # billed this way now, and so again (Job.split_rule; the invoices' record keeps it, the other files' not,
         # should the invoice fail): the rule the invoices (and the preview, by Settings') are priced by; put back when
         # no invoice comes of it. The record is still the job as it was shown (origin above), whatever a read that
@@ -5665,13 +5697,15 @@ class MainWindow(QMainWindow):
                 # is billable again for the others only (billed_keys() is empty while it is invoiced).
                 job.invoiced_keys = list(dict.fromkeys(job.billed_keys() + keys))
                 job.invoiced = False
-            show_save_error(self, e, "Could not make the files", "\n\nSaved before the problem:\n"
+            show_save_error(self, e, "Could not make the files", ("\n\nSaved before the problem:\n"
                             + "\n".join(p.name for p in made) if made else "")
+                            + "".join("\n\n" + p for p in folder_problems))
             self._update_status()
             self._records_changed()
             return
         log.info("made %d file(s): %s, form type %s", len(paths), "+".join(outputs), self.s.form_choice)
         job.saved, job.error = paths, ""
+        copy_inputs(job, self.s, out_dir)  # (the documents read, beside the files, when Settings say so)
         if not keys:  # (no invoice made: no transcript, say)
             job.split_rule = rule_was
         # Generate all won't bill this day again, nor make it (Job.made), unless a document was added while the
@@ -5698,6 +5732,8 @@ class MainWindow(QMainWindow):
         if sheet and sheet.path:
             text += ("\n\n" if text else "") + run_sheet_summary(sheet)
             folders += saved_folders([sheet.path], self.s)
+        if folder_problems:  # (a case's folder not renamed: said here, where it is read, not in a passing toast)
+            text += ("\n\n" if text else "") + "\n\n".join(folder_problems)
         # (Print...: the PDFs but those kept; the run sheet is a workbook, printed from Excel)
         self._saved_box("Saved", text, list(dict.fromkeys(folders)),
                         files=[p for p in paths if p.suffix.lower() == ".pdf" and p not in kept])
@@ -5775,18 +5811,19 @@ class MainWindow(QMainWindow):
             return outputs
         others = [o for o in outputs if o != "invoice"]
         kind = job.hold_kind()  # (the title and the text about the one the hold names)
-        title = {"portions": "Excerpts… needs checking", "ownership": "Whose pages to bill",
+        title = {"portions": "Who ordered which pages… needs checking", "ownership": "Whose pages to bill",
                  "unnamed": "Parties needs checking"}.get(kind, "The speeds need checking")
         if kind == "portions":
             why = (f"{job.portions_check()}.\n\nNo invoice is made for this day until you check it: open "
-                   "Excerpts… in Who ordered and tick who ordered which pages, or choose \"Remove this "
+                   "Who ordered which pages… in Who ordered and tick the firms that ordered each run, or choose "
+                   "\"Remove this "
                    "day's excerpts\".")
         elif kind == "unnamed":  # parties not named, on pages ordered at different speeds
             why = (f"{job.unnamed_problem()}.\n\nNo invoice is made for this day until every party is named or "
                    "Parties is changed (the Parties box in the Invoice card is lit up).")
         elif kind == "speeds":  # more speeds on the same pages than are billed for now
             why = (f"{job.invoice_hold()}.\n\nNo invoice is made for this day until you change a firm's speed "
-                   "(its row in Who ordered, or Excerpts… for a run of pages).")
+                   "(its row in Who ordered, or Who ordered which pages… for a run of pages).")
         else:
             why = (f"{job.ownership_problem()[0].upper()}{job.ownership_problem()[1:]}.\n\nNo invoice is made "
                    "for this job until you choose whose pages to bill (Whose pages… in the Invoice card).")
@@ -5843,8 +5880,8 @@ class MainWindow(QMainWindow):
         if self.s.runsheet_existing == "new":
             return ""
         try:
-            found = find_sheets(job.case, sheet_folders(self.s, case_dir_for(job, self.s), input_folders(job),
-                                                        job.case))
+            found = find_sheets(job.case, sheet_folders(self.s, case_dir_for(job, self.s, self.jobs),
+                                                        input_folders(job), job.case))
         except SheetUnreadable as e:
             QMessageBox.warning(self, "Run sheet", f"{e}\n\nNothing was made. Press {button} again once it can "
                                                    "be opened.")
@@ -5898,7 +5935,7 @@ class MainWindow(QMainWindow):
         about, as Settings.case_folder_existing says; the question can say not to ask again. A job that chose its
         folder at an earlier Generate keeps it (until its folder's name changes). The caller puts the folders back
         when nothing is saved after all (Go back at the preview). False = Go back (nothing chosen)."""
-        folders = case_folders(jobs, self.s, outputs)
+        folders = case_folders(jobs, self.s, outputs, self.jobs, self._folder_ledger())
         there = [f for f in folders if f.files]
         new = self.s.case_folder_existing == "new"
         if there and self.s.case_folder_existing == "ask":
@@ -5909,6 +5946,36 @@ class MainWindow(QMainWindow):
         for f in folders:
             f.use(new=new)
         return True
+
+    def _folder_ledger(self):
+        """The records, to read the days a case's folder holds (Ledger.dates_in) and move their files when it is
+        renamed; None when there are none yet or they can't be opened (the folder is named for the days known)."""
+        from ..records import default_db
+        try:
+            return ledger_for(self.s) if default_db().exists() else None
+        except Exception as e:
+            logfile.error("could not open the records for a case's folder", e)
+            return None
+
+    def _move_case_folders(self, jobs: list[Job]) -> tuple[list, list[str]]:
+        """Renames the case folders of these jobs named for fewer days (batch.move_case_folders), the window's
+        other jobs following. Returns (each folder renamed and its new path, for what else holds their paths: the
+        run sheet chosen, Generate all's copies; what to tell the user: a folder that couldn't be renamed, a file
+        in it open, whose files go into it as it is), which the Saved box says. While documents are still being
+        read (self.work) none is renamed: a read ending after it would bring a document by its old path; the files
+        go into the folder as it is, renamed at the next Generate. File -> Open recent follows the renames too."""
+        if self.work:
+            put_off = [j for j in jobs if j.folder_from]
+            for j in put_off:
+                j.folder, j.folder_named, j.folder_from = j.folder_from, j.folder_from, ""
+            return [], [f"The case's folder \"{j.folder}\" wasn't renamed for this day while documents were still "
+                        "being read, so the new files go into it as it is. It will be renamed the next time a day "
+                        "of this case is made." for j in put_off[:1]]
+        moved: list = []
+        problems = move_case_folders(jobs, self.s, self._folder_ledger(), self.jobs, moved)
+        for src, dst in moved:
+            self.s.recent_files = [moved_path(p, src, dst) for p in self.s.recent_files]
+        return moved, problems
 
     def _ask_case_folders(self, there: list, button: str) -> bool | None:
         """The question of _case_folder: these case folders (batch.CaseFolder) are already there with files in
@@ -6032,8 +6099,8 @@ class MainWindow(QMainWindow):
             box.setWindowTitle("Not every day is decided")
             box.setText("Some days still need your choice before they can be invoiced:\n\n"
                         + "\n".join(lines[:8]) + ("\n…" if len(lines) > 8 else "")
-                        + "\n\nGo back and make the choices (Whose pages… in the Invoice card, Excerpts… or a "
-                        "firm's speed in Who ordered, or tick who ordered a day there), or go "
+                        + "\n\nGo back and make the choices (Whose pages… in the Invoice card, Who ordered which "
+                        "pages… or a firm's speed in Who ordered, or tick who ordered a day there), or go "
                         "on anyway: the days listed get no "
                         "invoice now, and the other days of their case are invoiced without them, unless the case "
                         "has a day nobody is ticked on (they can be invoiced later).")
@@ -6105,13 +6172,14 @@ class MainWindow(QMainWindow):
             return
         # each case's own folder inside Save to: asked about once for all those with files in them already, before
         # the jobs are copied (the copies carry the folder chosen: Job.folder)
-        folder_was = {id(j): (j.folder, j.folder_named) for j in chosen}
+        folder_was = {id(j): (j.folder, j.folder_named, j.folder_from) for j in chosen}
         if not self._case_folder(chosen, outputs, "Generate all") or self._batch_running():
             return
         # (a document read while a question was on screen, with an index number of its own: asked about too)
         if not self._ask_index_numbers(chosen, "Generate all"):
             for j in chosen:  # (Go back: nothing saved, the folders asked about next time)
-                j.folder, j.folder_named = folder_was.get(id(j), (j.folder, j.folder_named))
+                j.folder, j.folder_named, j.folder_from = folder_was.get(id(j), (j.folder, j.folder_named,
+                                                                                 j.folder_from))
             return
         chosen = [j for j in chosen if j in self.jobs]
         if not chosen:
@@ -6140,10 +6208,12 @@ class MainWindow(QMainWindow):
                 settings.save_math, settings.math_layout = self.s.save_math, self.s.math_layout
                 for j in chosen:  # (the folders chosen: kept, so the same jobs generating again use them)
                     j.folder, j.folder_named = copies[id(j)].folder, copies[id(j)].folder_named
+                    j.folder_from = copies[id(j)].folder_from
                 self._run_batch(chosen, copies, todo, settings, outputs, previewed, dating)
             shown = copy_jobs()
             for j in chosen:  # (until Save: Go back saves nothing, and the folders are asked about next time)
-                j.folder, j.folder_named = folder_was.get(id(j), (j.folder, j.folder_named))
+                j.folder, j.folder_named, j.folder_from = folder_was.get(id(j), (j.folder, j.folder_named,
+                                                                                 j.folder_from))
             settled, self._settled = self._settled, []  # (the preview's Go back puts them back)
             self._preview_batch(chosen, shown, outputs, save, dating.day, back=lambda: self._unsettle(settled))
         else:
@@ -6162,6 +6232,7 @@ class MainWindow(QMainWindow):
         s = deepcopy(self.s)
         s.output_dir, s.output_dirs = tmp.name, {}
         s.save_math = "off"  # (its tab shows the math; Save then saves it as Settings.save_math says)
+        s.save_inputs = False  # (nor the documents read: copied when the files are saved)
         shown = _previewed(outputs)
         math: list = []
         try:  # (before the window is marked busy: a records database that can't be opened left it busy for good)
@@ -6234,7 +6305,8 @@ class MainWindow(QMainWindow):
                 back()
 
         self.runner.start(fill_jobs, [copies[id(j)] for j in chosen], s, batch=list(copies.values()),
-                          outputs=shown, ledger=ledger, math=math, day=day, on_done=done, on_error=failed)
+                          outputs=shown, ledger=ledger, math=math, day=day, folders_chosen=True, on_done=done,
+                          on_error=failed)
 
     def _run_batch(self, chosen: list[Job], copies: dict, todo: list[Job], settings, outputs: list[str],
                    previewed: bool, dating=None) -> None:
@@ -6243,6 +6315,14 @@ class MainWindow(QMainWindow):
         Settings.show_math is on). dating: the day every file is dated (workdays.document_day, as Generate all
         started; default: now's), which the message at the end says when it isn't today."""
         dating = dating or document_day(self.s)
+        # the case folders named for fewer days get these days' too, before anything is saved into them (here,
+        # with the window's jobs: those saved into them follow; the copies are made into them as named now, with
+        # their run sheet chosen and Whose pages... following: dicts of their own); fill_jobs chooses none again
+        moved, folder_problems = self._move_case_folders(chosen)
+        follow_moves(list(copies.values()), moved)
+        for j in chosen:
+            copies[id(j)].folder, copies[id(j)].folder_named = j.folder, j.folder_named
+            copies[id(j)].folder_from = ""
         self._settled = []  # (made at the speeds set: kept)
         math: list = []
         self.filling = True
@@ -6330,8 +6410,11 @@ class MainWindow(QMainWindow):
                         "\n".join(f"•  {j.title()}: {_reason(j.error)}" for j in partial[:6])
             if changed:
                 text += (f"\n\n{len(changed)} job(s) changed while the files were made (a document was added, "
-                         "the pages, Excerpts…, the attorneys ticked, the parties or the speed changed), so "
+                         "the pages, Who ordered which pages…, the attorneys ticked, the parties or the speed "
+                         "changed), so "
                          "Generate all again bills them as they are now:\n" + "\n".join(f"•  {j.title()}" for j in changed[:6]))
+            if folder_problems:  # (a case's folder not renamed: said here, where it is read)
+                text += "\n\n" + "\n\n".join(folder_problems)
             if math and self.s.show_math and not previewed:
                 from ..invoice_math import is_math_file
                 saved = [p for p in paths if is_math_file(p)]
@@ -6349,10 +6432,10 @@ class MainWindow(QMainWindow):
         def crashed(msg):
             ended()
             self._update_status()
-            QMessageBox.critical(self, "Could not fill the forms", msg)
+            QMessageBox.critical(self, "Could not fill the forms", msg + "".join("\n\n" + p for p in folder_problems))
 
         self.runner.start(fill_jobs, todo, settings, batch=list(copies.values()), outputs=outputs, math=math,
-                          day=dating.day, on_done=done, on_error=crashed, on_progress=step)
+                          day=dating.day, folders_chosen=True, on_done=done, on_error=crashed, on_progress=step)
 
     # ------------------------------------------------------- misc
     def new_job(self):
@@ -6734,8 +6817,8 @@ class MainWindow(QMainWindow):
             self.inv_parties.setMinimum(max([1] + [len(j.ticked_keys()) for j in group]))
             self.inv_parties.setValue(opts.parties)
         self.inv_parties.setEnabled(not split)
-        self.inv_parties.setToolTip("This day's pages are split between the attorneys under Excerpts…" if split
-                                    else PARTIES_TIP.format(**_who_splits(self.s)))
+        self.inv_parties.setToolTip("This day's pages are split between the attorneys under Who ordered which "
+                                    "pages…" if split else PARTIES_TIP.format(**_who_splits(self.s)))
         owned = self._show_whose_pages(job, group)
         self._show_speeds_lock()
         with QSignalBlocker(self.inv_detail):
@@ -6762,13 +6845,13 @@ class MainWindow(QMainWindow):
             return None, 1
         if check:  # no prices: nothing is billed for this day until the rows are checked
             self._warn(f"⚠ {check}")
-            self.inv_info.setToolTip("No invoice is made for this day until Excerpts… is checked:\n"
-                                     "tick who ordered which pages, or choose \"Remove this day's excerpts\".")
+            self.inv_info.setToolTip("No invoice is made for this day until Who ordered which pages… is checked:\n"
+                                     "tick the firms that ordered each run, or choose \"Remove this day's excerpts\".")
             return None, 1
         if job.speed_problems():  # more speeds on the same pages than are billed for now: no prices either
             self._warn(f"⚠ {job.invoice_hold()}")
             self.inv_info.setToolTip("No invoice is made for this day until a firm's speed is changed\n"
-                                     "(its row in Who ordered, or Excerpts… for a run of pages).")
+                                     "(its row in Who ordered, or Who ordered which pages… for a run of pages).")
             return None, 1
         if job.unnamed_problem():  # parties not named at different speeds: nobody's share can be worked out
             self._warn(f"⚠ {job.unnamed_problem()}")
@@ -6944,7 +7027,7 @@ class MainWindow(QMainWindow):
         self._generate_labels(everyone)
         held = ""
         if shown and "invoice" in outputs and job.invoice_hold():  # (Generate asks first: see invoice_hold)
-            held = {"portions": "Excerpts… is checked", "ownership": "Whose pages… is chosen",
+            held = {"portions": "Who ordered which pages… is checked", "ownership": "Whose pages… is chosen",
                     "unnamed": "Parties is checked"}.get(job.hold_kind(), "the speeds are checked")
         for key, label in self.output_counts.items():
             on = key in outputs and (shown or everyone is not None)
@@ -7103,7 +7186,8 @@ class MainWindow(QMainWindow):
         sentence ("Counsel & Counsel and Smith Law: the whole trial (4 days), at Expedite."), over the days of the
         trial counted (_counted); then, while Invoice is ticked, what Generate all bills of them (_orders_where:
         one invoice per firm for the days, the days invoiced already, waiting for a choice, nobody ordered, left
-        out). The button beside it is Excerpts…, or Whose pages… when that is what holds the invoice back."""
+        out). The button beside it is Who ordered which pages…, or Whose pages… when that is what holds the invoice
+        back."""
         from ..batch import bill_sets, group_problem, order_of, speed_shown
         job = self.cur
         days = self._trial()
@@ -7119,7 +7203,8 @@ class MainWindow(QMainWindow):
             if order.kind == "none":
                 continue
             sp = speed_shown([j for j in counted if not j.invoiced], key, self.s)
-            speed = (f"at {sp.speed}" if sp.speed else "at several speeds (Excerpts…)" if sp.kind == "several"
+            speed = (f"at {sp.speed}" if sp.speed
+                     else "at several speeds (Who ordered which pages…)" if sp.kind == "several"
                      else "they choose " + _or(offered) if sp.kind == "choose" else "")
             words = order.words()
             said.setdefault((words[0].lower() + words[1:], speed), []).append(a.label())
@@ -7137,14 +7222,15 @@ class MainWindow(QMainWindow):
                 parts.append(where)
         self.orders_info.setText("  ".join(parts))
         self.orders_info.setVisible(bool(parts))
-        # the button: Whose pages… while that holds the invoice (Excerpts… has no pages to split until it is
-        # chosen), else Excerpts…, ⚠ while its rows need checking, ✓ while the day shown is in runs
+        # the button: Whose pages… while that holds the invoice (Who ordered which pages… has no pages to split until
+        # it is chosen), else Who ordered which pages…, ⚠ while its rows need checking, ✓ while the day shown is in
+        # runs
         whose = bool(job.ownership_problem()) and not job.portions_problem()
         why, split, check = self._who_ordered_why(job), job.portions is not None, job.portions_check()
         b = self.orders_edit
         b.setEnabled(whose or not why or split)  # (rows that need checking can always be opened, to fix them)
-        b.setText("⚠ Whose pages…" if whose else "⚠ Excerpts…" if check else "✓ Excerpts…" if split else
-                  "Excerpts…")
+        b.setText("⚠ Whose pages…" if whose else "⚠ Who ordered which pages…" if check
+                  else "✓ Who ordered which pages…" if split else "Who ordered which pages…")
         b.setToolTip("Choose whose pages of the day shown are billed (the same as Whose pages… in the Invoice card)"
                      if whose else check + "\n(click to check it)" if check else why or
                      WHO_TIP.format(**_who_splits(self.s)))
@@ -7400,8 +7486,8 @@ class MainWindow(QMainWindow):
         self._toast(f"Saved {out.name}")
 
     def _edit_orders(self) -> None:
-        """Who ordered's Excerpts… button: Excerpts… for the day shown, or Whose pages… when that is what holds its
-        invoice back (Excerpts… has no pages to split until it is chosen)."""
+        """The Who ordered which pages… button of Who ordered: its window for the day shown, or Whose pages… when
+        that is what holds its invoice back (there are no pages to split until it is chosen)."""
         job = self.cur
         if job.ownership_problem() and not job.portions_problem():
             self._whose_pages(job, job.ownership_problem())
@@ -7409,19 +7495,19 @@ class MainWindow(QMainWindow):
             self._who_ordered()
 
     def _who_ordered_why(self, job: Job) -> str:
-        """Why Excerpts… can't be used for this job ("" when it can): it needs pages to bill (see
+        """Why Who ordered which pages… can't be used for this job ("" when it can): it needs pages to bill (see
         Job.portions_unavailable; a job of several days is ordered whole in it)."""
         return job.portions_unavailable()
 
     def _who_ordered(self, job: Job | None = None):
-        """Excerpts…: who ordered which pages of the days billed with the job, as one table (gui/excerpts.py; the
-        days ticked of its case, as a rule: _excerpt_group). It stays open beside the window: what is changed there
-        is kept at once, and what is changed here shows there."""
+        """Who ordered which pages…: the pages each firm ordered of the days billed with the job, as one table
+        (gui/excerpts.py; the days ticked of its case, as a rule: _excerpt_group). It stays open beside the window:
+        what is changed there is kept at once, and what is changed here shows there."""
         from .excerpts import ExcerptsWindow
         job = job or self.cur
         why = self._who_ordered_why(job)
         if why:
-            QMessageBox.information(self, "Excerpts", why)
+            QMessageBox.information(self, "Who ordered which pages", why)
             return
         if self.excerpts is None:
             self.excerpts = ExcerptsWindow(self.s, self._excerpts_changed, self, marks=self._marks,
@@ -7435,10 +7521,10 @@ class MainWindow(QMainWindow):
         self.excerpts.activateWindow()
 
     def _excerpt_group(self, job: Job | None = None) -> list[Job]:
-        """The days Excerpts… shows with a job: those ticked that are billed on one invoice with it (as
+        """The days Who ordered which pages… shows with a job: those ticked that are billed on one invoice with it (as
         _invoice_group: every day ticked of its case, as a rule), its days waiting for a choice included
-        (Excerpts… is where they are fixed); for a day invoiced already, the days that invoice billed. Just the
-        job itself when it is unticked."""
+        (Who ordered which pages… is where they are fixed); for a day invoiced already, the days that invoice
+        billed. Just the job itself when it is unticked."""
         from ..batch import invoice_groups
         cur = job or self.cur
         if cur.invoiced:
@@ -7708,8 +7794,8 @@ class MainWindow(QMainWindow):
 
     def _speeds_locked(self) -> bool:
         """The Speeds offered boxes are soft locked: a firm of the invoice shown (its days: _invoice_group) has its
-        speed chosen in Who ordered (or Excerpts…), and the user hasn't said yes to changing them anyway for
-        this job (_speeds_unlocked). The user, 2026-10-21: the speed is chosen in one place; the boxes look greyed
+        speed chosen in Who ordered (or Who ordered which pages…), and the user hasn't said yes to changing them anyway
+        for this job (_speeds_unlocked). The user, 2026-10-21: the speed is chosen in one place; the boxes look greyed
         out, and a click asks before changing them."""
         job = getattr(self, "cur", None)
         if job is None or job.is_empty() or getattr(self, "_speeds_unlocked", None) is job:
@@ -7758,7 +7844,7 @@ class MainWindow(QMainWindow):
         job = self.cur
         own = self.s.output_dirs.get("runsheet")
         named = not job.is_empty() and bool(job.case.get("index_no") or job.case.get("case_name"))
-        where = case_dir_for(job, self.s) if named else save_to_for(job, self.s)
+        where = case_dir_for(job, self.s, self.jobs) if named else save_to_for(job, self.s)
         found = []
         if named:
             try:

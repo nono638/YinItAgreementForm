@@ -81,7 +81,8 @@ def test_batch_of_documents(window, tmp_path):
     window.fill_all_jobs()
     wait(window, lambda: all(j.saved for j in window.jobs))
     saved = sorted(p.relative_to(tmp_path / "out").as_posix() for p in (tmp_path / "out").rglob("*.pdf"))
-    assert len(saved) == 2 and saved[1].startswith("712222-2024/") and saved[0].startswith("700001-2025/")
+    assert len(saved) == 2 and saved[1].startswith("712222-2024 5-22-2026 Smith v Jones/")
+    assert saved[0].startswith("700001-2025 6-1-2026 Roe v Doe/")
     assert saved[1].split("/")[1] == "Minute Agreements" and "712222-2024" in saved[1].split("/")[2]  # (its folder)
     assert window.job_list.topLevelItem(0).text(0).startswith("✓")
     # nothing left for a second "Generate all"; still ticked, so the cards still show them
@@ -646,7 +647,7 @@ def test_the_days_of_a_case_bill_each_attorney_for_its_own_days(window, tmp_path
     assert window.inv_info.text().splitlines() == ["Generate all: one invoice for 2 days (90 pp.)",
                                                    "Alex B. Counsel: Regular $588.00 · Expedite (form) $687.00",
                                                    "Dana Smith: Regular $339.00 · Expedite (form) $393.00"]
-    assert window.inv_who.isEnabled()  # Excerpts… shows both days, whoever is ticked on the day shown
+    assert window.inv_who.isEnabled()  # Who ordered which pages… shows both days, whoever is ticked on the day shown
 
 
 def test_a_split_order_s_prices_say_its_speeds_are_asked(window, tmp_path):
@@ -733,8 +734,8 @@ def test_each_attorneys_prices_fit_in_a_small_window(window, tmp_path):
 # ------------------------------------------------------------ found in the sweep of who ordered which pages
 
 def split(window, monkeypatch, rows):
-    """Excerpts… as if the user set these runs ((last page, Attorney.key()s), from the page after the run above)
-    for the day shown."""
+    """Who ordered which pages… as if the user set these runs ((last page, Attorney.key()s), from the page
+    after the run above) for the day shown."""
     from minute_filler.excerpts import Run
     window._who_ordered()
     w = window.excerpts
@@ -769,7 +770,8 @@ def test_who_ordered_follows_a_rename_and_needs_checking_when_an_attorney_is_unt
 
     window.att.item(1, 0).setCheckState(QtCore.Qt.Unchecked)  # Dana unticked: her pages are not Alex's
     assert window.cur.portions == [(10, [A]), (30, [A, "smith law group"])]
-    assert window.inv_info.text() == "⚠ Excerpts… needs checking (it names an attorney no longer ticked)"
+    assert " ".join(window.inv_info.text().split()) == \
+        "⚠ Who ordered which pages… needs checking (it names an attorney no longer ticked)"  # (wrapped: two lines)
     assert window.inv_who.isEnabled() and window.inv_who.text().startswith("⚠")
     window.output_boxes["agreement"].setChecked(False)
     said = answer(monkeypatch, QtWidgets.QMessageBox.Yes)
@@ -780,7 +782,7 @@ def test_who_ordered_follows_a_rename_and_needs_checking_when_an_attorney_is_unt
     assert "Make the other outputs without the invoice?" in said[1] and not ledger_for(window.s).invoices()
     assert [p.name.split(" - ")[0] for p in window.cur.saved] == ["Minute Agreement"]
 
-    split(window, monkeypatch, [(30, [A])])  # Excerpts…: Alex alone ordered the day
+    split(window, monkeypatch, [(30, [A])])  # Who ordered which pages…: Alex alone ordered the day
     assert window.cur.portions is None and [a.checked for a in window.cur.case.attorneys] == [True, False]
     assert window.inv_info.text().startswith("30 pp. · Regular $189.00") and window.inv_parties.isEnabled()
 
@@ -792,14 +794,15 @@ def test_retyping_the_pages_keeps_who_ordered(window, tmp_path, monkeypatch):
     split(window, monkeypatch, rows)
     window.rows["est_pages"].choose("3")  # "30" -> "3" -> "30", as when a digit is typed again
     assert window.cur.portions == rows
-    assert window.inv_info.text() == "⚠ Excerpts… needs checking (its rows don't end on this day's 3 pages)"
+    assert " ".join(window.inv_info.text().split()) == \
+        "⚠ Who ordered which pages… needs checking (its rows don't end on this day's 3 pages)"  # (wrapped)
     window.rows["est_pages"].choose("30")
     assert window.cur.portions == rows and window.inv_who.text().startswith("✓")
     assert window.inv_info.text().splitlines()[1].startswith("Alex B. Counsel: Regular $146.00")
 
 
 def test_who_ordered_shows_the_days_of_the_invoice_and_counts_the_files_again(window, tmp_path, monkeypatch):
-    window.s.invoice_joint = False  # an invoice for each day: Excerpts… shows the day shown alone
+    window.s.invoice_joint = False  # an invoice for each day: Who ordered which pages… shows the day shown alone
     window.output_boxes["agreement"].setChecked(False)
     window.output_boxes["invoice"].setChecked(True)
     two_days(window, tmp_path)

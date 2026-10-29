@@ -324,6 +324,7 @@ def test_an_empty_window_lists_the_jobs_made_lately_and_marks_nothing_missing(wi
     led.log_activity("agreement", case_name="No origin v. Kept", dates="5/1/2026", ts="2026-10-10T09:00:00")
     assert [(c, d) for c, d, _, _ in recent_jobs()] == [(CASE, "6/3/2026"),
                                                         ("John Smith v. Jones Trucking Corp.", "5/22/2026")]
+    window.s.recent_jobs_days = 0  # (any time: the dates above stay fixed as the days pass)
     window._read_records_side()
     wait(window, lambda: len(window._recent_jobs) == 2)
     assert not window.start_card.isHidden() and window.start_card.heading.text() == "Recent jobs"
@@ -336,6 +337,62 @@ def test_an_empty_window_lists_the_jobs_made_lately_and_marks_nothing_missing(wi
     assert window.rows["index_no"].edit.property("missing") is False
     window.paste.setPlainText("Please send the minutes")
     assert window.start_card.isHidden() and window.rows["index_no"].edit.property("missing") is True
+
+
+def test_recent_jobs_follow_settings(window, monkeypatch):
+    """Settings -> Options -> Recent jobs (the user, 2026-10-28): how many it lists (3 at first, 5 at most), how
+    lately made (30 days at first; 0, any time), or none at all, the card then only saying how to begin."""
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    led = Ledger()
+    for n in range(7):  # a job a week, the newest made today
+        when = (now - timedelta(days=7 * n, minutes=1)).isoformat(timespec="seconds")
+        led.log_activity("agreement", case_name=f"Case {n} v. Poe", dates=f"6/{n + 1}/2026", origin=f'{{"n": {n}}}',
+                         ts=when)
+    assert len(recent_jobs(10)) == 7 and len(recent_jobs()) == 5
+    assert [c for c, *_ in recent_jobs(10, days=30, now=now)] == [f"Case {n} v. Poe" for n in range(5)]
+    assert [c for c, *_ in recent_jobs(2, days=10, now=now)] == ["Case 0 v. Poe", "Case 1 v. Poe"]
+    assert recent_jobs(days=30, now=now + timedelta(days=60)) == []
+
+    def links():
+        return [window.start_list.itemAt(i).widget().text().split("  ·  ")[0] for i in range(window.start_list.count())]
+    assert (window.s.recent_jobs_show, window.s.recent_jobs_count, window.s.recent_jobs_days) == (True, 3, 30)
+    window._read_records_side()
+    wait(window, lambda: len(window._recent_jobs) == 3)
+    assert links() == [f"Case {n} v. Poe" for n in range(3)]
+    window.s.recent_jobs_count = 5
+    window._read_records_side()
+    wait(window, lambda: len(window._recent_jobs) == 5)  # (the last two were made more than 30 days ago)
+    window.s.recent_jobs_count, window.s.recent_jobs_days = 3, 8
+    window._read_records_side()
+    wait(window, lambda: len(window._recent_jobs) == 2)
+    assert links() == ["Case 0 v. Poe", "Case 1 v. Poe"]
+    window.s.recent_jobs_days = 0
+    window._read_records_side()
+    wait(window, lambda: len(window._recent_jobs) == 3)
+    window.s.recent_jobs_show = False
+    window._read_records_side()
+    wait(window, lambda: window._recent_jobs == [])
+    assert not window.start_card.isHidden() and window.start_card.heading.text() == "Start" and links() == []
+
+
+def test_recent_jobs_settings_are_kept_and_bounded(window):
+    """The Options row saves what it shows; a settings file edited by hand can't ask for more than 5 jobs or a
+    negative number of days."""
+    from minute_filler.gui.dialogs import SettingsDialog
+    d = SettingsDialog(window.s, window)
+    assert d.o_recent.isChecked() and d.o_recent_count.value() == 3 and d.o_recent_days.value() == 30
+    assert d.o_recent_count.maximum() == 5 and d.o_recent_days.specialValueText() == "at any time"
+    d.o_recent.setChecked(False)
+    assert not d.o_recent_count.isEnabled() and not d.o_recent_days.isEnabled()
+    d.o_recent_count.setValue(9)  # (the box stops at 5)
+    d.o_recent_days.setValue(0)
+    d.accept()
+    loaded = Settings.load()
+    assert (loaded.recent_jobs_show, loaded.recent_jobs_count, loaded.recent_jobs_days) == (False, 5, 0)
+    edited = Settings.from_dict({"recent_jobs_count": 50, "recent_jobs_days": -3})
+    assert (edited.recent_jobs_count, edited.recent_jobs_days) == (5, 0)
+    assert Settings.from_dict({"recent_jobs_count": 0}).recent_jobs_count == 1
 
 
 # ------------------------------------------------------------------ the Records button's count

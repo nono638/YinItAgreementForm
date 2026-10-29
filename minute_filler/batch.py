@@ -72,7 +72,8 @@ from .log import error as log_error, log
 from .merge import merge, refresh_copies, refresh_dates, refresh_delivery_date, refresh_rate, same_value
 from .models import (Attorney, Candidate, CaseInfo, Extraction, FIELD_LABELS, FieldState, SRC_DERIVED, SRC_PDF,
                      SRC_RECORDS, SRC_REGEX, SRC_USER, to_int)
-from .pdfout import case_folder_name, free_folder, is_generated, short_caption
+from .pdfout import (case_folder_index, case_folder_name, days_in_name, free_folder, is_generated, name_without_days,
+                     short_caption)
 from .rates import speed_key
 from .records import recorded_cases
 from .runsheet import (NO_RUNSHEET, RunSheetOpts, matches, name_rows, read_info, refresh_orders, rows_from,
@@ -336,11 +337,15 @@ class Job:
     own: tuple = ()  # the user's initials (takes.my_initials), set from the settings by remerge
     runsheet_group: int | None = None  # jobs of one case asked about together: they share the run sheet made
     # The case's own folder inside Save to (Settings.case_folders, see out_dir_for): its name as chosen
-    # ("712345-2021", or "712345-2021 (2)" when a new one was asked for beside it); "" = not chosen yet.
+    # ("712345-2021 6-3-2026 Roe v Poe", or "... (2)" when a new one was asked for beside it); "" = not chosen yet.
     # folder_named: what case_folder_name gave then, so the job's next Generate uses the folder again without
-    # asking, until the name it gives changes (another index number typed in)
+    # asking, until the name it gives changes (another index number typed in, more days: trial_folder_name); after
+    # a rename, or one that couldn't be made, the folder's name as it is (move_case_folders)
     folder: str = ""
     folder_named: str = ""
+    # The case's folder already there under another name ("712345-2021 10-13-2026 Roe v Poe"), to be renamed to
+    # `folder` as more days go into it ("... 10-13,14-2026 ..."), at the next save (move_case_folders); "" = none
+    folder_from: str = ""
     # The documents the user said to keep together although their index numbers don't match
     # (index_number_mismatch), by Doc.key(): asked again when a document not among them has an index number
     index_numbers_ok: list = field(default_factory=list)
@@ -895,15 +900,15 @@ class Job:
 
     def parties_mismatch(self) -> str:
         """A Parties number set by hand that the day's Excerpts... rows disagree with ("" when there is none):
-        "you set Parties to 3, but 2 firms ordered pages under Excerpts…". The invoices and No. of copies count
-        the firms that ordered; a firm left unticked by mistake is what Generate asks about."""
+        "you set Parties to 3, but 2 firms ordered pages under Who ordered which pages…". The invoices and No. of
+        copies count the firms that ordered; a firm left unticked by mistake is what Generate asks about."""
         if not self.parties or self.valid_portions() is None:
             return ""
         n = self.split_orderers()
         if n == self.parties:
             return ""
         firms = f"{n} firm{'s' if n != 1 else ''}"
-        return f"you set Parties to {self.parties}, but {firms} ordered pages under Excerpts…"
+        return f"you set Parties to {self.parties}, but {firms} ordered pages under Who ordered which pages…"
 
     def invoice_opts(self) -> InvoiceOpts:
         """The invoice's pages (of each day), ordering parties (the ticked attorneys unless set), who ordered
@@ -999,9 +1004,9 @@ class Job:
         return ""
 
     def portions_check(self) -> str:
-        """The warning for portions_problem ("" when there is none): 'Excerpts… needs checking (…)'."""
+        """The warning for portions_problem ("" when there is none): 'Who ordered which pages… needs checking (…)'."""
         why = self.portions_problem()
-        return f"Excerpts… needs checking ({why})" if why else ""
+        return f"Who ordered which pages… needs checking ({why})" if why else ""
 
     def valid_portions(self) -> list | None:
         """Job.portions when they bill the day as they are (see portions_problem), else None. Nothing is
@@ -2039,9 +2044,35 @@ def read_loaders(loaders: list[Callable[[], Ingested]], names: list[str], s: Set
 
 def _case_named(folder: Path, job: Job, s: Settings) -> bool:
     """The folder is named as the job's case's own folder (case_folder_name), or as one made beside it
-    ("712345-2021 (2)": pdfout.free_folder)."""
+    ("712345-2021 (2)": pdfout.free_folder), or is the case's by its index number (_case_index_named: a folder
+    of the case's days, "712345-2021 10-13,14-2026 Roe v Poe", or one an older version named "712345-2021")."""
     name = case_folder_name(job.case, s.case_folder_pattern).casefold()
-    return bool(name) and re.sub(r" \(\d+\)$", "", folder.name).casefold() == name
+    bare = re.sub(r" \(\d+\)$", "", folder.name).casefold()
+    index = case_folder_index(job.case).casefold()
+    # (any name that starts with the index number: the folder the user keeps the case's documents in, "712345-2021
+    # Roe", is theirs to use as it is, never renamed: case_folders leaves such jobs out. A folder in Save to is
+    # chosen and renamed only by stricter names: existing_case_folder)
+    return (bool(name) and bare == name) or (bool(index) and (bare == index or bare.startswith(index + " "))) \
+        or _case_named_but_days(bare, job, s)
+
+
+def _case_index_named(name: str, job: Job) -> bool:
+    """A folder of this name may be the job's case's by its index number: it is the index number as a folder has
+    it (pdfout.case_folder_index: "712345-2021", as older versions named it), or starts with it and days
+    ("712345-2021 10-13,14-2026 Roe v Poe"; existing_case_folder still wants the records to know it, or the case's
+    own name); not "712345-2021 Transcripts from the clerk", a folder of the user's own, which isn't renamed or
+    filled without a word."""
+    index = case_folder_index(job.case).casefold()
+    name = name.casefold()
+    return bool(index) and (name == index or name.startswith(index + " ") and bool(days_in_name(name[len(index):])))
+
+
+def _case_named_but_days(name: str, job: Job, s: Settings) -> bool:
+    """A folder of this name is the one the pattern names the job's case's, the days aside
+    (pdfout.name_without_days): named for other days of it, also a case with no index number ("10-13-2026 Jones v
+    USA Hauling" for 10/14/2026's)."""
+    bare = name_without_days(case_folder_name(job.case, s.case_folder_pattern, []))
+    return bool(bare) and name_without_days(name) == bare
 
 
 def save_to_for(job: Job, s: Settings) -> Path:
@@ -2064,7 +2095,8 @@ def in_case_folder(job: Job, s: Settings) -> bool:
     """The job's Save to folder (save_to_for) is already named as its case's own folder would be: most often
     Save to is blank and the documents sit in a folder of that name ("...\\712345-2021\\Roe 6-3.pdf"). That folder
     is the case's, used as it is, not given another "712345-2021" inside it (the user, 2026-10-10); "712345-2021
-    (2)", one made beside another, too (_case_named)."""
+    (2)", one made beside another, too, and one named by the index number and other days ("712345-2021 6-3-2026
+    Roe v Poe") or by the pattern for other days (_case_named)."""
     return _case_named(save_to_for(job, s), job, s)
 
 
@@ -2079,14 +2111,71 @@ def out_dir_for(job: Job, s: Settings) -> Path:
     return base / job.folder if s.case_folders and job.folder and not in_case_folder(job, s) else base
 
 
-def case_dir_for(job: Job, s: Settings) -> Path:
-    """Where the job's files go (out_dir_for), also before Generate has chosen its case's folder: then the folder
-    case_folders names ("...\\Minute Agreements\\712345-2021"), where the case's run sheet is looked for before
-    anything is asked."""
-    name = case_folder_name(job.case, s.case_folder_pattern)
-    if s.case_folders and not (job.folder and job.folder_named == name) and not in_case_folder(job, s):
-        return save_to_for(job, s) / _folder_at(save_to_for(job, s), name)
-    return out_dir_for(job, s)
+def case_dir_for(job: Job, s: Settings, loaded: list[Job] = ()) -> Path:
+    """Where the job's files go (out_dir_for), also before Generate has chosen its case's folder: then the
+    case's folder already there (existing_case_folder, among the jobs `loaded` too), else the one case_folders
+    would name ("...\\Minute Agreements\\712345-2021 6-3-2026 Roe v Poe"), where the case's run sheet is looked
+    for before anything is asked. A folder still to be renamed (Job.folder_from) is looked in as it is now."""
+    if not s.case_folders or in_case_folder(job, s):
+        return out_dir_for(job, s)
+    base = save_to_for(job, s)
+    if job.folder and job.folder_from and not (base / job.folder).exists() and (base / job.folder_from).is_dir():
+        return base / job.folder_from
+    if job.folder and _case_named(base / job.folder, job, s):
+        return base / job.folder
+    there = existing_case_folder(base, [job], s, loaded)
+    return base / (there or _folder_at(base, case_folder_name(job.case, s.case_folder_pattern)))
+
+
+def _days(job: Job) -> set[str]:
+    """The job's dates (M/D/YYYY)."""
+    return {d for _, _, d in find_dates(job.case.get("dates"))}
+
+
+def _case_groups(jobs: list[Job], s: Settings) -> list[list[Job]]:
+    """The jobs by case (same_case) and Save to folder, as their folder is chosen for them together: the days of a
+    trial in one folder named for all of them."""
+    groups: list[tuple[Path, Ident, list[Job]]] = []
+    for j in jobs:
+        base, i = save_to_for(j, s), ident(j.case)
+        g = next((g for b, k, g in groups if b == base and (i.index or i.sides) and same_case(k, i)), None)
+        if g is None:
+            groups.append((base, i, [j]))
+        else:
+            g.append(j)
+    return [g for _, _, g in groups]
+
+
+def existing_case_folder(base: Path, jobs: list[Job], s: Settings, loaded: list[Job] = (), ledger=None) -> str:
+    """The name of the case's own folder already in `base`, for these days of one case (named, maybe, for other
+    days of it): the one a day of the case was saved into (Job.folder, of these jobs or of the others `loaded`),
+    still there; else one the pattern names it, the days aside (_case_named_but_days: "712345-2021 10-13-2026 Roe
+    v Poe", also with no index number), "712345-2021" as older versions named it, or one named by the index
+    number and days that `ledger` (the records) has files of (the caption read otherwise another day); not one
+    made beside another, "... (2)", which only a day saved into it chooses, nor a folder of the user's own that
+    only has the index number and a date in its name ("712345-2021 10-13-2026 transcripts from the clerk"). The
+    one changed last when there are several. "" for none."""
+    first = jobs[0]
+    i = ident(first.case)
+    for j in [*jobs, *(k for k in loaded if k not in jobs)]:
+        if j.folder and (j in jobs or same_case(i, ident(j.case))) and save_to_for(j, s) == base \
+                and (base / j.folder).is_dir():
+            return j.folder
+    index = case_folder_index(first.case).casefold()
+
+    def ours(d: Path) -> bool:
+        if d.name.casefold() == index or _case_named_but_days(d.name, first, s):
+            return True
+        try:
+            return _case_index_named(d.name, first) and ledger is not None and bool(ledger.dates_in(d))
+        except Exception as e:
+            log_error("could not read the records of a case's folder", e)
+            return False
+    try:
+        found = [d for d in base.iterdir() if d.is_dir() and not re.search(r" \(\d+\)$", d.name) and ours(d)]
+        return max(found, key=lambda d: d.stat().st_mtime).name if found else ""
+    except OSError:
+        return ""
 
 
 def _folder_at(base: Path, name: str) -> str:
@@ -2104,12 +2193,15 @@ class CaseFolder:
     (pdfout.case_folder_name) inside `base` (the jobs' Save to folder), for these `jobs` (the days of the case
     Generate makes now). files: how many files are in it already; 0 when it isn't there or is empty, which is
     used without asking. named: the name the pattern gave, when a file of that name is in the way ("712345-2021",
-    a file): `name` is then the folder beside it ("712345-2021 (2)"), for every day of the case."""
+    a file): `name` is then the folder beside it ("712345-2021 (2)"), for every day of the case. old: the case's
+    folder already there under another name (named for fewer days, or by an older version), renamed `name` when
+    the files are saved (move_case_folders); its files are no reason to ask, as the new ones join them."""
     base: Path
     name: str
     jobs: list
     files: int = 0
     named: str = ""
+    old: str = ""
 
     @property
     def path(self) -> Path:
@@ -2121,48 +2213,181 @@ class CaseFolder:
         return free_folder(self.base / (self.named or self.name)).name
 
     def use(self, new: bool = False) -> None:
-        """Its jobs' files go into it (Job.folder), or, with new and files in it, into a new one beside it
-        ("712345-2021 (2)"); into a new one too when a file of that name is in the way (no folder can be made
-        there)."""
+        """Its jobs' files go into it (Job.folder; the folder `old` renamed to it first: Job.folder_from), or, with
+        new and files in it, into a new one beside it ("712345-2021 (2)"); into a new one too when a file of that
+        name is in the way (no folder can be made there)."""
         blocked = self.path.exists() and not self.path.is_dir()
         name = self.new_name() if (new and self.files) or blocked else self.name
         for j in self.jobs:
             j.folder, j.folder_named = name, self.named or self.name
+            j.folder_from = self.old if name == self.name else ""
 
 
-def case_folders(jobs: list[Job], s: Settings, outputs: list[str] | None = None) -> list[CaseFolder]:
+def trial_folder_name(jobs: list[Job], s: Settings, more: set[str] = frozenset()) -> str:
+    """The name of the folder of these days of one case (case_folder_name with Settings.case_folder_pattern),
+    for all their dates and `more` (M/D/YYYY: the days already in the folder), from the earliest day's case."""
+    days = set(more).union(*(_days(j) for j in jobs))
+    return case_folder_name(min(jobs, key=_first_day).case, s.case_folder_pattern, sorted(days))
+
+
+def case_folders(jobs: list[Job], s: Settings, outputs: list[str] | None = None, loaded: list[Job] = (),
+                 ledger=None) -> list[CaseFolder]:
     """The case folders these jobs' files are to go into (Settings.case_folders, named by
-    Settings.case_folder_pattern), one for the jobs with the same name and Save to folder (the days of one case,
-    when the name doesn't say the date); [] with the setting off, or when every one of `outputs` (default:
-    Settings.outputs) has a folder of its own (Settings -> Options -> Folders). The run sheet goes in the case's
+    Settings.case_folder_pattern), one for the days of each case with the same Save to folder, named for all of
+    them (trial_folder_name: "712345-2021 10-13,14,15-2026 Jones v USA Hauling"); [] with the setting off, or when
+    every one of `outputs` (default: Settings.outputs) has a folder of its own (Settings -> Options -> Folders).
+    When the case has a folder there already (existing_case_folder, the jobs `loaded` in the window too) named
+    for other days, its name gets theirs too (the days of the jobs saved into it, and those `ledger`, the
+    records, has files of in it) and it is renamed so as the files are saved (CaseFolder.old: the user,
+    2026-10-28), unless Settings.case_folder_existing says to make a new one. The run sheet goes in the case's
     folder too: made alone, it is still asked about. A job that chose its folder at an earlier Generate keeps it
-    without being listed, until the name changes (another index number typed in), and so does one whose Save to is
-    its case's folder already (in_case_folder: its documents, there, are no reason to ask). Nothing is chosen yet:
-    CaseFolder.use does, once the user said (Settings.case_folder_existing, or the window's question when it is
-    "ask" and the folder has files in it)."""
+    without being listed, until the name changes (another index number typed in, more days), and so does one
+    whose Save to is its case's folder already (in_case_folder: its documents, there, are no reason to ask).
+    Nothing is chosen yet: CaseFolder.use does, once the user said (Settings.case_folder_existing, or the
+    window's question when it is "ask" and the folder has files in it)."""
     wanted = s.outputs if outputs is None else outputs
     if not s.case_folders or not any(not s.output_dirs.get(o) and o not in OUTPUT_FOLDERS for o in wanted):
         return []
     out: dict[Path, CaseFolder] = {}
-    for j in jobs:
-        name = case_folder_name(j.case, s.case_folder_pattern)
-        if (j.folder and j.folder_named == name) or in_case_folder(j, s):
+    for group in _case_groups([j for j in jobs if not in_case_folder(j, s)], s):
+        base = save_to_for(group[0], s)
+        old = existing_case_folder(base, group, s, loaded, ledger)
+        more: set[str] = set()
+        if old and s.case_folder_existing != "new":  # (the days already in it, which it is renamed for (not with
+            # "new": a folder for these days alone): those of the days saved into it and of the files the records have
+            # there, and as its name says them (made on another computer, say, whose records these aren't), but a day
+            # whose files the records say were deleted since, made by mistake, say, and none of its files left)
+            more = set().union(*(_days(j) for j in loaded if j.folder == old and save_to_for(j, s) == base))
+            gone: set[str] = set()
+            try:
+                if ledger is not None:
+                    more |= {d for text in ledger.dates_in(base / old) for _, _, d in find_dates(text)}
+                    gone = {d for text in ledger.dates_in(base / old, gone=True) for _, _, d in find_dates(text)}
+            except Exception as e:
+                log_error("could not read the days of a case's folder from the records", e)
+            more |= days_in_name(old) - (gone - more)
+        name = trial_folder_name(group, s, more)
+        group = [j for j in group if not (j.folder and j.folder_named == name and not j.folder_from)]
+        if not group:
             continue
-        base = save_to_for(j, s)
         # (with a file of that name in the way, every day of the case, Generated now or later, gets the same folder
         # beside it, asked about as Settings say when it has files)
         at = _folder_at(base, name)
+        rename = old if old and old != at and not (base / at).exists() and s.case_folder_existing != "new" else ""
         if base / at not in out:
-            out[base / at] = CaseFolder(base, at, [], _files_in(base / at), name if at != name else "")
-        out[base / at].jobs.append(j)
+            out[base / at] = CaseFolder(base, at, [], 0 if rename else _files_in(base / at),
+                                        name if at != name else "", rename)
+        out[base / at].jobs += group
     return list(out.values())
 
 
-def settle_case_folders(jobs: list[Job], s: Settings, outputs: list[str] | None = None) -> None:
+def settle_case_folders(jobs: list[Job], s: Settings, outputs: list[str] | None = None, loaded: list[Job] = (),
+                        ledger=None) -> None:
     """Chooses the case folders of jobs that have none yet without asking, as Settings.case_folder_existing
     says ("ask": add to it, as nobody can be asked here): for fill_jobs."""
-    for f in case_folders(jobs, s, outputs):
+    for f in case_folders(jobs, s, outputs, loaded, ledger):
         f.use(new=s.case_folder_existing == "new")
+
+
+def move_case_folders(jobs: list[Job], s: Settings, ledger=None, loaded: list[Job] = (),
+                      moved: list | None = None) -> list[str]:
+    """Renames the case folders these jobs are to be saved into, named for more days now (Job.folder_from, set
+    by CaseFolder.use), before anything is saved: "712345-2021 10-13-2026 Roe v Poe" -> "712345-2021
+    10-13,14-2026 Roe v Poe". The records' files in it follow (Ledger.move_folder, when `ledger` is given), and
+    so do the jobs `loaded` saved into it and any document read from it, with what is kept by its path (Whose
+    pages..., the run sheet chosen: follow_moves). A folder that can't be renamed (a file in it open, after a few
+    tries as Dropbox or a virus scanner may hold it a moment) keeps its name, and the jobs' files go into it as it
+    is; it is tried again at the next Generate. A folder no longer there is made under the new name. moved: gets
+    (the folder, its new path) of each one renamed, for what else holds its paths (the window's run sheet chosen,
+    the record of the job as it was shown). Returns what to tell the user (the folders not renamed)."""
+    problems: list[str] = []
+    named: dict[tuple, str] = {}  # (Save to, the old name) -> the folder's name now
+    for j in jobs:
+        if not j.folder_from:
+            continue
+        base, old, new = save_to_for(j, s), j.folder_from, j.folder
+        j.folder_from = ""
+        key = (base, old.casefold())
+        if key not in named:
+            named[key] = _rename_case_folder(base, old, new, ledger, problems)
+            if named[key] == new:
+                _follow_folder(base / old, base / new, [*jobs, *loaded], s, old)
+                if moved is not None:
+                    moved.append((base / old, base / new))
+        if named[key] != new:
+            j.folder, j.folder_named = named[key], named[key]  # (tried again next time: the name isn't the pattern's)
+    return problems
+
+
+def _rename_case_folder(base: Path, old: str, new: str, ledger, problems: list[str]) -> str:
+    """Renames the case's folder `old` in `base` to `new` (move_case_folders); its name after."""
+    import time
+    src, dst = base / old, base / new
+    if not src.is_dir() or dst.exists():  # (gone, or one of the new name there already: the files go into that)
+        return new
+    err: OSError | None = None
+    for attempt in range(5):
+        try:
+            src.rename(dst)
+            break
+        except OSError as e:
+            err = e
+            time.sleep(0.3)
+    else:
+        log.info("could not rename a case folder for its new days (%s)", type(err).__name__)
+        problems.append(f"The case's folder \"{old}\" could not be renamed to \"{new}\" (a file in it may be "
+                        "open), so the new files go into it as it is. It will be renamed the next time a day of "
+                        "this case is made.")
+        return old
+    log.info("renamed a case folder for its new days")
+    if ledger is not None:
+        try:
+            ledger.move_folder(src, dst)
+        except Exception as e:
+            log_error("could not move the records' files to a renamed case folder", e)
+            problems.append(f"The case's folder was renamed \"{new}\", but Records couldn't be told (it may be "
+                            "open in another copy of the app): its files made before still point at "
+                            f"\"{old}\".")
+    return new
+
+
+def _follow_folder(src: Path, dst: Path, jobs: list[Job], s: Settings, old: str) -> None:
+    """The case's folder `src` is `dst` now: the jobs saved into it are saved into `dst`, and the documents
+    read from it are read from there (follow_moves)."""
+    for j in [j for j in jobs if j.folder.casefold() == old.casefold() and save_to_for(j, s) == src.parent]:
+        j.folder, j.folder_named = dst.name, dst.name
+    follow_moves(jobs, [(src, dst)])
+
+
+def moved_path(path: str, src: Path, dst: Path) -> str:
+    """`path` once the folder `src` is `dst` (a case's folder renamed: move_case_folders); as it is when it isn't
+    in `src`."""
+    if not path or not _is_inside(Path(path), src):
+        return path
+    return str(dst / Path(*Path(path).parts[len(src.parts):]))
+
+
+def follow_moves(jobs: list[Job], moves: list[tuple[Path, Path]]) -> None:
+    """The folders `moves` ((the folder, its new path)) were renamed: these jobs' documents read from them, what
+    is kept by a document's path (Doc.key(): Whose pages..., Job.page_basis and Job.front_owner, which would
+    otherwise be lost and the pages billed otherwise; the documents kept together though their index numbers
+    differ, Job.index_numbers_ok) and the run sheet chosen for them (Job.runsheet_to) follow.
+    Generate all's copies of the jobs have dicts of their own: they are given here too (MainWindow._run_batch)."""
+    for src, dst in moves:
+        for d in {id(d): d for j in jobs for d in j.docs}.values():
+            d.path = moved_path(d.path, src, dst)
+        for j in jobs:
+            j.page_basis = {moved_path(k, src, dst): v for k, v in j.page_basis.items()}
+            j.front_owner = {moved_path(k, src, dst): v for k, v in j.front_owner.items()}
+            j.index_numbers_ok = [moved_path(k, src, dst) for k in j.index_numbers_ok]
+            if j.runsheet_to:
+                j.runsheet_to = moved_path(j.runsheet_to, src, dst)
+
+
+def _is_inside(path: Path, folder: Path) -> bool:
+    """`path` is in `folder` or a folder inside it (the letters' case aside, as Windows has it)."""
+    p, f = path.parts, folder.parts
+    return len(p) > len(f) and [x.casefold() for x in p[:len(f)]] == [x.casefold() for x in f]
 
 
 @dataclass
@@ -2252,6 +2477,67 @@ def saved_folders(paths: list, s: Settings) -> list[Path]:
                                         if sub and not s.own_folder(kind))
         return case if inside else p.parent
     return list(dict.fromkeys(folder(p) for p in map(Path, paths)))
+
+
+def copy_inputs(job: Job, s: Settings, out_dir: Path | None = None) -> list[Path]:
+    """With Settings.save_inputs on, copies the documents the job was made from into the "Inputs" folder beside
+    its files (Settings.folder_for "inputs"; `out_dir`: where its files went, default out_dir_for), to look back
+    at what a file was made from should it come out wrong: each file as it is, pasted text as "Pasted text.txt"
+    and a pasted picture as "Pasted image.jpg". Never twice: a file of the same name and the same content there
+    already is left as it is (another beside it gets "(2)", pdfout.unique_path), and a document read from that
+    folder, or from where the files went (anywhere in the case's own folder; Save to itself, without case
+    folders), isn't copied. Each is copied on
+    its own: one that can't be (a full disk) is logged and the others are still copied. Not files Generate made:
+    not recorded, nor counted. Returns the copies made."""
+    import shutil
+
+    from .pdfout import unique_path
+    if not s.save_inputs:
+        return []
+    out_dir = out_dir if out_dir is not None else out_dir_for(job, s)
+    folder = s.folder_for("inputs", out_dir)
+    made: list[Path] = []
+    for d in job.docs:
+        try:
+            if d.path:
+                src = Path(d.path)
+                in_case = s.case_folders and (job.folder or in_case_folder(job, s))  # (out_dir: the case's)
+                kept = _is_inside(src, out_dir) if in_case else src.parent == out_dir
+                if not src.is_file() or kept or _is_inside(src, folder):
+                    continue  # (with the files made already: anywhere in the case's folder, or in Save to; Inputs)
+                target, data = folder / src.name, None
+            elif d.ing.kind == "image" and d.ing.images:
+                target, data = folder / "Pasted image.jpg", d.ing.images[0]
+            elif d.ing.text.strip():
+                target, data = folder / "Pasted text.txt", d.ing.text.encode("utf-8")
+            else:
+                continue
+            if _same_file(target, src if data is None else data):
+                continue
+            folder.mkdir(parents=True, exist_ok=True)
+            target = unique_path(target)
+            if data is None:
+                shutil.copy2(src, target)
+            else:
+                target.write_bytes(data)
+            made.append(target)
+        except OSError as e:
+            log_error("could not copy a document read into the Inputs folder", e)
+    return made
+
+
+def _same_file(target: Path, what: Path | bytes) -> bool:
+    """`target` (or one beside it, "name (2).pdf") is there with the same content as the file or bytes `what`."""
+    data = what if isinstance(what, bytes) else None
+    size = len(data) if data is not None else what.stat().st_size
+    for i in range(1, 1000):
+        p = target if i == 1 else target.with_name(f"{target.stem} ({i}){target.suffix}")
+        if not p.exists():
+            return False
+        if p.is_file() and p.stat().st_size == size and \
+                p.read_bytes() == (data if data is not None else what.read_bytes()):
+            return True
+    return False
 
 
 def input_folders(job: Job) -> list[Path]:
@@ -2792,7 +3078,7 @@ def joint_invoice(group: list[Job]) -> tuple[CaseInfo, InvoiceOpts]:
 
 def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
               batch: list[Job] | None = None, outputs: list[str] | None = None, ledger=None,
-              math: list | None = None, day: date | None = None) -> list[Path]:
+              math: list | None = None, day: date | None = None, folders_chosen: bool = False) -> list[Path]:
     """Makes the outputs (default: Settings.outputs) of every job; problems are recorded in job.error
     instead of stopping the batch. A job without a transcript gets no run sheet, nor an invoice unless its pages
     were typed in (noted in job.error).
@@ -2823,7 +3109,11 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
     Each case's files go into its own folder (Settings.case_folders, out_dir_for); the run sheet of several days,
     the trial forms and a joint invoice into the first day's. A job without its folder chosen gets it here,
     without a question (settle_case_folders: the window asks before), and so do the firms of a split order without
-    a speed (settle_split_speeds: the speed the question would start from).
+    a speed (settle_split_speeds: the speed the question would start from); a case's folder named for fewer days
+    is renamed first (move_case_folders). folders_chosen: the window chose and renamed them before (MainWindow:
+    one it couldn't rename keeps its name until the next Generate, as it told the user), so nothing is chosen or
+    renamed here. Each day's documents are copied beside its files at the end when Settings.save_inputs says so
+    (copy_inputs).
     Every file is dated `day` (default: today, or the next business day as Settings -> Dates says,
     workdays.document_day, worked out once as the run starts). Before anything is made, each job's date of
     agreement filled in by default becomes that day and its delivery date not typed is counted again
@@ -2834,7 +3124,9 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
         refresh_dates(job.case, s, day)
     outputs = list(s.outputs if outputs is None else outputs)
     ledger = ledger or ledger_for(s)
-    settle_case_folders(jobs, s, outputs)
+    if not folders_chosen:
+        settle_case_folders(jobs, s, outputs, batch or jobs, ledger)
+        move_case_folders(jobs, s, ledger, batch or jobs)  # (one that can't be renamed is logged, saved in as it is)
     settle_split_speeds(jobs, s, outputs)
     names = [j.name_key() for j in batch or jobs]
     unchecked = {id(j) for j in jobs if j.invoice_hold()} if "invoice" in outputs else set()
@@ -2922,7 +3214,8 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
                 why.setdefault(job.left_out_reason(o), []).append(OUTPUTS[o].lower())
             problems = [f"no {' or '.join(kinds)}: {reason}" for reason, kinds in why.items()]
             if unchecked_here and job.portions_problem():
-                problems.append(f"{NOT_INVOICED} check Excerpts… for {job.case.get('dates') or job.title()}")
+                problems.append(f"{NOT_INVOICED} check Who ordered which pages… for "
+                                f"{job.case.get('dates') or job.title()}")
             elif unchecked_here and job.ownership_problem():
                 problems.append(f"{NOT_INVOICED} choose under Whose pages… ({job.ownership_problem()})")
             elif unchecked_here:  # (speeds to check, speed_problems, or parties not named, unnamed_problem)
@@ -3023,6 +3316,9 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
         why = stopped.get(unit_of[id(job)])
         if why and id(job) not in failed:  # (the day it happened on says so itself)
             job.error = "; ".join(x for x in (job.error, why) if x)
+    for job in jobs:  # (the documents read, beside each day's files, as Settings.save_inputs says)
+        if job.saved and unit_of[id(job)] not in stopped:
+            copy_inputs(job, s)
     log.info("saved %d form(s) for %d job(s)", len(done), len(jobs))
     return done
 

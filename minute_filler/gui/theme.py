@@ -86,6 +86,12 @@ QPushButton#generate {
 }
 QPushButton#generate:hover { background: {go_hover}; }
 QPushButton#generate:disabled { background: {border}; color: {muted}; border: 1px solid {border}; }
+/* Who ordered's "Who ordered which pages…": outlined in the accent's colour on a tint, so it is found (it was hard
+   to find: the user, 2026-10-28), not filled with the accent, so Generate is still the one that stands out; its
+   text in the card titles' colour, which reads on the tint (the accent's own was under 4.5:1 there) */
+QPushButton#pages { color: {card_title}; border: 1px solid {accent}; background: {sel}; font-weight: 600; }
+QPushButton#pages:hover { background: {hover}; }
+QPushButton#pages:disabled { color: {muted}; border: 1px solid {input_border}; background: {card}; }
 /* a switch of two or more buttons side by side (the math's layout) */
 QPushButton#segment { border-radius: 0; padding: 4px 14px; }
 QPushButton#segment:checked { background: {sel}; color: {accent}; border: 1px solid {accent}; font-weight: 600; }

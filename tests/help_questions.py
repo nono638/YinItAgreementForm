@@ -141,4 +141,9 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("the defense ordered every day of the trial", ("check-attorneys", "inv-who-ordered")),
     ("one firm only wants the second day", ("check-attorneys", "inv-who-ordered", "exc-table")),
     ("stop asking me the speed for each firm when i generate", ("inv-who-ordered", "set-invoice", "exc-speeds")),
+    # the case's folder named for its days, the documents copied beside the files, the recent jobs (2026-10-28)
+    ("why was my case folder renamed", ("make-folders",)),
+    ("keep a copy of the transcripts with the forms", ("make-folders", "set-options")),
+    ("show fewer recent jobs", ("rec-reopen", "set-options", "start-window")),
+    ("how do i say which pages each firm ordered", ("exc-table", "inv-who-ordered")),
 ]

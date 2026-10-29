@@ -228,52 +228,125 @@ def _date_key(d: str) -> tuple:
     return y, m, day
 
 
-# The characters Windows allows in no file or folder name (control characters such as Tab neither): the folder
-# name pattern can't have them (Settings.case_folder_pattern), and what documents say has them replaced.
-FOLDER_FORBIDDEN = '<>:"/\\|?*'
-FORBIDDEN_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-# names Windows keeps for devices: no folder can be called "CON" or "nul.txt"
-_RESERVED = re.compile(r"(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$")
+# A case folder's name keeps only letters, digits, spaces and - , _ ( ): any other character is taken out, not
+# replaced ("Jones v. USA Hauling, Inc." -> "Jones v USA Hauling, Inc"), so the name suits every file system and
+# survives a copy to a Mac, Linux or a cloud drive (the user, 2026-10-28). "&" is "and". The pattern
+# (Settings.case_folder_pattern) keeps its placeholders' braces too.
+FOLDER_UNSAFE_RE = re.compile(r"[^\w ,()\-]")
+PATTERN_UNSAFE_RE = re.compile(r"[^\w ,()\-{}]")
+# what Settings says may be typed in a case folder's name besides letters and digits
+FOLDER_ALLOWED = "space - , _ ( )"
+# characters of a case folder's {days} at most: more days are "first to last" (compact_days)
+DAYS_MAX = 45
+# names Windows keeps for devices: no folder can be called "CON" or "NUL" (nor "nul.txt", but folder_safe takes the
+# dot out of a folder's name)
+_RESERVED = re.compile(r"(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])$")
 # characters in a case folder's name, at most: a long one, under a long Save to, with long file names (up to 150,
 # safe_filename), could pass the 260 of a path that Windows allows when long paths aren't turned on. The cap makes
-# that less likely; it can't rule it out (the default "{index}" is 11)
+# that less likely; it can't rule it out (the default "{index} {days} {case}" is about 40 for a short caption)
 CASE_FOLDER_MAX = 100
 # the placeholders a case folder's name can have (case_folder_name; Settings lists them under the pattern)
-CASE_FOLDER_PLACES = ("index", "case", "date", "dates", "court", "county", "part", "judge")
+CASE_FOLDER_PLACES = ("index", "days", "case", "date", "dates", "court", "county", "part", "judge")
 
 
-def case_folder_name(case: CaseInfo, pattern: str) -> str:
-    """The name of a case's own folder (Settings.case_folders) from `pattern` (Settings.case_folder_pattern):
-    {index} '712345-2021' (also for '712345/21'), {case} the short caption, {date} the first day '6-3-2026',
-    {dates} its days '6-3-2026 to 6-4-2026', {court}, {county}, {part}, {judge}. What the documents say has the
-    characters Windows forbids replaced ('Roe v. Poe: 9/14' -> 'Roe v. Poe- 9-14'); a placeholder left blank goes
-    with the ' - ', '()' or '[]' around it; one not known stays as typed. Nothing left: the short caption, else
-    'No index number'.
-    A name Windows keeps for devices ('CON') gets '_' after it; at most CASE_FOLDER_MAX characters, and never
-    ending in a dot or a space (Windows drops them)."""
-    from .extract_regex import find_dates
+def folder_safe(v: str, unsafe: re.Pattern = FOLDER_UNSAFE_RE) -> str:
+    """A value fit for a case folder's name: "&" is "and", every character `unsafe` matches (FOLDER_UNSAFE_RE: all
+    but letters, digits, spaces and - , _ ( )) is taken out, spaces are squeezed, and no dot, dash, comma or space
+    is left at either end (Windows drops a trailing dot or space). 'Jones v. USA Hauling, Inc.' -> 'Jones v USA
+    Hauling, Inc'."""
+    v = re.sub(r"\s*&\s*", " and ", re.sub(r"\s", " ", v or ""))
+    return re.sub(r" +", " ", unsafe.sub("", v)).strip(" .-,")
 
-    def clean(v: str) -> str:
-        """A value fit for a folder name: forbidden characters '-', spaces squeezed, and no dot, dash or space at
-        either end (Windows drops a trailing dot or space)."""
-        return re.sub(r"\s+", " ", FORBIDDEN_RE.sub("-", v or "")).strip(" .-")
 
-    found = sorted({d for _, _, d in find_dates(case.get("dates"))}, key=_date_key)
-    first, last = (found[0].replace("/", "-"), found[-1].replace("/", "-")) if found else ("", "")
+def compact_days(days: list[str]) -> str:
+    """M/D/YYYY days written short for a folder's name, a month's days together and each year once:
+    ['10/13/2026', '10/14/2026', '10/15/2026'] -> '10-13,14,15-2026'; '9-29,30 and 10-1,2-2026' over two months;
+    '12-30,31-2025 and 1-2-2026' over two years. Longer than DAYS_MAX: '10-13-2026 to 11-20-2026'. "" for none."""
+    found = sorted(set(days), key=_date_key)
+    if not found:
+        return ""
+    years: dict[int, dict[int, list[int]]] = {}
+    for d in found:
+        y, m, day = _date_key(d)
+        years.setdefault(y, {}).setdefault(m, []).append(day)
+    out = " and ".join(" and ".join(f"{m}-{','.join(map(str, ds))}" for m, ds in months.items()) + f"-{y}"
+                       for y, months in years.items())
+    if len(out) > DAYS_MAX:
+        out = f"{found[0].replace('/', '-')} to {found[-1].replace('/', '-')}"
+    return out
+
+
+# a year's days as compact_days writes them: "10-13,14,15-2026", "9-29,30 and 10-1,2-2026" (also "6-3-2026")
+_MONTH_DAYS = r"\d{1,2}-\d{1,2}(?:,\d{1,2})*"
+_YEAR_DAYS = re.compile(rf"(?<![\d,-])({_MONTH_DAYS}(?: and {_MONTH_DAYS})*)-(\d{{4}})(?!\d)")
+
+
+def days_in_name(name: str) -> set[str]:
+    """The days (M/D/YYYY) a folder's name says, as compact_days (or {date}, {dates}) wrote them:
+    "234567-2026 9-29,30 and 10-1-2026 Roe v Poe" -> {"9/29/2026", "9/30/2026", "10/1/2026"} (the index number is
+    no day). Only the first and last of a "10-1-2026 to 10-28-2026"."""
+    out = set()
+    for days, year in _YEAR_DAYS.findall(name):
+        for month in days.split(" and "):
+            m, ds = month.split("-")
+            out |= {f"{int(m)}/{int(d)}/{year}" for d in ds.split(",") if 1 <= int(m) <= 12 and 1 <= int(d) <= 31}
+    return out
+
+
+def name_without_days(name: str) -> str:
+    """A case folder's name without the days in it (compact_days, {date}, {dates}), casefolded, to find the folder
+    of a case whatever days it was named for: "712345-2021 10-13,14-2026 Roe v Poe" -> "712345-2021 roe v poe",
+    "10-13-2026 to 10-28-2026 Roe v Poe" -> "roe v poe"."""
+    v = re.sub(r"\0(?: and \0)+", "\0", _YEAR_DAYS.sub("\0", name))  # ("12-30,31-2026 and 1-2-2027": one)
+    v = re.sub(r"\(\s*\)|\[\s*\]", "", re.sub(r"\0 to \0", "", v).replace("\0", ""))
+    return re.sub(r" +", " ", v).strip(" .-,").casefold()
+
+
+def case_folder_index(case: CaseInfo) -> str:
+    """The case's index number as its folder's name has it: '712345/21' -> '712345-2021' (one case, one folder,
+    however it was typed; a two-digit year of 50 or more stays as typed), else as typed, folder_safe ("" for
+    none)."""
     index = (case.get("index_no") or "").strip()
     short = re.fullmatch(r"(\d+)\s*[/-]\s*(\d\d)", index)
     if short and int(short[2]) < 50:  # ("712222/24" is "712222/2024": one case, one folder; anything else as typed)
         index = f"{short[1]}-20{short[2]}"
-    values = {"index": index, "case": short_caption(case.get("case_name")), "date": first,
-              "dates": first if first == last else f"{first} to {last}",
-              **{k: case.get(k) for k in ("court", "county", "part", "judge")}}
-    values = {k: clean(v) for k, v in values.items()}
-    name = re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1), m.group(0)), pattern)
-    name = re.sub(r"\(\s*\)|\[\s*\]", "", name)  # ("{index} ({dates})" with no dates)
-    name = re.sub(r"(\s-\s*)+$", "", re.sub(r"^(\s*-\s)+", "", re.sub(r"\s-(\s+-)+\s", " - ", name)))
-    name = clean(name) or values["case"] or "No index number"
+    return folder_safe(index.replace("/", "-"))
+
+
+def case_folder_name(case: CaseInfo, pattern: str, days: list[str] | None = None) -> str:
+    """The name of a case's own folder (Settings.case_folders) from `pattern` (Settings.case_folder_pattern):
+    {index} '712345-2021' (also for '712345/21': case_folder_index), {days} its days '10-13,14,15-2026'
+    (compact_days), {case} the short caption, {date} the first day '6-3-2026', {dates} its days '6-3-2026 to
+    6-4-2026', {court}, {county}, {part}, {judge}. `days` (M/D/YYYY): the days the folder is for, when not only the
+    case's own (the days of a trial: batch.trial_folder_name). Each value keeps only what any file system takes
+    (folder_safe: 'Roe v. Poe: 9/14' -> 'Roe v Poe 9-14'); a placeholder left blank goes with the ' - ', '()' or
+    '[]' around it; one not known stays as typed. Nothing left: the short caption, else 'No index number'.
+    A name Windows keeps for devices ('CON') gets '_' after it; at most CASE_FOLDER_MAX characters (a long caption
+    is shortened first, so that the days, after it in a pattern of one's own, are kept whole), and never ending in
+    a dot or a space (Windows drops them)."""
+    from .extract_regex import find_dates
+
+    found = sorted(set(days) if days is not None else {d for _, _, d in find_dates(case.get("dates"))},
+                   key=_date_key)
+    first, last = (found[0].replace("/", "-"), found[-1].replace("/", "-")) if found else ("", "")
+    values = {"index": case_folder_index(case), "case": short_caption(case.get("case_name")), "date": first,
+              "dates": first if first == last else f"{first} to {last}", "days": compact_days(found),
+              **{k: folder_safe(case.get(k).replace("/", "-")) for k in ("court", "county", "part", "judge")}}
+    values["case"] = folder_safe(values["case"].replace("/", "-"))
+
+    def filled() -> str:
+        name = re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1), m.group(0)), pattern)
+        name = re.sub(r"\(\s*\)|\[\s*\]", "", name)  # ("{index} ({dates})" with no dates)
+        name = re.sub(r"(\s-\s*)+$", "", re.sub(r"^(\s*-\s)+", "", re.sub(r"\s-(\s+-)+\s", " - ", name)))
+        return folder_safe(name, PATTERN_UNSAFE_RE) or values["case"] or "No index number"
+
+    name = filled()
+    over = len(name) - CASE_FOLDER_MAX
+    if over > 0 and "{case}" in pattern and values["case"]:
+        values["case"] = folder_safe(values["case"][:max(1, len(values["case"]) - over)])
+        name = filled()
     device = _RESERVED.match(name)
-    if device:  # (right after the device's word: Windows reads "nul.txt_" as "nul" too)
+    if device:  # (a name that is the device's word alone: "CON_")
         name = name[:device.end(1)] + "_" + name[device.end(1):]
     return name[:CASE_FOLDER_MAX].rstrip(" .")
 

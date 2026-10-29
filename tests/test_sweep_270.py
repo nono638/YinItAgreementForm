@@ -210,7 +210,7 @@ def test_case_folder_names_of_short_index_numbers_and_device_words():
     roe = make_case({**ROE, "index_no": "712222/24"})
     assert case_folder_name(roe, "{index}") == "712222-2024"  # (the same case as "712222/2024": one folder)
     assert case_folder_name(make_case(ROE), "{index}") == "712345-2021"
-    assert case_folder_name(roe, "nul.txt") == "nul_.txt"  # (Windows reads "nul.txt_" as the device "nul")
+    assert case_folder_name(roe, "nul") == "nul_" and case_folder_name(roe, "nul.txt") == "nultxt"  # (no dot kept)
     assert case_folder_name(roe, "CON") == "CON_"
 
 
@@ -472,6 +472,7 @@ def test_a_documents_index_warning_is_against_the_jobs_own_number(window, qt, tm
 def test_a_case_folder_chosen_isnt_kept_after_go_back_at_the_preview(tmp_path, monkeypatch, make_window, qt):
     from minute_filler.gui.preview import PreviewDialog
     s = pat_settings()
+    s.case_folder_pattern = "{index}"  # (the folder named as before v17: its days are another test's)
     s.use_ai = s.open_after = False
     s.output_dir, s.outputs = str(tmp_path / "out"), ["agreement"]
     s.case_folder_existing = "new"
@@ -496,6 +497,7 @@ def test_a_case_folder_chosen_isnt_kept_after_go_back_at_the_preview(tmp_path, m
 def test_generate_all_keeps_no_case_folder_after_go_back_at_the_preview(tmp_path, monkeypatch, make_window, qt):
     from minute_filler.gui.preview import PreviewDialog
     s = pat_settings()
+    s.case_folder_pattern = "{index}"  # (the folder named as before v17: its days are another test's)
     s.use_ai = s.open_after = False
     s.output_dir, s.outputs = str(tmp_path / "out"), ["agreement"]
     s.case_folder_existing = "new"
@@ -708,6 +710,7 @@ def test_go_back_after_settings_chose_an_incomplete_sheet_keeps_the_speed_chosen
 def test_generate_all_go_back_at_the_later_index_question_puts_the_folders_back(tmp_path, monkeypatch, make_window,
                                                                                qt):
     s = pat_settings()
+    s.case_folder_pattern = "{index}"  # (the folder named as before v17: its days are another test's)
     s.use_ai = s.open_after = False
     s.output_dir, s.outputs = str(tmp_path / "out"), ["agreement"]
     s.records_dir = str(tmp_path / "records")
@@ -739,6 +742,7 @@ def test_every_day_of_a_case_goes_beside_a_file_in_the_way(tmp_path):
     the folder's files were never counted, so neither asked nor added to."""
     from minute_filler.batch import case_folders
     s = pat_settings()
+    s.case_folder_pattern = "{index}"  # (the folder named as before v17: its days are another test's)
     s.output_dir = str(tmp_path)
     (tmp_path / "712345-2021").write_text("not a folder")
     day1, day2 = typed_day(), typed_day(date="6/4/2026")

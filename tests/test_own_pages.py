@@ -183,7 +183,7 @@ def test_an_excerpt_span_without_printed_numbers_in_order(tmp_path, s):
 
 
 def test_an_excerpt_is_cut_out_of_the_day():
-    """Excerpts… (excerpts.carve): a run typed in a day's one run is cut out of it ("377-397", printed
+    """Who ordered which pages… (excerpts.carve): a run typed in a day's one run is cut out of it ("377-397", printed
     numbers, is pages 20-40 of the day) and the pages around it keep their firms; typed past the day's last
     page, it is refused (ValueError)."""
     from minute_filler.excerpts import Day, Run, carve

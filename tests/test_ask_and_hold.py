@@ -51,7 +51,7 @@ def test_copies_of_a_split_day_follow_the_firms_that_ordered(tmp_path, s):
     job.parties = 3  # set by hand before the day was split
     job.refresh_copies(s)
     assert job.case.get("copies") == "2"
-    assert job.parties_mismatch() == "you set Parties to 3, but 2 firms ordered pages under Excerpts…"
+    assert job.parties_mismatch() == "you set Parties to 3, but 2 firms ordered pages under Who ordered which pages…"
     job.parties = 2
     assert job.parties_mismatch() == ""
     job.portions, job.parties = None, 3  # a whole day: the Parties number counts

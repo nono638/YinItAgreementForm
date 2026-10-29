@@ -239,9 +239,10 @@ def test_the_run_sheet_goes_in_the_cases_folder_and_its_link_opens_it(make_windo
     wait(window, lambda: len(window.cur.docs) == 1)
     assert window.rs_folder.text() == '<a href="open">Open the run sheet\'s folder</a>'
     window._open_run_sheets_folder()
-    case = tmp_path / "out" / "712345-2021"
+    case = tmp_path / "out" / "712345-2021 6-3-2026 Jane Roe v Sam Poe"
     assert opened == [tmp_path / "out"] and not case.exists()
     window.fill()
+    assert window.cur.folder == case.name
     sheet, = (case / "Trial Runs").glob("*.xlsx")  # (the case folder's Trial Runs folder: the user, 2026-10-26)
     assert window.cur.saved == [sheet] and not old_folder().exists() and not list(case.glob("*.xlsx"))
     window._open_run_sheets_folder()

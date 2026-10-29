@@ -289,7 +289,8 @@ def test_a_run_sheet_goes_in_the_cases_own_folder(tmp_path, s):
                day="June 4, 2026")
     docs, _ = read_docs([str(p) for p in sorted(folder.iterdir())], s)
     done = fill_jobs(group(docs, s), s, outputs=["runsheet"])
-    case = tmp_path / "out" / "712345-2021"
+    case = done[0].parent.parent  # (one folder for both days, named for them)
+    assert case.parent == tmp_path / "out" and case.name.startswith("712345-2021 6-3,4-2026 ")
     assert [p.parent for p in done] == [case / "Trial Runs"] and len(sheet_rows(done[0])) == 6
     assert not old_folder().exists()
     third = job_of(transcript(folder / "Transcript 6-5-2026 Roe v Poe.pdf", [(330, "pr", "", TITLE_1),
@@ -498,6 +499,7 @@ def test_a_later_day_finds_the_trials_run_sheet_where_the_records_say(tmp_path, 
     only in its own case folder and started a second run sheet. The records say where day 1's is. And with a file of
     the case folder's name in Save to, the case's files go beside it ("712345-2021 (2)"), where day 2 looks too."""
     s.runsheet_dir, s.output_dir = "", ""
+    s.case_folder_pattern = "{index}"  # (named as before v17: a day's own folder, whatever its days)
     for name in ("Day1", "Day2"):
         (tmp_path / name).mkdir()
     one = job_of(transcript(tmp_path / "Day1" / "Transcript 6-3-2026 Roe v Poe.pdf"), s)

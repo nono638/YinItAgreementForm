@@ -741,7 +741,7 @@ def test_generate_says_what_it_saved_and_neither_opens_nor_prints_it(tmp_path, m
     win.s.open_after = True
     win.fill()
     saved = math_pdfs(win.cur.saved)
-    assert len(saved) == 1 and saved[0].parent == tmp_path / "out" / "712345-2021" / "Math"  # (the case's)
+    assert len(saved) == 1 and saved[0].parent == tmp_path / "out" / win.cur.folder / "Math"  # (the case's)
     assert shown == [("This time: 1 PDF in the case's Math folder.", "both")]
     assert opened and printed and not [n for n in opened + printed if "the math" in n]
     win.s.save_math = "off"

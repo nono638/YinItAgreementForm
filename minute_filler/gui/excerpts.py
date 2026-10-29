@@ -1,4 +1,6 @@
-"""The Excerpts window: who ordered which pages of the whole case, as a table (see excerpts.py).
+"""The Excerpts window, titled "Who ordered which pages" (its button's name since 2026-10-28: "Excerpts…" before):
+who ordered which pages of the whole case, as a table (see excerpts.py). Its ? (and the one beside its button in
+the main window) shows how to use it, step by step (show_how_to).
 
 A row per run of pages of a day: its date and weekday (in italics on the day's later runs), the pages (typed in
 the transcript's own page numbers, "141-170", or by place in the day when they aren't known; the runs around a
@@ -30,7 +32,7 @@ from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QDialog, QHBoxLayout, QHeaderView, QLabel, QMenu, QMessageBox, QPushButton,
-    QTableWidget, QTableWidgetItem, QVBoxLayout,
+    QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
 )
 
 from .. import courthouses
@@ -53,6 +55,37 @@ GROUP_COLORS = ("#2563eb", "#16a34a", "#ea580c", "#9333ea", "#0d9488", "#db2777"
 TINT = 80  # how opaque a box's tint is (of 255)
 AMBER = "#d97706"  # (a firm's box without the speed it must commit to: the warnings' amber, light and dark)
 VARIES = "(varies)"  # the Speed box of a firm whose days or runs are at different speeds
+
+
+TITLE = "Who ordered which pages"  # the window's title (the main window's button says it with "…")
+# How to use the window, in steps, for a new user: the ? beside its button in Who ordered, and the one in the
+# window, show it (show_how_to; the user, 2026-10-28)
+HOW_TO = """<p>Use it when a firm ordered <b>only some pages</b> of a day (an excerpt), not the whole transcript.</p>
+<ol>
+<li>Each row is a <b>run of pages</b> of a day. At first a day is one run: every ticked firm ordered all of it.</li>
+<li>To make a run, type its pages in the transcript's printed page numbers (<i>141-170</i>) in the Pages cell. The
+rows around it make room.</li>
+<li><b>Tick the firms that ordered</b> each run, and untick the ones that didn't. A run nobody ticks is billed to
+nobody.</li>
+<li>Set each firm's <b>speed</b> in the boxes above the table. A run at another speed: right-click the firm's box
+in that run.</li>
+<li><b>Remove run</b> (or the Delete key) gives a run's pages back to the run above it. <i>Remove this day's
+excerpts</i> makes the day whole again.</li>
+<li>The colours show which firms ordered pages together, as listed under the table, with what each pays.</li>
+</ol>
+<p>Every change is kept at once; the window can stay open beside the main window.</p>"""
+
+
+def show_how_to(parent, show_help=None) -> None:
+    """The steps of HOW_TO in a box, with "More in the manual" opening the help at the window's topic
+    (show_help, the main window's: help_topics "exc-table") when given."""
+    box = QMessageBox(QMessageBox.Information, f"{TITLE}: how to use it", HOW_TO, parent=parent)
+    box.setTextFormat(Qt.RichText)
+    more = box.addButton("More in the manual", QMessageBox.HelpRole) if show_help else None
+    box.addButton(QMessageBox.Close)
+    box.exec()
+    if more is not None and box.clickedButton() is more:
+        show_help("exc-table")
 
 
 def weekdays(label: str) -> str:
@@ -82,7 +115,7 @@ class ExcerptsWindow(QDialog):
         (_pin); without it, the days shown."""
         super().__init__(parent)
         self.s, self.changed, self.marks, self.trial = s, changed, marks, trial
-        self.setWindowTitle("Excerpts: who ordered which pages")
+        self.setWindowTitle(TITLE)
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
         self.group: list = []  # the jobs shown (the days of an invoice)
         self.days: list[Day] = []
@@ -92,17 +125,23 @@ class ExcerptsWindow(QDialog):
         self._loading = False
         self._pending = None  # the jobs to show once the cell being typed in is left (see load)
         lay = QVBoxLayout(self)
-        intro = QLabel("A row per run of pages. Type a run in the transcript's page numbers (141-170) and the rows "
-                       "around it make room; tick the firms that ordered it. Remove run (or Delete) gives a run's "
-                       f"pages to the run above; right-click a run for more. Pages several firms ordered split "
-                       f"{shared_words(s)}; each firm pays for its own {own_words(s)}. A run nobody ticks is billed "
-                       "to nobody. Each colour is one set of firms ordering together, as listed under the table. "
-                       "Firms ordering the same pages commit to a speed: set each firm's above the table, or one "
-                       "run's by right-clicking its box. At different speeds the original is billed once and "
-                       "divided as Settings → Invoice → Split invoices says.")
+        # (the steps are the ? button's, show_how_to: the intro says only what the table is and how it bills)
+        intro = QLabel("A row per run of pages: type a run (141-170) and tick the firms that ordered it. Pages "
+                       f"several firms ordered split {shared_words(s)}; each firm pays for its own {own_words(s)}. "
+                       "At different speeds the original is billed once and divided as Settings → Invoice → Split "
+                       "invoices says. Click ? for the steps.")
         intro.setWordWrap(True)
         intro.setObjectName("muted")
-        lay.addWidget(intro)
+        top = QHBoxLayout()
+        top.addWidget(intro, 1)
+        how = QToolButton()
+        how.setText("?")
+        how.setObjectName("quick")
+        how.setToolTip("How to use this window, step by step")
+        how.clicked.connect(lambda: show_how_to(self, getattr(parent, "show_help", None)))
+        top.addWidget(how, 0, Qt.AlignTop)
+        self.how = how
+        lay.addLayout(top)
         speeds = QHBoxLayout()  # a firm's speed for all its pages of the case (Job.speeds), a box per firm
         self.firm_speeds_label = QLabel("Speed ordered (all its pages):")
         self.firm_speeds_label.setToolTip("The speed each firm ordered its pages at. A firm ordering pages "
