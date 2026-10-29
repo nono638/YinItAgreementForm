@@ -7,8 +7,10 @@ the transcript's own page numbers, "141-170", or by place in the day when they a
 run typed make room for it), optionally its place in the day ("1–20 of 85": Settings.excerpt_show_place), a box
 per firm (firms_of: one column for a firm, however many of its attorneys appear, headed by its colour's square as
 in the main window; ticked = that firm ordered the run; the boxes of each set of firms ordering together have a
-colour of their own, the colour of that set's line under the table), the pages billed in it and, for each speed
-offered, what each firm that ordered it pays for it. Under the table the same prices by the firms ordering
+colour of their own, the colour of that set's line under the table), its pages counted (COUNTS: the user's
+billed and transcribed, every reporter's transcribed and billed; each can be hidden under Columns ▾) and, for
+each speed offered, what each firm that ordered it pays for it. Only your pages hides, as it is ticked, the runs
+with none of the user's pages, and Clear filter shows them again. Under the table the same prices by the firms ordering
 together ("A + B: 15 pp., each pays ...") and each firm's invoice. Split run cuts a run in two; Remove run (or
 the Delete key) gives a run's pages to the run above it (excerpts.remove: every page stays in one run); Remove
 this day's excerpts makes a day one run again, Remove all excerpts every day of the case. A right-click on a run
@@ -38,7 +40,7 @@ from PySide6.QtWidgets import (
 from .. import courthouses
 from ..batch import pin_orders, speeds_to_ask
 from ..excerpts import (
-    Day, Run, billed_in, carve, case_days, firms_of, prices, remove, runs_of, store, whole_day,
+    Day, Run, billed_in, carve, case_days, count_runs, firms_of, prices, remove, runs_of, store, whole_day,
 )
 from ..invoice import default_speed, own_words, shared_words
 from ..invoice_calc import fmt
@@ -48,7 +50,20 @@ from .widgets import QuietCombo
 from .zoom import z
 
 DATE, WEEKDAY, PAGES, PLACE = 0, 1, 2, 3  # the first columns
-FIRST_FIRM = 4  # then a box per firm, the pages billed and a price per speed
+FIRST_FIRM = 4  # then a box per firm, the counts (COUNTS) and a price per speed
+# The counts of a run's pages after the firms (excerpts.Counts), each of which can be hidden (Columns ▾, kept in
+# Settings.excerpt_hidden_cols): (key, header, what it counts). One "Pages billed" read as every reporter's
+# pages, not the user's (the user, 2026-10-29)
+COUNTS = (
+    ("your_billed", "Your pages\nbilled",
+     "Your pages of the run that your invoice bills (as Whose pages… says); 0 when no firm ordered the run"),
+    ("your_transcribed", "Your pages\ntranscribed",
+     "The pages of the run with your initials, whether a firm ordered them or not"),
+    ("total_transcribed", "Total pages\ntranscribed", "Every reporter's pages of the run"),
+    ("total_billed", "Total pages\nbilled", "Every reporter's pages of the run, when a firm ordered it; else 0"),
+)
+UNKNOWN = ("Which of these pages are yours can't be told: set your initials in Settings → My info, or say whose "
+           "the first pages are under Whose pages… (a day whose Pages were typed in isn't counted by page)")
 # A colour for each set of firms ordering together (in the order listed under the table): their boxes are
 # tinted with it (see-through, so it works on the light and the dark theme) and their line starts with it
 GROUP_COLORS = ("#2563eb", "#16a34a", "#ea580c", "#9333ea", "#0d9488", "#db2777", "#ca8a04", "#dc2626")
@@ -72,6 +87,8 @@ in that run.</li>
 <li><b>Remove run</b> (or the Delete key) gives a run's pages back to the run above it. <i>Remove this day's
 excerpts</i> makes the day whole again.</li>
 <li>The colours show which firms ordered pages together, as listed under the table, with what each pays.</li>
+<li>Each run counts <b>your pages</b> (billed and transcribed) and every reporter's. <i>Columns ▾</i> hides
+counts you don't need; <b>Only your pages</b> shows only the runs with pages of yours.</li>
 </ol>
 <p>Every change is kept at once; the window can stay open beside the main window.</p>"""
 
@@ -159,6 +176,39 @@ class ExcerptsWindow(QDialog):
         self.place.setToolTip("Besides the printed page numbers: pages 1–20 of 85")
         self.place.toggled.connect(self._place_toggled)
         opts.addWidget(self.place)
+        opts.addSpacing(z(12))
+        # The count columns, each shown or hidden (also a right-click on the table's header)
+        self.columns = QToolButton()
+        self.columns.setText("Columns ▾")
+        self.columns.setToolTip("Show or hide the counts of each run's pages: yours and every reporter's")
+        self.columns.setPopupMode(QToolButton.InstantPopup)
+        self.columns_menu = QMenu(self.columns)
+        self.count_actions = {}
+        for key, head, tip in COUNTS:
+            act = self.columns_menu.addAction(head.replace("\n", " "))
+            act.setCheckable(True)
+            act.setChecked(key not in s.excerpt_hidden_cols)
+            act.setToolTip(tip)
+            act.toggled.connect(self._columns_toggled)
+            self.count_actions[key] = act
+        self.columns.setMenu(self.columns_menu)
+        opts.addWidget(self.columns)
+        opts.addSpacing(z(12))
+        # Only the runs with pages of the user's, at once as it is ticked (the user, 2026-10-29)
+        self.only_mine = QCheckBox("Only your pages")
+        self.only_mine.setChecked(s.excerpt_only_mine)
+        self.only_mine.setToolTip("Shows only the runs with pages you transcribed, billed or not")
+        self.only_mine.toggled.connect(self._only_mine_toggled)
+        opts.addWidget(self.only_mine)
+        self.clear_filter = QPushButton("Clear filter")
+        self.clear_filter.setAutoDefault(False)
+        self.clear_filter.setToolTip("Shows every run again")
+        self.clear_filter.clicked.connect(lambda: self.only_mine.setChecked(False))
+        self.clear_filter.setVisible(False)
+        opts.addWidget(self.clear_filter)
+        self.filter_note = QLabel("")
+        self.filter_note.setObjectName("muted")
+        opts.addWidget(self.filter_note)
         opts.addSpacing(z(18))
         self.speeds_label = QLabel("Prices for:")
         opts.addWidget(self.speeds_label)
@@ -177,6 +227,10 @@ class ExcerptsWindow(QDialog):
         self.table.itemDelegate().closeEditor.connect(self._editor_closed)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._context_menu)
+        head = self.table.horizontalHeader()
+        head.setContextMenuPolicy(Qt.CustomContextMenu)
+        head.customContextMenuRequested.connect(lambda pos: self.columns_menu.exec(head.mapToGlobal(pos)))
+        self._counts: dict = {}  # each run's counts (excerpts.count_runs), by id(run), as last shown
         # Delete removes the run chosen, only while the table itself has the focus: in a cell being typed in, Delete
         # deletes text (the editor has the focus then; _remove checks too)
         QShortcut(QKeySequence.Delete, self.table, self._remove, context=Qt.WidgetShortcut)
@@ -233,6 +287,7 @@ class ExcerptsWindow(QDialog):
         a job removed, a job without a transcript)."""
         self._pending = None
         self.group, self.days, self.runs, self.firms = [], [], [], []
+        self._counts = {}
         self._loading = True
         self.table.setRowCount(0)
         self._loading = False
@@ -276,7 +331,8 @@ class ExcerptsWindow(QDialog):
         shown = [sp for sp in p.speeds if sp not in self.s.excerpt_hidden_speeds] if choice else []
         firms = self.firms
         heads = ["Date", "Weekday", "Pages", "Place in the day"] + [a.label() for a in firms] + [
-            "Pages billed"] + [f"Each pays · {sp}" for sp in shown]
+            head for _, head, _ in COUNTS] + [f"Each pays · {sp}" for sp in shown]
+        self._counts = count_runs(self.runs)
         # a colour per set of firms ordering together (those at set speeds: per set of firms and speeds)
         sets = [keys for keys, _, _ in p.groups] + [pairs for pairs, _, _ in p.ordered_groups]
         colour = {keys: GROUP_COLORS[i % len(GROUP_COLORS)] for i, keys in enumerate(sets)}
@@ -304,6 +360,8 @@ class ExcerptsWindow(QDialog):
                 head.setToolTip(f"{head.toolTip()}\n{side_name(marks[a.key()])}".strip())
         t.setRowCount(len(self.runs))
         first = FIRST_FIRM + len(firms)
+        for k, (_, _, tip) in enumerate(COUNTS):
+            t.horizontalHeaderItem(first + k).setToolTip(tip)
         # (the speed Generate bills a firm sharing pages without one at, by day: the agreement form's, or the firm's
         # on its other pages, batch.speeds_to_ask)
         settles = {(id(a.job), a.key): a.speed for a in speeds_to_ask([d.job for d in self.days], self.s)}
@@ -350,14 +408,23 @@ class ExcerptsWindow(QDialog):
                                       f"commits to a speed (Generate asks). Priced at {speed}, the agreement "
                                       "form's, until then. Right-click to set it, or set it above the table.")
                 t.setItem(r, FIRST_FIRM + c, it)
-            self._cell(r, first, str(billed_in(day, run)) if run.keys else "0 (nobody ordered it)", False)
+            n = self._counts[id(run)]
+            self._cell(r, first, str(n.your_billed) if run.keys else "0 (nobody ordered it)", False)
+            mine = self._cell(r, first + 1, "?" if n.your_transcribed is None else str(n.your_transcribed), False)
+            if n.your_transcribed is None:
+                mine.setToolTip(UNKNOWN)
+            self._cell(r, first + 2, str(n.total_transcribed), False)
+            self._cell(r, first + 3, str(n.total_billed), False)
             each = p.runs.get(id(run), {})
             for k, sp in enumerate(shown):
                 text = money_exact(each[sp]) if sp in each else ""
                 if text and len(run.keys) > 1:
                     text += f"  (÷ {len(run.keys)})"
-                self._cell(r, first + 1 + k, text, False)
+                self._cell(r, first + len(COUNTS) + k, text, False)
         t.setColumnHidden(PLACE, not self.s.excerpt_show_place)
+        for k, (key, _, _) in enumerate(COUNTS):
+            t.setColumnHidden(first + k, key in self.s.excerpt_hidden_cols)
+        self._apply_filter()
         t.resizeColumnsToContents()
         for c in range(FIRST_FIRM, first):  # (a box and its text, "Immediate · $72.50", sized to the pixel came
             t.setColumnWidth(c, t.columnWidth(c) + z(10))  # out "Immediate · …": the box's margin isn't counted)
@@ -520,6 +587,41 @@ class ExcerptsWindow(QDialog):
         self.s.excerpt_show_place = on
         self._save_settings()
         self.table.setColumnHidden(PLACE, not on)
+
+    def _columns_toggled(self, _=None) -> None:
+        """A count ticked or unticked under Columns ▾: its column shown or hidden at once, and the choice saved
+        (a column of the counts not in COUNTS, from a later version, stays hidden)."""
+        hidden = [key for key, act in self.count_actions.items() if not act.isChecked()]
+        self.s.excerpt_hidden_cols = hidden + [x for x in self.s.excerpt_hidden_cols if x not in self.count_actions]
+        self._save_settings()
+        if self.table.columnCount() >= FIRST_FIRM + len(self.firms) + len(COUNTS):
+            for k, (key, _, _) in enumerate(COUNTS):
+                self.table.setColumnHidden(FIRST_FIRM + len(self.firms) + k, key in hidden)
+
+    def _only_mine_toggled(self, on: bool) -> None:
+        """Only your pages: the runs without any of the user's pages hidden, or shown again, at once; the choice
+        saved."""
+        self.s.excerpt_only_mine = on
+        self._save_settings()
+        self._apply_filter()
+
+    def _apply_filter(self) -> None:
+        """Hides, while Only your pages is ticked, each run with none of the user's pages (one whose pages can't be
+        told stays shown), and says how many are shown; Clear filter is there only meanwhile. The rows are
+        hidden, not taken out: row r is still self.runs[r], for the buttons and the right-click."""
+        known = [c for c in self._counts.values() if c.your_transcribed is not None]
+        self.only_mine.setEnabled(bool(known) or not self.runs)
+        self.only_mine.setToolTip("Shows only the runs with pages you transcribed, billed or not" if known or
+                                  not self.runs else UNKNOWN)
+        on = self.only_mine.isChecked() and self.only_mine.isEnabled()
+        shown = 0
+        for r, run in enumerate(self.runs):
+            c = self._counts.get(id(run))
+            hide = on and c is not None and c.your_transcribed == 0
+            self.table.setRowHidden(r, hide)
+            shown += not hide
+        self.clear_filter.setVisible(self.only_mine.isChecked())
+        self.filter_note.setText(f"Showing {shown} of {len(self.runs)} runs" if on else "")
 
     def _save_settings(self) -> None:
         """Saves a choice of what is shown; a failure is let go (only that choice would be lost)."""

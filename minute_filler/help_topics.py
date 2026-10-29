@@ -787,7 +787,8 @@ page;</li>
 run next to it, so every page stays in a run;</li>
 <li><b>Remove this day's excerpts</b> and <b>Remove all excerpts</b> go back to whole days.</li>
 </ul>
-<p>For each run it shows the pages billed and what each firm pays; under it, what each group of firms ordering
+<p>For each run it counts <a href="topic:exc-your-pages">your pages and every reporter's</a> and shows what each
+firm pays; under it, what each group of firms ordering
 together pays and each firm's invoice, as you type. Pages ordered together split the original and the judge's
 index; each firm pays its own copy, e-mailed copy and index. A run nobody ticks is billed to nobody.</p>
 <p>The <b>?</b> beside the button, and the one at the top of the window, show these steps in short.
@@ -797,6 +798,23 @@ invoice is made for that day until you fix them.</p>
 <p>Example (no index): with $4.30 originals and $1.00 copies and e-mailed copies, 40 pages ordered by Dana Smith
 alone and 50 by both attorneys cost Dana Smith 40 × $6.30 + 50 × ($2.15 + $2.00) = $459.50, and the other attorney 50 × $4.15 =
 $207.50.</p>
+"""),
+    T("exc-your-pages", EXCERPTS, "Your pages and every reporter's, in Who ordered which pages…",
+      "your pages billed transcribed total every reporter count columns hide only your pages filter clear mine",
+      """
+<p>On a transcript several reporters wrote, <b>Who ordered which pages…</b> counts each run's pages four ways:</p>
+<ul>
+<li><b>Your pages billed</b>: your pages of the run that your invoice bills (as Whose pages… says); 0 when no firm
+ordered the run;</li>
+<li><b>Your pages transcribed</b>: the pages of the run with your initials, ordered or not;</li>
+<li><b>Total pages transcribed</b>: every reporter's pages of the run;</li>
+<li><b>Total pages billed</b>: every reporter's pages of the run, when a firm ordered it.</li>
+</ul>
+<p><b>Columns ▾</b> (or a right-click on the table's headings) hides the counts you don't need. A <i>?</i> means
+which pages are yours can't be told yet: set your initials in Settings → My info, or say whose the first pages are
+under Whose pages….</p>
+<p>Tick <b>Only your pages</b> to see only the runs with pages of yours, billed or not; <b>Clear filter</b> shows
+every run again.</p>
 """),
     T("exc-speeds", EXCERPTS, "Firms ordering the same pages at different speeds",
       "split order shared pages different speeds daily immediate faster slower fastest commit speed which speed "
@@ -1165,7 +1183,7 @@ the Run sheet options, opens the folder of the case shown.</p>
 """),
     T("run-who-transcribed", RUNSHEET, "Who transcribed what",
       "who transcribed what wrote which pages reporter pages each day trial totals review save copy export headers "
-      "correct wrong take misread initials undo",
+      "correct wrong take misread initials undo only yours mine filter reporter highlight shade shading clear",
       """
 <p>The <b>Who transcribed what</b> card, at the bottom of the form, lists every take of every day ticked in the job
 list, read from the initials at the foot of the pages: the day, the reporter, the printed pages, how many, and the
@@ -1173,6 +1191,10 @@ headers at the top of its pages as they are printed, each once (<i>PROCEEDINGS, 
 ROE</i>). Above it, what each reporter wrote in all (<i>These 3 days: Pat
 Reporter 144 pp. · DS 76 pp.</i>). It is there whenever a day ticked has a transcript, whatever outputs are
 ticked. It starts folded, the totals on its line: click its heading to see every take.</p>
+<p><b>Your takes</b> are shaded, your name in bold (Settings → Options → <i>Highlight your takes</i>, on at first).
+Above the table, <b>Only yours</b> shows only your takes, and a box for each reporter hides that reporter's takes
+when unticked, to see some reporters only. While anything is left out, <b>Clear filter</b> shows every take
+again.</p>
 <p><b>A take wrong?</b> When a page's initials were misread, or are missing, pages can land in the wrong take.
 Double-click the take (or right-click it → <i>Correct where this take ends…</i>), type the page it really ends on,
 and say yes in the <i>Are you sure?</i> box, which says how your pages change. The pages after it go to the next
@@ -1180,7 +1202,8 @@ take, and the takes, your pages (<i>Yours</i>, the invoice) and the run sheet fo
 make from then on keep the correction. A corrected take shows ✎. Right-click → <i>Undo my corrections to this
 transcript's takes</i> puts them back as the initials say. Files made already aren't changed: Generate the day again (a run sheet made already keeps its
 rows, so correct it in Excel).</p>
-<p><b>Save a copy…</b> saves the table as an Excel workbook or a CSV file. For the full record, kept and added to day
+<p><b>Save a copy…</b> saves the takes shown (as filtered) as an Excel workbook or a CSV file. For the full
+record, kept and added to day
 after day, tick <b>Run sheet</b> and Generate: the trial's <a href="topic:run-overview">run sheet</a>.</p>
 """),
     T("run-reporters", RUNSHEET, "Reporters' initials and names", "initials reporter names ds = dana run sheet reporters "
@@ -1344,6 +1367,8 @@ it's already there</i>, <i>Copy the documents read into an "Inputs" folder</i>, 
 <li><b>Theme</b> and <b>Zoom</b> (<a href="topic:start-room">more</a>).</li>
 <li><b>Recent jobs</b>: <i>List them while nothing is open</i>, <i>up to</i> 3 (5 at most), <i>made in the last</i>
 30 days (at first; 0 is <i>at any time</i>) (<a href="topic:rec-reopen">more</a>).</li>
+<li><b>Who transcribed what</b>: <i>Highlight your takes</i> (on at first)
+(<a href="topic:run-who-transcribed">more</a>).</li>
 <li><b>Records search</b>: <i>Fuzzy search matches numbers loosely too</i> (<a href="topic:rec-search">more</a>).</li>
 <li><b>Index numbers</b>: patterns of your own (<a href="topic:check-index">more</a>).</li>
 <li><b>Recaps</b>: <i>Show a recap of last month (and last year) when Records is first opened</i>.</li>

@@ -661,6 +661,18 @@ class Job:
         mask = self._mask(doc, "me")
         return transcript_pages(doc.ing) if mask is None else sum(mask)
 
+    def your_mask(self) -> list[bool] | None:
+        """Which pages of the stretch Excerpts... counts (portion_pages) the user wrote, page by page, whatever
+        Whose pages... bills (the Who ordered window's "Your pages transcribed"); None when that can't be told for
+        some transcript (your_pages_of) or the stretch isn't the transcripts' pages (the Pages field typed in)."""
+        out: list[bool] = []
+        for d in self.transcripts():
+            if self.your_pages_of(d) is None:
+                return None
+            mask = self._mask(d, "me")
+            out += mask if mask is not None else [True] * transcript_pages(d.ing)
+        return out if out and len(out) == self.portion_pages() else None
+
     def your_pages(self) -> int | None:
         """The pages the user wrote of the job's transcripts (your_pages_of, added up), or the Pages field when
         typed in (what the user's invoice bills); None when a transcript can't tell."""

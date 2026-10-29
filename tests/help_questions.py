@@ -146,4 +146,8 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("keep a copy of the transcripts with the forms", ("make-folders", "set-options")),
     ("show fewer recent jobs", ("rec-reopen", "set-options", "start-window")),
     ("how do i say which pages each firm ordered", ("exc-table", "inv-who-ordered")),
+    # your pages and everyone's (2026-10-29)
+    ("show only my takes", ("run-who-transcribed",)),
+    ("how many of my pages were billed in each excerpt", ("exc-your-pages", "exc-table")),
+    ("stop shading my rows", ("run-who-transcribed", "set-options")),
 ]

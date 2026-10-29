@@ -1935,6 +1935,27 @@ class MainWindow(QMainWindow):
         self.takes_info.setObjectName("muted")
         self.takes_info.setWordWrap(True)
         cl.addWidget(self.takes_info)
+        # Only the user's takes, or some reporters' (each a box), at once as they are ticked; Clear filter shows
+        # every take again (the user, 2026-10-29)
+        filt = QHBoxLayout()
+        self.takes_mine = QCheckBox("Only yours")
+        self.takes_mine.setChecked(self.s.takes_only_mine)
+        self.takes_mine.toggled.connect(self._takes_mine_toggled)
+        filt.addWidget(self.takes_mine)
+        filt.addSpacing(z(12))
+        self.takes_who_label = QLabel("Reporters:")
+        filt.addWidget(self.takes_who_label)
+        self.takes_who_row = QHBoxLayout()
+        filt.addLayout(self.takes_who_row)
+        self.takes_who: dict[str, QCheckBox] = {}  # a box per reporter of the takes shown, by Reporter as shown
+        self.takes_clear = QPushButton("Clear filter")
+        self.takes_clear.setToolTip("Shows every reporter's takes again")
+        self.takes_clear.clicked.connect(self._clear_takes_filter)
+        self.takes_clear.setVisible(False)
+        filt.addSpacing(z(12))
+        filt.addWidget(self.takes_clear)
+        filt.addStretch(1)
+        cl.addLayout(filt)
         self.takes = QTableWidget(0, len(TAKE_COLS))
         self.takes.setHorizontalHeaderLabels(TAKE_COLS)
         self.takes.verticalHeader().setVisible(False)
@@ -1956,7 +1977,8 @@ class MainWindow(QMainWindow):
         self.takes_note.setWordWrap(True)
         foot_row.addWidget(self.takes_note, 1)
         self.takes_save = QPushButton("Save a copy…")
-        self.takes_save.setToolTip("This table as an Excel workbook or a CSV file, where you choose")
+        self.takes_save.setToolTip("This table, the takes shown (as filtered above), as an Excel workbook or a CSV "
+                                   "file, where you choose")
         self.takes_save.clicked.connect(self._save_takes)
         foot_row.addWidget(self.takes_save, 0, Qt.AlignTop)
         cl.addLayout(foot_row)
@@ -6684,6 +6706,7 @@ class MainWindow(QMainWindow):
         self._remerge_others()
         self._redate(force=True)  # (Settings -> Dates: the business days, the evening hour, the holidays)
         self._update_status()
+        self._show_takes()  # (Settings -> Options: your takes highlighted or not; My info: whose they are; the theme)
         for act in self.theme_actions.actions():  # (View -> Theme and Show the yin-yang, as Settings has them now)
             act.setChecked(act.data() == (self.s.theme if self.s.theme in ("light", "dark") else "system"))
         self.yin_action.setChecked(self.s.show_yin)
@@ -7272,8 +7295,9 @@ class MainWindow(QMainWindow):
     def _show_takes(self) -> None:
         """The Who transcribed what card: a row per take of every day ticked in the list (_considered;
         batch.takes_of: the day, the reporter, the printed pages, how many, the running heads as printed;
-        take_cells), a take the user corrected marked ✎ (Row.corrected, _fix_take), and what each reporter wrote
-        in all. Shown while a day ticked has a transcript."""
+        take_cells), a take the user corrected marked ✎ (Row.corrected, _fix_take), the user's own takes
+        highlighted (Settings.takes_highlight_mine), and what each reporter wrote in all; then filtered as the
+        boxes above it say (_filter_takes). Shown while a day ticked has a transcript."""
         from ..batch import takes_of
         try:
             rows = takes_of(self._considered(), self.s)
@@ -7286,17 +7310,106 @@ class MainWindow(QMainWindow):
             return
         t = self.takes
         t.setRowCount(len(rows))
+        # (the user's takes highlighted, Settings -> Options: in the theme's soft green, apart from the selection's
+        # blue)
+        from .theme import DARK, LIGHT, is_dark
+        tint = QColor((DARK if is_dark(self.s.theme) else LIGHT)["ok_bg"]) if self.s.takes_highlight_mine else None
         for r, row in enumerate(rows):
+            mine = self._take_is_mine(row)
             for c, text in enumerate(take_cells(row)):
                 item = QTableWidgetItem(text + (" ✎" if row.corrected and c == TAKE_COLS.index("Printed pages") else ""))
                 if row.corrected:
                     item.setToolTip("Corrected by you (right-click: undo the corrections of this transcript)")
+                if mine and tint is not None:
+                    item.setBackground(tint)
+                    if c == TAKE_COLS.index("Reporter"):
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
                 t.setItem(r, c, item)
         t.resizeColumnsToContents()
         t.resizeRowsToContents()
-        t.setFixedHeight(t.horizontalHeader().height() + sum(t.rowHeight(r) for r in range(t.rowCount())) + 4)
+        self._takes_reporter_boxes(rows)
+        self._filter_takes()
+
+    def _own_initials(self) -> set[str]:
+        """The initials the user puts on their pages (takes.my_initials, from My info); empty when not known."""
+        from ..takes import my_initials
+        return my_initials(self.s.profile.name, self.s.profile.initials)
+
+    def _take_is_mine(self, row) -> bool:
+        """A take of Who transcribed what (runsheet.Row) is the user's: its pages carry the user's initials."""
+        own = self._own_initials()
+        return bool(own) and row.initials.lower().replace(".", "").replace(" ", "") in own
+
+    def _takes_reporter_boxes(self, rows) -> None:
+        """The Reporters boxes of Who transcribed what: one per reporter of the takes shown, in the order they
+        first appear. Built again only when the reporters change, so what is unticked stays unticked as the card
+        is drawn again (a read ending, a take corrected)."""
+        names = list(dict.fromkeys(row.reporter or "(initials not found)" for row in rows))
+        if names == list(self.takes_who):
+            return
+        was = {who: box.isChecked() for who, box in self.takes_who.items()}
+        while self.takes_who_row.count():
+            w = self.takes_who_row.takeAt(0).widget()
+            if w is not None:
+                w.hide()  # (at once: a box never laid out would stay drawn until it is deleted)
+                w.deleteLater()
+        self.takes_who = {}
+        for who in names:
+            box = QCheckBox(who)
+            box.setChecked(was.get(who, True))
+            box.setToolTip(f"Untick to hide {who}'s takes")
+            box.toggled.connect(lambda _on: self._filter_takes())
+            self.takes_who_row.addWidget(box)
+            self.takes_who[who] = box
+
+    def _filter_takes(self) -> None:
+        """Hides the takes the filter leaves out (Only yours: every take not the user's; else those of a reporter
+        unticked), sizes the table to the rows shown and says what each reporter wrote. The rows are hidden, not
+        taken out: row r is still self._take_rows[r], for a double-click and the right-click. Clear filter is
+        there only while something is left out."""
+        rows, t = self._take_rows, self.takes
+        own = self._own_initials()
+        self.takes_mine.setEnabled(bool(own) or self.takes_mine.isChecked())
+        self.takes_mine.setToolTip("Shows only the takes with your initials" if own else
+                                   "Your initials aren't known: set them in Settings → My info")
+        only_mine = self.takes_mine.isChecked()
+        for box in self.takes_who.values():
+            box.setEnabled(not only_mine)  # (Only yours says whose takes are shown)
+        self.takes_who_label.setEnabled(not only_mine)
+        unticked = {who for who, box in self.takes_who.items() if not box.isChecked()}
+        shown = 0
+        for r, row in enumerate(rows):
+            hide = not self._take_is_mine(row) if only_mine else (row.reporter or "(initials not found)") in unticked
+            t.setRowHidden(r, hide)
+            shown += not hide
+        self.takes_clear.setVisible(only_mine or bool(unticked))
+        t.setFixedHeight(t.horizontalHeader().height() + 4 + sum(t.rowHeight(r) for r in range(t.rowCount())
+                                                                 if not t.isRowHidden(r)))
         days = len({row.day for row in rows})
-        self.takes_info.setText(f"{'This day' if days == 1 else f'These {days} days'}: " + reporter_totals(rows))
+        info = f"{'This day' if days == 1 else f'These {days} days'}: " + reporter_totals(rows)
+        if shown < len(rows):
+            info += f"  ·  showing {shown} of {len(rows)} takes"
+        self.takes_info.setText(info)
+
+    def _shown_takes(self) -> list:
+        """The takes of Who transcribed what the filter shows."""
+        return [row for r, row in enumerate(self._take_rows) if not self.takes.isRowHidden(r)]
+
+    def _takes_mine_toggled(self, on: bool) -> None:
+        """Only yours ticked or unticked: the takes shown at once, and the choice kept for the next time."""
+        self.s.takes_only_mine = on
+        self._save_settings()
+        self._filter_takes()
+
+    def _clear_takes_filter(self) -> None:
+        """Clear filter: every reporter's takes shown again (Only yours unticked, every reporter ticked)."""
+        for box in self.takes_who.values():
+            with QSignalBlocker(box):
+                box.setChecked(True)
+        self.takes_mine.setChecked(False)  # (filters again, through _takes_mine_toggled)
+        self._filter_takes()
 
     def _take_doc(self, row) -> tuple[Job, Doc] | None:
         """The job and transcript a take of the card (runsheet.Row) was read from, or None (gone meanwhile, or not
@@ -7461,9 +7574,9 @@ class MainWindow(QMainWindow):
 
     def _save_takes(self) -> None:
         """Save a copy...: the Who transcribed what table as an Excel workbook or a CSV file, where the user
-        chooses (in the records folder at first). The rows are those shown when it was clicked (a read that
-        ends while the save box is open changes the card)."""
-        rows = list(self._take_rows)
+        chooses (in the records folder at first). The rows are those shown when it was clicked, as filtered (a
+        read that ends while the save box is open changes the card)."""
+        rows = self._shown_takes()
         if not rows:
             return
         from ..pdfout import safe_filename
@@ -8071,6 +8184,8 @@ class MainWindow(QMainWindow):
         self.s.theme = theme
         apply_theme(self.app, theme)
         self._save_settings()
+        if self._take_rows:
+            self._show_takes()  # (your takes' highlight, in the theme's colour)
 
     def _show_yin(self, on: bool) -> None:
         """View -> Show the yin-yang (as Settings -> Options): the drop zone's picture comes or goes at once."""

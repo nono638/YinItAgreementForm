@@ -257,6 +257,11 @@ class SettingsDialog(QDialog):
                                "Ctrl 0 goes back to 100 %.")
         f.addRow("Zoom", self.o_zoom)
         self._recent_jobs_row(f, settings)
+        self.o_takes_mine = QCheckBox("Highlight your takes")
+        self.o_takes_mine.setToolTip("In the Who transcribed what card, the takes with your initials (My info) are "
+                                     "shaded and your name is in bold.\nIts Only yours box shows them alone.")
+        self.o_takes_mine.setChecked(settings.takes_highlight_mine)
+        f.addRow("Who transcribed what", self.o_takes_mine)
         self._index_patterns_rows(f, settings)
         self.o_fuzzy_numbers = QCheckBox("Fuzzy search matches numbers loosely too")
         self.o_fuzzy_numbers.setToolTip("Records → the search box's Fuzzy box. Ticked: numbers are matched like words, "
@@ -1238,6 +1243,7 @@ class SettingsDialog(QDialog):
         s.theme = self.o_theme.currentText()
         s.zoom = self.o_zoom.value() / 100
         s.recent_jobs_show = self.o_recent.isChecked()
+        s.takes_highlight_mine = self.o_takes_mine.isChecked()
         s.recent_jobs_count, s.recent_jobs_days = self.o_recent_count.value(), self.o_recent_days.value()
         s.fuzzy_numbers = self.o_fuzzy_numbers.isChecked()
         s.preview_before_saving = self.o_preview.isChecked()

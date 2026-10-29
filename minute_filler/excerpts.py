@@ -282,6 +282,44 @@ def billed_in(day: Day, run: Run) -> int:
 
 
 @dataclass
+class Counts:
+    """A run's pages, as the Who ordered window counts them (the user, 2026-10-29: "Pages billed" read as every
+    reporter's): the user's own invoice bills (0 when nobody ordered the run); the user wrote (None when that
+    can't be told: a transcript of several reporters while the user's initials aren't known, or whose first pages
+    Whose pages... hasn't said whose they are); every reporter's; every reporter's a firm ordered."""
+    your_billed: int
+    your_transcribed: int | None
+    total_transcribed: int
+    total_billed: int
+
+
+def count_runs(runs: list[Run]) -> dict[int, Counts]:
+    """Counts of each run, by id(run). Each day's masks are worked out once: the pages the user's own invoice
+    bills (Job.billed_by("me"), as Whose pages... says) and those the user wrote (Job.your_mask)."""
+    masks: dict[int, tuple] = {}
+    out = {}
+    for run in runs:
+        day = run.day
+        if id(day) not in masks:
+            job = day.job
+            if day.splittable:
+                masks[id(day)] = (job.billed_by("me").day_mask(), job.your_mask(), None)
+            else:  # (a job of several days is ordered whole: the user's pages are counted by transcript)
+                theirs = [job.your_pages_of(d) for d in job.transcripts()]
+                masks[id(day)] = (None, None, None if not theirs or None in theirs else sum(theirs))
+        billed, yours, whole = masks[id(day)]
+        n = run.end - run.start + 1
+        ordered = bool(run.keys)
+        if day.splittable:
+            mine = sum(yours[run.start - 1:run.end]) if yours is not None else None
+        else:
+            mine = whole
+        own = (sum(billed[run.start - 1:run.end]) if billed is not None else n) if ordered else 0
+        out[id(run)] = Counts(own, mine, n, n if ordered else 0)
+    return out
+
+
+@dataclass
 class Prices:
     """What the table costs. Runs priced at each speed offered (their firms choose from the invoice): each run's
     price for each firm that ordered it and each set of firms ordering together (their pages, and what each of

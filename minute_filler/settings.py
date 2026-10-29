@@ -585,6 +585,14 @@ class Settings:
     # the day besides its printed page numbers
     excerpt_hidden_speeds: list = field(default_factory=list)
     excerpt_show_place: bool = False
+    # its count columns hidden (excerpts COUNTS: "your_billed", "total_billed"...), and whether it shows only the
+    # runs with pages of the user's (the user, 2026-10-29)
+    excerpt_hidden_cols: list = field(default_factory=list)
+    excerpt_only_mine: bool = False
+    # Who transcribed what: only the user's takes shown, and the user's takes highlighted (Settings -> Options; on
+    # at first: "most people want to see just their portion", the user, 2026-10-29)
+    takes_only_mine: bool = False
+    takes_highlight_mine: bool = True
     # the user's answers when two attorney rows may be one firm or attorney ("Smith Law" and "Smith Law Group"):
     # [[Attorney.key(), Attorney.key(), True (the same) or False, how the first was written, the second], ...]
     # (see extract_regex.use_firm_answers; the names are for Settings → Invoice → Firms you answered; rows saved
@@ -1080,6 +1088,7 @@ class Settings:
         s.recent_jobs_days = min(max(0, s.recent_jobs_days), RECENT_JOBS_DAYS_MAX)
         s.invoice_detail_items = [k for k in s.invoice_detail_items if isinstance(k, str) and k in DETAIL_ITEMS]
         s.excerpt_hidden_speeds = [k for k in s.excerpt_hidden_speeds if isinstance(k, str)]
+        s.excerpt_hidden_cols = [k for k in s.excerpt_hidden_cols if isinstance(k, str)]
         s.index_patterns = ([x for x in s.index_patterns if isinstance(x, str) and x.strip()]
                             if isinstance(s.index_patterns, list) else [])
         # an answer about two firms: [key, key, same, name, name]; a row saved by 2.2.0 ([key, key, same]) gets
