@@ -615,20 +615,32 @@ def _pages_changed(job, copy) -> bool:
             or job.front_owner != copy.front_owner or job.own != copy.own)
 
 
-def _billing_changed(job, copy) -> bool:
+def _billing_changed(job, copy, renamed: list = ()) -> bool:
     """The job was given what changes its invoice while Generate all worked on its copy: other pages
     (_pages_changed), other attorneys ticked, another Parties number, another speed for the form or for a firm
     (Job.speeds). What the batch billed is then not all there is to bill (an attorney ticked meanwhile was not
-    invoiced)."""
-    return (_pages_changed(job, copy) or job.ticked_keys() != copy.ticked_keys() or job.parties != copy.parties
-            or job.case.get("delivery") != copy.case.get("delivery") or job.speeds != copy.speeds)
+    invoiced). renamed: the job's attorneys renamed meanwhile (Job.renamed, put on the copy's rows and speeds
+    already): the copy's ticked attorneys follow them, a firm renamed being the same firm."""
+    return (_pages_changed(job, copy) or job.ticked_keys() != _following(copy.ticked_keys(), renamed)
+            or job.parties != copy.parties or job.case.get("delivery") != copy.case.get("delivery")
+            or job.speeds != copy.speeds)
 
 
-def _billed_by_copy(copy) -> list[str]:
+def _billed_by_copy(copy, renamed: list = ()) -> list[str]:
     """The attorneys Generate all invoiced for a day (its copy, billed in full): each one ticked on it, as
-    InvoiceOpts.skip_key names them ("key", and "key@ds" for another reporter's invoices)."""
-    keys = copy.ticked_keys()
+    InvoiceOpts.skip_key names them ("key", and "key@ds" for another reporter's invoices), under the names
+    they were given since (renamed, Job.renamed)."""
+    keys = _following(copy.ticked_keys(), renamed)
     return keys + [f"{k}@{r}" for r in copy.bill_reporters() if r != "me" for k in keys]
+
+
+def _following(keys: list[str], renamed: list) -> list[str]:
+    """Attorney keys ("key", "key@ds") under the names given since, renamed being Job.renamed's (old, new)
+    pairs in order: "smith law" is "smith law group" once the firm was typed so."""
+    from ..batch import renamed_keys
+    for old, new in renamed:
+        keys = renamed_keys(keys, old, new)
+    return keys
 
 
 def _entry_text(a: Attorney) -> str:
@@ -6277,21 +6289,40 @@ class MainWindow(QMainWindow):
                                    speeds=dict(j.speeds), not_ordered=set(j.not_ordered),
                                    page_basis=deepcopy(j.page_basis), front_owner=dict(j.front_owner),
                                    runsheet_to=sheet_for.get(id(j), (None, None))[0],
-                                   runsheet_group=sheet_for.get(id(j), (None, None))[1])
+                                   runsheet_group=sheet_for.get(id(j), (None, None))[1], renamed=[])
                     for j in self.jobs}
+        from ..deliver import case_snapshot
         copies = copy_jobs()
+        # (as the copies are: a firm renamed from now on is followed by the attorneys its copy invoices, and a
+        # job whose case is no longer this one when the batch ends - another Index Number, judge, caption... -
+        # is not marked made: its files say what the copy said; see _run_batch)
+        for j in self.jobs:
+            j.renamed = []
+        cases = {id(j): case_snapshot(j.case) for j in chosen}
         todo, settings = [copies[id(j)] for j in chosen], deepcopy(self.s)
         dating = document_day(self.s)  # (every file's date, the preview's too: today, or the next business day)
         if self.s.preview_before_saving and _previewed(outputs):
             # the files are shown first, with the math, made from copies of their own: what is saved is what was
             # shown (the copies above), and Go back saves nothing
             def save(previewed: bool) -> None:
+                # (a read that ended while the preview was open may have put a day's documents with another day:
+                # that day is left out, as Generate leaves out its job; the other day, copied without them, is
+                # listed when the batch ends and made again next time)
+                now = [j for j in chosen if j in self.jobs]
+                if not now:
+                    self._toast("The jobs changed while the preview was open: nothing was saved. Generate all "
+                                "again.")
+                    return
+                if len(now) < len(chosen):
+                    self._toast(f"{plural(len(chosen) - len(now), 'day')} changed while the preview was open: left "
+                                "out. Generate all again makes them.")
                 # (the preview's math tab may have just changed them: the math is saved as it was last shown)
                 settings.save_math, settings.math_layout = self.s.save_math, self.s.math_layout
-                for j in chosen:  # (the folders chosen: kept, so the same jobs generating again use them)
+                for j in now:  # (the folders chosen: kept, so the same jobs generating again use them)
                     j.folder, j.folder_named = copies[id(j)].folder, copies[id(j)].folder_named
                     j.folder_from = copies[id(j)].folder_from
-                self._run_batch(chosen, copies, todo, settings, outputs, previewed, dating)
+                self._run_batch(now, copies, [copies[id(j)] for j in now], settings, outputs, previewed, dating,
+                                cases)
             shown = copy_jobs()
             for j in chosen:  # (until Save: Go back saves nothing, and the folders are asked about next time)
                 j.folder, j.folder_named, j.folder_from = folder_was.get(id(j), (j.folder, j.folder_named,
@@ -6299,7 +6330,7 @@ class MainWindow(QMainWindow):
             settled, self._settled = self._settled, []  # (the preview's Go back puts them back)
             self._preview_batch(chosen, shown, outputs, save, dating.day, back=lambda: self._unsettle(settled))
         else:
-            self._run_batch(chosen, copies, todo, settings, outputs, False, dating)
+            self._run_batch(chosen, copies, todo, settings, outputs, False, dating, cases)
 
     def _preview_batch(self, chosen: list[Job], copies: dict, outputs: list[str], then,
                        day: date | None = None, back=None) -> None:
@@ -6346,8 +6377,22 @@ class MainWindow(QMainWindow):
             self._refresh_job_labels()
             self._batch_ended()
 
+        def closing() -> bool:
+            """The window is being closed (closeEvent's question is on screen, or was answered Yes): the preview
+            is not opened, nor the batch saved without it, under that question (Save would start the batch the
+            close then ends half made); it goes back, saving nothing."""
+            if not self._closing:
+                return False
+            tmp.cleanup()
+            self._job_status()
+            self._toast("The window is closing: the preview was not shown and nothing was saved.")
+            back()
+            return True
+
         def done(paths):
             ended()
+            if closing():
+                return
             try:
                 try:
                     dlg = PreviewDialog([p for p in paths if p.suffix.lower() == ".pdf"], self.s, self,
@@ -6377,9 +6422,11 @@ class MainWindow(QMainWindow):
 
         def failed(msg):
             ended()
+            logfile.error("could not make the preview of the batch", RuntimeError(msg))
+            if closing():
+                return
             tmp.cleanup()
             self._job_status()
-            logfile.error("could not make the preview of the batch", RuntimeError(msg))
             if QMessageBox.question(self, "No preview", "The preview could not be made.\n\nSave the files "
                                     "without it?") == QMessageBox.Yes and not self._batch_running():
                 then(False)
@@ -6391,11 +6438,13 @@ class MainWindow(QMainWindow):
                           on_error=failed)
 
     def _run_batch(self, chosen: list[Job], copies: dict, todo: list[Job], settings, outputs: list[str],
-                   previewed: bool, dating=None) -> None:
+                   previewed: bool, dating=None, cases: dict | None = None) -> None:
         """Makes Generate all's files on another thread from the copies of the jobs, and copies what happened
-        back to the jobs when it ends. previewed: the preview showed the math (else it is shown after, when
-        Settings.show_math is on). dating: the day every file is dated (workdays.document_day, as Generate all
-        started; default: now's), which the message at the end says when it isn't today."""
+        back to the jobs when it ends (what was billed, when it stops with an error too). previewed: the preview
+        showed the math (else it is shown after, when Settings.show_math is on). dating: the day every file is
+        dated (workdays.document_day, as Generate all started; default: now's), which the message at the end
+        says when it isn't today. cases: deliver.case_snapshot of each job's case as its copy was made, by
+        id(job): a job whose case is another when the batch ends is not marked made (None: not checked)."""
         dating = dating or document_day(self.s)
         # the case folders named for fewer days get these days' too, before anything is saved into them (here,
         # with the window's jobs: those saved into them follow; the copies are made into them as named now, with
@@ -6428,30 +6477,65 @@ class MainWindow(QMainWindow):
             self.busy.setValue(i)
             self._set_status(f"Making {i + 1} of {n}…", "busy")
 
-        def done(paths):
-            ended()
-            # (ids of) jobs whose invoice changed while the batch ran (_billing_changed): not marked made, so the
-            # next Generate all bills them as they are now
-            changed = set()
+        def bring_back() -> dict[int, str]:
+            """What the copies billed, put on the window's jobs (when the batch ends, and when it stops with an
+            error too: invoices made before then must not be billed again): each day's split rule and whether it
+            was invoiced, for which attorneys (Job.invoiced, invoiced_keys, invoice_set), under the names given
+            to them meanwhile (Job.renamed: a firm typed in the table, a read's remerge). Returns the jobs that
+            changed while the batch ran, by id(job), each with its line for the message: they are not marked
+            made, so the next Generate all makes them as they are now."""
+            from ..deliver import case_snapshot
+            changed: dict[int, str] = {}
             for j in chosen:
-                copy = copies[id(j)]
-                j.saved, j.error = copy.saved, copy.error
+                copy, renamed = copies[id(j)], j.renamed
+                for old, new in renamed:  # (the copy's Excerpts... rows, speeds and attorneys billed follow them)
+                    copy.rename_in_portions(old, new)
                 j.split_rule = j.split_rule or copy.split_rule  # (the rule its invoices were just billed by)
                 # (a read that ended during the run put this day's documents with another day: that job's now)
                 k = j if any(j is x for x in self.jobs) else next(
                     (x for x in self.jobs if any(d is e for d in j.docs for e in x.docs)), None)
                 if k is not None and not k.split_rule:
                     k.split_rule = copy.split_rule
-                if _billing_changed(j, copy):
-                    changed.add(id(j))
-                    if copy.invoiced and not _pages_changed(j, copy):
+                if k is not j:
+                    # The day was made (and maybe invoiced) as a day of its own, and is now part of k, which
+                    # batch.group unbilled: the next Generate all bills its pages again with k's. Its attorneys
+                    # aren't carried to k (they would leave k's own pages unbilled, and say nothing): k is
+                    # listed, saying so, and not marked made.
+                    if k is not None:
+                        what = "invoiced" if copy.invoiced or copy.invoiced_keys else "made"
+                        changed[id(k)] = (f"•  {k.title()}: now has the documents of "
+                                          f"{j.case.get('dates') or j.title()} too, {what} just now as a day of "
+                                          "their own" + (" (Generate all bills them again with it)"
+                                                         if what == "invoiced" else ""))
+                    continue
+                if _billing_changed(j, copy, renamed):
+                    changed.setdefault(id(j), f"•  {j.title()}")
+                    if not _pages_changed(j, copy):
                         # only who orders (or the speed, the parties) changed: those just invoiced aren't billed
-                        # again by the next run, but an attorney ticked meanwhile is
-                        j.invoiced_keys = list(dict.fromkeys(j.billed_keys() + _billed_by_copy(copy)))
-                        j.invoiced = False
+                        # again by the next run, but an attorney ticked meanwhile is. Those invoiced are every
+                        # one ticked on the copy, or, for a run that stopped part way (copy.invoiced False), the
+                        # attorneys whose invoices it made (batch.fill_jobs: copy.invoiced_keys)
+                        billed = _billed_by_copy(copy, renamed) if copy.invoiced else copy.invoiced_keys
+                        if billed:
+                            j.invoiced_keys = list(dict.fromkeys(j.billed_keys() + billed))
+                            j.invoiced = False
                 else:
                     j.invoiced, j.invoiced_keys = copy.invoiced, copy.invoiced_keys
                     j.invoice_set = copy.invoice_set  # (the days billed together: the cards show them so)
+                # another Index Number, judge, caption... typed meanwhile (an AI answer, a read): its files say
+                # what the copy said, so it is made again (its invoice is kept as billed)
+                if cases is not None and id(j) in cases and case_snapshot(j.case) != cases[id(j)]:
+                    changed.setdefault(id(j), f"•  {j.title()}")
+            return changed
+
+        def done(paths):
+            ended()
+            for j in chosen:
+                copy = copies[id(j)]
+                j.saved, j.error = copy.saved, copy.error
+            # jobs that changed while the batch ran (_billing_changed, their case, another day's documents put
+            # with them): not marked made, so the next Generate all makes them as they are now
+            changed = bring_back()
             # days whose only "error" is the invoice held back, as the user chose before it started (see
             # batch.fill_jobs: those messages come last, so an error that starts with one has nothing else)
             held_days = [j for j in chosen if HELD in j.error]  # (a held case's days: listed once, under the case)
@@ -6462,7 +6546,6 @@ class MainWindow(QMainWindow):
             for j in chosen:  # (still ticked: the cards go on showing them)
                 if (j.saved or j.invoiced) and not j.error and id(j) not in changed:
                     j.made = True  # "Generate all" again only does what is left
-            changed = [j for j in chosen if id(j) in changed and any(j is k for k in self.jobs)]
             self._update_status()
             folders = [str(f) for f in saved_folders(paths, self.s)]
             text = f"Saved {len(paths)} file{'s' if len(paths) != 1 else ''} for {plural(made, 'job')}"
@@ -6491,10 +6574,11 @@ class MainWindow(QMainWindow):
                 text += f"\n\n{len(partial)} job(s) are not complete:\n" + \
                         "\n".join(f"•  {j.title()}: {_reason(j.error)}" for j in partial[:6])
             if changed:
+                lines = list(changed.values())
                 text += (f"\n\n{len(changed)} job(s) changed while the files were made (a document was added, "
-                         "the pages, Who ordered which pages…, the attorneys ticked, the parties or the speed "
-                         "changed), so "
-                         "Generate all again bills them as they are now:\n" + "\n".join(f"•  {j.title()}" for j in changed[:6]))
+                         "the pages, Who ordered which pages…, the attorneys ticked, the parties, the speed or "
+                         "the case's details changed), so Generate all again makes them as they are now:\n"
+                         + "\n".join(lines[:6]) + ("\n…" if len(lines) > 6 else ""))
             if folder_problems:  # (a case's folder not renamed: said here, where it is read)
                 text += "\n\n" + "\n\n".join(folder_problems)
             if math and self.s.show_math and not previewed:
@@ -6513,8 +6597,12 @@ class MainWindow(QMainWindow):
 
         def crashed(msg):
             ended()
+            # (invoices made before it stopped are the jobs' too, or the next run bills them again; nothing is
+            # marked made, and this box alone says what happened)
+            bring_back()
             self._update_status()
             QMessageBox.critical(self, "Could not fill the forms", msg + "".join("\n\n" + p for p in folder_problems))
+            self._records_changed()
 
         self.runner.start(fill_jobs, todo, settings, batch=list(copies.values()), outputs=outputs, math=math,
                           day=dating.day, folders_chosen=True, on_done=done, on_error=crashed, on_progress=step)
@@ -8375,14 +8463,21 @@ class MainWindow(QMainWindow):
             self._place_pairs()
         return super().eventFilter(obj, e)
 
+    # True while closeEvent's "Close anyway?" is on screen, and once it is answered Yes: Generate all's preview
+    # ending under it goes back instead of opening (its Save would start the batch the close then ends half made)
+    _closing = False
+
     def closeEvent(self, e):
-        """Asks first while a batch is being made; remembers the window's size and place, and where the divider
-        between the job list and the paste box is (_save_splits)."""
-        if self.filling and QMessageBox.question(
-                self, "Still working", "The files of the batch are still being made. Close anyway?\n\n"
-                "(The file being written may be left incomplete.)") != QMessageBox.Yes:
-            e.ignore()
-            return
+        """Asks first while a batch (or its preview) is being made; remembers the window's size and place, and
+        where the divider between the job list and the paste box is (_save_splits)."""
+        if self.filling:
+            self._closing = True
+            if QMessageBox.question(
+                    self, "Still working", "The files of the batch are still being made. Close anyway?\n\n"
+                    "(The file being written may be left incomplete.)") != QMessageBox.Yes:
+                self._closing = False  # (No: the window stays, and so does what the batch makes)
+                e.ignore()
+                return
         self.s.window_geometry = bytes(self.saveGeometry().toBase64()).decode()
         self._save_splits()
         self._save_settings()  # (a file that can't be written must not keep the window from closing)

@@ -349,6 +349,11 @@ class Job:
     # The documents the user said to keep together although their index numbers don't match
     # (index_number_mismatch), by Doc.key(): asked again when a document not among them has an index number
     index_numbers_ok: list = field(default_factory=list)
+    # The attorneys renamed on this job (rename_in_portions: a firm typed in the table, a read's remerge) since
+    # Generate all copied it, as (old Attorney.key(), new) in order: the window clears them as it makes the
+    # copies, and the attorneys the copy invoiced follow them when the batch ends, or a firm renamed meanwhile
+    # would be billed again under its new name (MainWindow._run_batch). Not kept with the records.
+    renamed: list = field(default_factory=list, repr=False)
 
     def is_empty(self) -> bool:
         """Nothing dropped and nothing typed."""
@@ -1031,12 +1036,11 @@ class Job:
         """An attorney's name (or firm) was changed, from Attorney.key() `old` to `new`: the Excerpts... rows
         follow it (a name cleared drops it from them), and so do its speeds (Job.speeds, the runs' own) and the
         attorneys a stopped run invoiced already (invoiced_keys: "key", or "key@ds" for another reporter's
-        invoice), or a retry would bill them again."""
+        invoice), or a retry would bill them again. Noted in Job.renamed, for a copy Generate all is working on."""
         if not old or old == new:
             return
-        if self.invoiced_keys and new:
-            self.invoiced_keys = list(dict.fromkeys(
-                new + k[len(old):] if k == old or k.startswith(old + "@") else k for k in self.invoiced_keys))
+        self.renamed = self.renamed + [(old, new)]  # (a list of its own: a copy made by replace() shares it)
+        self.invoiced_keys = renamed_keys(self.invoiced_keys, old, new)
         self.speeds = _renamed(self.speeds, old, new)
         if old in self.not_ordered:
             self.not_ordered = (self.not_ordered - {old}) | ({new} if new else set())
@@ -1455,6 +1459,15 @@ def _printed_span(printed: list, first: int, last: int) -> str:
 def portion_row(last, keys: list, speeds: dict | None = None) -> tuple:
     """A Job.portions row: (last page, firms), with the run's own speeds third only when there are any."""
     return (last, keys, dict(speeds)) if speeds else (last, keys)
+
+
+def renamed_keys(keys: list[str], old: str, new: str) -> list[str]:
+    """Attorneys invoiced, as InvoiceOpts.skip_key names them ("key", or "key@ds" for another reporter's
+    invoice), with attorney `old` now `new` (Job.rename_in_portions), each once. A name cleared (new "") leaves
+    them as they are: nobody is under "" to be billed again."""
+    if not keys or not new or not old:
+        return list(keys)
+    return list(dict.fromkeys(new + k[len(old):] if k == old or k.startswith(old + "@") else k for k in keys))
 
 
 def _renamed(speeds: dict, old: str, new: str) -> dict:
