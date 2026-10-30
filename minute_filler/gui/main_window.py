@@ -3625,11 +3625,16 @@ class MainWindow(QMainWindow):
     def _remove_doc(self, job: Job, doc: Doc, own_job: bool = False) -> None:
         """Remove from job, or (own_job) Move to a job of its own, right after it: a document taken out of its
         job, which is merged again without it. The job may be another than the one on screen. A job of a batch
-        left with no document goes, as with Remove this job; a single job stays, empty."""
-        if job not in self.jobs or doc not in job.docs:  # (the list may have changed while the menu was open)
+        left with no document goes, as with Remove this job; a single job stays, empty. The list may have
+        changed while the menu was open (a read that ended merged the job): nothing is done then, and the note
+        at the bottom says so. The document is found by identity: Docs are equal by value, and two pasted
+        images (both "Pasted image", no path) can be twins, the other of which must stay."""
+        if job not in self.jobs or all(d is not doc for d in job.docs):
+            self._toast(f"That document's day changed while the menu was open (a read joined it with another): "
+                        f"nothing was {'moved' if own_job else 'removed'}. Right-click it again to choose.")
             return
         self._sync_from_ui()
-        job.docs.remove(doc)
+        job.docs[:] = [d for d in job.docs if d is not doc]
         remerge(job, self.s)
         if own_job:
             new = Job(docs=[doc], batch=True)
@@ -3648,8 +3653,11 @@ class MainWindow(QMainWindow):
 
     def _remove_job(self, job: Job) -> None:
         """Remove this job: a job of a batch taken out of the list (and of Generate all); the last one leaves a
-        blank job."""
-        if job not in self.jobs:  # (the list may have changed while the menu was open)
+        blank job. The list may have changed while the menu was open (a read that ended merged the job into
+        another): nothing is done then, and the note at the bottom says so (Job is equal by identity)."""
+        if job not in self.jobs:
+            self._toast("That day changed while the menu was open (a read joined it with another): nothing was "
+                        "removed. Right-click it again to choose.")
             return
         self._sync_from_ui()
         self.jobs.remove(job)
@@ -4853,8 +4861,14 @@ class MainWindow(QMainWindow):
         the user may save as they go), and which prices are still lower at a faster speed (rates.cheaper_faster).
         Watched until it has them all and none is lower, until Use it anyway keeps it as it is (_check_rate_sheet), or
         until it isn't the sheet in use any more; the old Days question waits only for missing prices. Waits
-        while a question is on screen or Generate all runs: what they show isn't priced again under them."""
+        while a question is on screen or Generate all runs: what they show isn't priced again under them.
+        The folder is read once, after the file itself was read whole, and Excel's next save can fall between
+        the two (the old file gone, the new one not yet in its place): a read that misses the sheet prices
+        nothing (rates.pick would put the sample sheet in its place, re-pricing every job from it and undoing a
+        speed chosen that it lacks: merge.refresh_speed) and keeps it watched, read again in a second; missed
+        again, it is no longer watched, and the note says to press ⟳."""
         from ..rates import cheaper_faster, load_sheet, missing_prices, sheet_fingerprint
+        missed = ("missed",)  # (the mark of a sheet the last read of the folder missed: read again, whatever its mark)
         if self._sheet_watched is None:
             return
         if QApplication.activeModalWidget() is not None or self.filling:
@@ -4866,19 +4880,36 @@ class MainWindow(QMainWindow):
         now = _file_mark(path)
         if now is None or now == mark:
             return  # (gone for a moment while Excel saves, or another file in the folder: Excel's "~$" one)
-        if self.s.sheet().path != path:
-            self._unwatch_sheet()  # (another sheet was picked meanwhile)
+        if mark != missed and self.s.sheet().path != path:
+            # (another sheet was picked meanwhile; after a read that missed it, the sheets read below tell)
+            self._unwatch_sheet()
             return
         try:
             load_sheet(path)
         except (OSError, ValueError, UnicodeDecodeError):
             return  # (half written: read when it is saved again)
-        self._sheet_watched = (path, now)
-        self._read_sheets_again()
-        sheet = self.s.sheet()
-        if sheet.path != path:  # (no longer read as a sheet: _fill_sheet_box said why)
-            self._unwatch_sheet()
+        # read once, and the jobs priced from that read (⟳'s _read_sheets_again would read the folder again)
+        self.s.reload_rates()
+        if all(sh.path != path for sh in self.s.sheets()[0]):
+            self.s.reload_rates()  # (that read isn't kept: what asks for a sheet before the next reads the folder)
+            if mark == missed:
+                self._unwatch_sheet()
+                self._toast(f'"{path.stem}" couldn\'t be read again after it was saved: press ⟳ next to the Rate '
+                            "sheet dropdown to read it.")
+            else:
+                self._sheet_watched = (path, missed)
+                self._sheet_timer.start()  # (read again in a second)
             return
+        if self.s.sheet().path != path:
+            self._unwatch_sheet()  # (another sheet was picked while the last read missed it)
+            return
+        self._sheet_watched = (path, now)
+        self._drop_undo()  # (from here as _read_sheets_again, from the read above)
+        self._fill_sheet_box()
+        self._fill_invoice_speeds()
+        self._apply_speed_rule()
+        self._remerge_others()
+        sheet = self.s.sheet()
         gaps, cheaper = missing_prices(sheet), cheaper_faster(sheet)
         self._sheets_warned.add(sheet_fingerprint(sheet))  # (told below: no box about it again this session)
         if gaps or cheaper:

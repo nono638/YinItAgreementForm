@@ -1066,20 +1066,22 @@ class RecordsWindow(QDialog):
         if inv.status == "void" or not colours:
             it.setForeground(QColor(STATUS_COLORS.get(inv.status, STATUS_COLORS["void"])))
 
-    def _place(self) -> tuple:
-        """Where the Invoices table is: the invoices selected, the current one and its column, and how far it
-        is scrolled (see _put_back_place)."""
-        t = self.inv_table
+    def _place(self, t: QTableWidget | None = None) -> tuple:
+        """Where the Invoices table (or `t`, Everything made's) is: the invoices selected (by number; the rows of
+        everything made by id: each row's UserRole), the current one and its column, and how far it is scrolled
+        (see _put_back_place)."""
+        t = self.inv_table if t is None else t
         number = lambda r: t.item(r, 0).data(Qt.UserRole) if t.item(r, 0) else None  # noqa: E731
         return ({number(i.row()) for i in t.selectedIndexes()} - {None}, number(t.currentRow()),
                 t.currentColumn(), t.verticalScrollBar().value(), t.horizontalScrollBar().value())
 
-    def _put_back_place(self, place: tuple) -> None:
-        """Selects the same invoices again, and scrolls back to where the table was, after it was filled
-        afresh (a box ticked down the list must not send it back to the top)."""
+    def _put_back_place(self, place: tuple, t: QTableWidget | None = None) -> None:
+        """Selects the same invoices (or rows of `t`) again, and scrolls back to where the table was, after it
+        was filled afresh (a box ticked down the list must not send it back to the top; a reload while the
+        right-click menu is open must not leave its Delete nothing to act on)."""
         from PySide6.QtCore import QItemSelectionModel
         selected, current, column, down, across = place
-        t = self.inv_table
+        t = self.inv_table if t is None else t
         sm = t.selectionModel()
         for r in range(t.rowCount()):
             no = t.item(r, 0).data(Qt.UserRole)
@@ -1108,7 +1110,9 @@ class RecordsWindow(QDialog):
 
     def show_activity(self, _=None) -> None:
         """Lists the files made that match the Everything made filters (those in the trash with the Trash
-        button; an invoice made in a colleague's name only once asked: show_theirs), with a count of each kind."""
+        button; an invoice made in a colleague's name only once asked: show_theirs), with a count of each kind.
+        The rows selected stay so, found by id, and the table stays scrolled where it was (_put_back_place): the
+        main window reloads Records whenever it makes a file, also while a right-click menu here is open."""
         y, m = self.a_year.currentData() or 0, self.a_month.currentData() or 0
         since = until = ""
         if y:
@@ -1131,6 +1135,7 @@ class RecordsWindow(QDialog):
             rows = [a for a in rows if a.invoice_no not in theirs]
         self.act_shown = {a.id: a for a in rows}
         t = self.act_table
+        place = self._place(t)
         t.setSortingEnabled(False)
         t.setRowCount(0)
         for a in rows:
@@ -1144,6 +1149,7 @@ class RecordsWindow(QDialog):
         for key, widest in (("case", 300), ("file", 420)):
             i = col_index(ACTIVITY_COLS, key)
             t.setColumnWidth(i, min(t.columnWidth(i), z(widest)))
+        self._put_back_place(place, t)
         counts = {k: sum(1 for a in rows if a.kind == k) for k in KINDS}
         self.a_count.setText("  ·  ".join([plural(len(rows), "file")] +
                                           [plural(n, KINDS[k].lower()) for k, n in counts.items()]))
@@ -1401,7 +1407,8 @@ class RecordsWindow(QDialog):
 
     def _activity_menu(self, pos) -> None:
         """The right-click menu on a row of everything made: open the file, show in folder, delete; in the
-        trash: restore or delete for good."""
+        trash: restore or delete for good. Delete acts on the rows chosen as the menu opened (_delete_chosen):
+        the list may be read again while it is open."""
         row = self.act_table.rowAt(pos.y())
         a = self._act_at(row)
         if a is None:
@@ -1419,9 +1426,26 @@ class RecordsWindow(QDialog):
         if a.deleted:
             self._trash_actions(m, "activity", many)
         else:
-            m.addAction(f"Delete {plural(len(many), 'record')} (to the trash)…",
-                        lambda: self._delete_selected("activity"))
+            ids = [x.id for x in many]
+            m.addAction(f"Delete {plural(len(many), 'record')} (to the trash)…", lambda: self._delete_chosen(ids))
         m.exec(self.act_table.viewport().mapToGlobal(pos))
+
+    def _delete_chosen(self, ids: list) -> None:
+        """The right-click menu's Delete on Everything made: the rows chosen when the menu opened (by id), found
+        again in the list as it is now (the main window reloads Records whenever it makes a file, also while the
+        menu is open). Only those still listed, and not in the trash, go, after asking; those no longer listed
+        are said so, and nothing else is deleted."""
+        still = [self.act_shown[i] for i in ids if i in self.act_shown and not self.act_shown[i].deleted]
+        gone = len(ids) - len(still)
+        if not still:
+            QMessageBox.information(self, "Delete", f"{'That record is' if gone == 1 else 'Those records are'} no "
+                                    "longer listed (the list was read again while the menu was open): nothing was "
+                                    "deleted.")
+            return
+        one = gone == 1
+        note = (f"{gone} of the {len(ids)} chosen {'is' if one else 'are'} no longer listed (the list was read "
+                f"again meanwhile): {'it stays as it is' if one else 'they stay as they are'}.") if gone else ""
+        self.delete("activity", still, note=note)
 
     def _trash_actions(self, m: QMenu, which: str, records: list) -> None:
         """Restore and Delete for good, for records in the trash."""
@@ -1444,12 +1468,14 @@ class RecordsWindow(QDialog):
         if records:
             self.delete(which, records)
 
-    def delete(self, which: str, records: list, ask: bool = True) -> None:
-        """Moves records to the trash (asking first unless ask is False). The PDF files stay where they are."""
+    def delete(self, which: str, records: list, ask: bool = True, note: str = "") -> None:
+        """Moves records to the trash (asking first unless ask is False; note: a line more in the question). The
+        PDF files stay where they are."""
         what = plural(len(records), "invoice" if which == "invoices" else "record")
         if ask and QMessageBox.question(
                 self, "Delete", f"Move {what} to the trash?\n\nThey can be restored for {TRASH_DAYS} days "
-                "(Trash button). The files themselves are not deleted.") != QMessageBox.Yes:
+                "(Trash button). The files themselves are not deleted." + (f"\n\n{note}" if note else "")
+                ) != QMessageBox.Yes:
             return
         keys = self._keys(which, records)
         if self._try_change(lambda: self.ledger.delete(**keys)):
