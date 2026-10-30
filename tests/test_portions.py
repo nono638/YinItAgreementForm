@@ -229,13 +229,15 @@ def test_portions_that_no_longer_fit_are_kept_to_be_checked(tmp_path, s):
     assert [p.pages for p in job.invoice_orders()[0].portions] == [10, 20]
     job.case.set("est_pages", "3")  # typed in: the last row no longer ends on the last page
     assert job.valid_portions() is None and job.portions == rows  # kept, not dropped
-    assert job.portions_check() == "Who ordered which pages… needs checking (its rows don't end on this day's 3 pages)"
+    assert job.portions_check() == "Who ordered which pages… needs checking (its rows don't end on this day's 3 pages typed)"
     assert files_to_make([job], ["invoice"], s) == 0
     job.case.set("est_pages", "30")
     assert job.valid_portions() == rows and not job.portions_check()
     for bad in ([(10, [A]), (5, [B]), (30, [A])], [(30, [])], [], [("x", [A])]):
         job.portions = bad
         assert job.valid_portions() is None and job.portions == bad and job.portions_problem(), bad
+    job.portions = [(10, [A]), (25, [A])]  # (the transcript's own 30 again: its total pages, not pages typed)
+    assert job.portions_problem() == "its rows don't end on this day's 30 total pages"
 
 
 def test_portions_need_a_job_of_one_day(tmp_path, s):

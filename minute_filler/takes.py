@@ -263,10 +263,10 @@ def count_pages(facts: list[PageFacts], page_count: int | None = None) -> PageCo
     The count that most readings give wins, among those that leave the index no more than index_limit() of the
     pages (blank pages at the end left out); a tie goes to the scan's count, then to the reading listed first in
     READINGS. The printed numbers can't see where the index begins when its pages are numbered on, so they never
-    count past the index found from the end. The count kept has a warning ("⚠ 30 of the PDF's 96 pages were
-    taken for the word index...") when no count passes the limit, when another count has two readings behind it,
-    and when pages between the scan's count and a larger one look like the index (two or more in a row: an index
-    with a page of line numbers after it). A count from another reading than the scan's otherwise says which
+    count past the index found from the end. The count kept has a warning ("⚠ 30 of the PDF's 96 total pages
+    were taken for the word index, more than a quarter: check the count") when no count passes the limit, when
+    another count has two readings behind it, and when pages between the scan's count and a larger one look like
+    the index (two or more in a row: an index with a page of line numbers after it). A count from another reading than the scan's otherwise says which
     (note). The count is never 0 for a PDF with pages: when no reading can tell, or the readings leave the index
     too much and the pages they leave don't look like one (the scanned pages after a typed cover), it is every
     page, with a warning in the second case."""
@@ -334,22 +334,23 @@ def count_pages(facts: list[PageFacts], page_count: int | None = None) -> PageCo
     if offset is not None and offset >= 1 and numbered[0][0] == 0 and readings.get("numbers") == best:
         out.first, out.last = offset, offset + best - 1
     rival = [n for n in out.others if len(votes[n]) >= 2 or n in passing]
+    # (the user, 2026-10-30: every count says whose pages): a PDF's count is its "total pages"
     if best not in passing:
-        out.warning = (f"⚠ {out.index_pages} of the PDF's {room} pages were taken for the word index, more than "
-                       f"a quarter: check the count" + (f" (another reading gives {rival[0]})" if rival else ""))
+        out.warning = (f"⚠ {out.index_pages} of the PDF's {room} total pages were taken for the word index, more "
+                       f"than a quarter: check the count" + (f" (another reading gives {rival[0]})" if rival else ""))
     elif any(len(votes[n]) >= 2 for n in out.others):
         other = next(n for n in out.others if len(votes[n]) >= 2)
         too_much = "" if other in passing else "; that leaves more than a quarter of the PDF to the index"
-        out.warning = (f"⚠ the PDF reads as {best} pages ({READINGS[out.how]}) or {other} "
+        out.warning = (f"⚠ the PDF reads as {best} total pages ({READINGS[out.how]}) or {other} "
                        f"({READINGS[votes[other][0]]}{too_much}): check the count")
     elif "scan" in readings and out.how != "scan":
         scanned = readings["scan"]
         if scanned < best and _index_run(facts[scanned:best]) >= 2:  # (one exhibit list is no word index)
-            out.warning = (f"⚠ the PDF reads as {best} pages ({READINGS[out.how]}) or {scanned} "
+            out.warning = (f"⚠ the PDF reads as {best} total pages ({READINGS[out.how]}) or {scanned} "
                            f"({READINGS['scan']}): pages in between look like the word index, check the count")
         else:
             why = ("the word index looked too long" if room - scanned > limit
-                   else f"the first reading gave {scanned}")
+                   else f"the first reading gave {scanned} total pages")
             out.note = f"counted from {READINGS[out.how]}: {why}"
     out.confidence = 0.55 if out.warning else 0.8 if out.note else 0.95
     return out

@@ -349,6 +349,11 @@ def _take_launches(app, win, single, files: list[str]) -> None:
         timer.start()
 
     def drop() -> None:
+        # Known and left as it is (the user, 2026-10-29: "just don't even worry about it"): files handed over in
+        # the GATHER_MS before the window's X is clicked are still waiting here when the close begins; the close
+        # confirmed ("Still working... Close anyway?"), they go with the window, unopened. Nothing is lost (the
+        # files are where they were: opened again, they come in) and nothing is billed, and it takes a double-
+        # click and a close within half a second of each other.
         if QApplication.activeModalWidget() is not None:
             timer.start()  # try again once the question is answered
             return

@@ -110,7 +110,7 @@ then (<a href="topic:make-preview">more</a>).</li>
 <ul>
 <li><b>The drop zone</b> (top left): drop documents on it, or anywhere in the window. Once a document is read it
 becomes one slim row (<i>Drop more here, or Browse…</i>).</li>
-<li><b>The job list</b> (left): each job's case, date and day, pages and your pages, with ✓ for a job already made and ⚠ for
+<li><b>The job list</b> (left): each job's case, date and day, total pages and your pages, with ✓ for a job already made and ⚠ for
 one with something to check (<a href="topic:batch-job-list">more</a>).</li>
 <li><b>The form</b> (right): its cards follow the job, top to bottom: <i>Case</i>, <i>Who ordered</i> (who
 ordered, what and at what speed), <i>Pages and dates</i>, then, when an invoice is to be made, <i>Invoice</i> and
@@ -167,8 +167,8 @@ records.</li>
       "pdf transcript invoice photo picture image scan email word docx txt html web page msg outlook file types",
       """
 <ul>
-<li><b>Transcript PDFs</b>: the best input. The case details come from the title page, and the page count is what
-the invoice bills (your own pages, when several reporters wrote it).</li>
+<li><b>Transcript PDFs</b>: the best input. The case details come from the title page. The transcript's total pages (every
+reporter's) are counted, and the invoice bills your pages (your own, when several reporters wrote it).</li>
 <li><b>Other PDFs</b>: an invoice, a scanned order, a printed e-mail. Scans are read by Windows' text
 recognition.</li>
 <li><b>Photos and screenshots</b>: JPG, PNG, iPhone HEIC, TIFF, BMP, WebP (<a href="topic:input-photos">more</a>).</li>
@@ -220,7 +220,7 @@ What they say is combined.</p>
 <p>Each field has a badge saying where its value came from:</p>
 <ul>
 <li><b>found</b>: found in the document;</li>
-<li><b>PDF</b>: counted from the transcript PDF itself (the page count);</li>
+<li><b>PDF</b>: counted from the transcript PDF itself (the total page count, every reporter's pages);</li>
 <li><b>records</b>: a case name an earlier job with the same index number has in your records. It is a suggestion,
 always highlighted, and Generate asks you to confirm it;</li>
 <li><b>AI</b>: suggested by the <a href="topic:ai-what">AI helper</a>;</li>
@@ -240,7 +240,7 @@ as <i>⚠ 1 missing, 2 to check: Index Number is missing ›</i>:</p>
 <ul>
 <li><b>missing</b>: a required field is blank;</li>
 <li><b>to check</b>: the job's own checks (nobody ticked, two rows that may be one firm, a speed to choose,
-Whose pages… or Who ordered which pages… to decide) and the warnings under the fields (a page count to check, a date on a weekend
+Whose pages… or Who ordered which pages… to decide) and the warnings under the fields (a total page count to check, a date on a weekend
 or a court holiday);</li>
 <li><b>to review</b>: guesses (amber fields).</li>
 </ul>
@@ -248,7 +248,7 @@ or a court holiday);</li>
 lights up. The <b>Before you generate</b> box at the top of the form lists them all, each a link to its place. The
 job list shows the same with a ⚠ on the job (<a href="topic:batch-job-list">more</a>).</p>
 """),
-    T("check-pages", CHECK, "The page count (Est. number of pages)",
+    T("check-pages", CHECK, "The total page count (Est. number of pages)",
       "pages count number of pages word index min-u-script estimate typed amber warning concordance",
       """
 <p><i>Est. number of pages</i> is counted from the transcript PDF when there is one: every page, whoever wrote it,
@@ -310,7 +310,7 @@ are ordered. A box half filled is a firm that ordered some days or pages only.</
 pages…</i>, which opens <a href="topic:exc-table">Who ordered which pages…</a>, the table of every day and every firm. A firm that
 ordered some days says which: <i>6/3/2026 and 6/5/2026</i>, <i>part of 6/4/2026</i>.</li>
 <li><b>Speed</b>: the speed the firm is billed, by name (<a href="topic:inv-who-ordered">more</a>).</li>
-<li><b>Pages</b>: the pages its invoice bills: <i>412</i>, or <i>300 of 412</i> when some are another
+<li><b>Your pages</b>: the pages its invoice bills: <i>412</i>, or <i>300 of 412 total</i> when some are another
 reporter's.</li>
 <li>Clicking a half-filled box makes it the whole trial; the next click, none; the next puts back the days it
 had.</li>
@@ -368,6 +368,8 @@ case it says which, <i>Generate 6/4/2026 only</i>.</li>
 </ul>
 <p>Each button's tooltip lists the files it makes (<i>2 minute agreement forms, 2 invoices, 3 PDFs of the
 math</i>).</p>
+<p>While documents are still being read (the bar at the top), both wait, and so does <i>Save</i> in the preview: a
+box asks you to press again once the reading is done.</p>
 <p>Both show a <a href="topic:make-preview">preview</a> first. Your choices are remembered, except <i>Show granular
 detail</i>, which is set for each job. Settings → Options → <i>Make by default</i> says what new jobs start with.
 <i>Run sheet</i> ticks itself when two or more reporters wrote a case's transcripts; click it to decide
@@ -521,7 +523,7 @@ each (with Rounding at <i>Exact</i>, as at first). When firms ordered different 
 full, a stretch shared with others split (<a href="topic:exc-table">more</a>). How a fraction of a cent is rounded:
 <a href="topic:inv-rounding">Rounding</a>.</p>
 <p>Like most reporters' invoices, it shows only each speed's amount, with your turnaround and payment details.
-<a href="topic:inv-granular">Granular detail</a> adds the pages and prices. <a href="topic:inv-math">The math</a>
+<a href="topic:inv-granular">Granular detail</a> adds your pages billed and the prices. <a href="topic:inv-math">The math</a>
 spells out every charge.</p>
 """),
     T("inv-no-transcript", INVOICE, "An invoice without a transcript",
@@ -579,7 +581,7 @@ Generate asks. Your defaults for every invoice are in
 <p><b>Peripherals…</b> in the Invoice card sets, for this job only:</p>
 <ul>
 <li><b>the e-mailed copy</b> for each party (some attorneys skip it to save money);</li>
-<li><b>the index</b>: <i>Auto</i> (when the whole transcript has 50 pages or more), <i>Yes, for this job</i> (a short
+<li><b>the index</b>: <i>Auto</i> (when the whole transcript has 50 total pages or more), <i>Yes, for this job</i> (a short
 transcript too) or <i>No, for this job</i>.</li>
 </ul>
 <p>New jobs start from Settings → Invoice. The <i>Includes</i> line says what this job's invoice gets and why.</p>
@@ -587,15 +589,15 @@ transcript too) or <i>No, for this job</i>.</li>
     T("inv-index", INVOICE, "When there is an index",
       "index word index concordance threshold 50 pages judge's index several days shared pages no index price",
       """
-<p>An index is charged when the <b>whole transcript</b> has 50 pages or more, every reporter's pages counted, though
-each invoice charges it on its own pages: your 45 pages of an 83-page transcript get one, charged on your 45.</p>
+<p>An index is charged when the <b>whole transcript</b> has 50 total pages or more (every reporter's pages), though
+each invoice charges it on its own pages: your 45 pages of 83 total pages get one, charged on your 45.</p>
 <ul>
 <li>The 50 is Settings → Invoice → <i>Add an index (and one for the judge) from</i>.</li>
 <li><b>Index on several days</b>: by default, once any day of a case reaches it, every day gets an index; it can be
 each day on its own, or the days together.</li>
 <li><b>Index on shared pages</b>: each firm pays its own (the default), or one index split between the firms.</li>
 <li><a href="topic:inv-peripherals">Peripherals…</a> says yes or no for one job.</li>
-<li>A page count you typed below the transcript's own, when the two would decide differently: Generate asks.</li>
+<li>A page count you typed below the transcript's total pages, when the two would decide differently: Generate asks.</li>
 <li>A rate sheet with no index price for the speeds offered: no index can be charged, and Generate says so.</li>
 </ul>
 """),
@@ -604,7 +606,7 @@ each day on its own, or the days together.</li>
       """
 <p>Without granular detail, the invoice lists each speed with its turnaround and the amount due. Tick
 <b>Show granular detail</b> in the Invoice card (for this job; it starts unticked for every new job) to add what
-<b>Customize…</b> chooses: the page count, the pages of each day, the price per page, the charges that make up each
+<b>Customize…</b> chooses: your page count, your pages of each day, the price per page, the charges that make up each
 amount and the split between the parties.</p>
 <p>Settings → Invoice → <i>Also save a detailed copy of each invoice</i> saves "… (detailed).pdf" next to each
 invoice: the same invoice, with the same number, with the granular detail. It isn't opened, printed or recorded
@@ -624,7 +626,7 @@ own (DS-2026-0001).</p>
 """),
     T("inv-who-pays", INVOICE, "Who pays what", "who pays what card each firm share amount per page alone shared",
       """
-<p>The <b>Who pays what</b> card, under the Invoice card, sums up each firm's invoice: its pages, how it ordered them
+<p>The <b>Who pays what</b> card, under the Invoice card, sums up each firm's invoice: its pages billed (yours), how it ordered them
 (<i>70 alone + 50 shared by 2</i>) and what it pays at each speed offered, in all and per page, for every day
 ticked in the job list. It follows every tick at once: days, attorneys, speeds, Parties, Peripherals… and
 Who ordered which pages…. With more than one invoice (a day invoiced already beside one still to bill, or several cases), each has
@@ -645,8 +647,8 @@ firm, it is the Speed of the forms at the top of the card (<i>Expedite</i>), and
 ordering alone shows <i>They choose: Regular or Expedite</i>: its invoice lists each speed offered. Choose a speed
 in the row and it is the firm's for every day of the trial; <i>Several (set in Who ordered which pages…)</i> when its days or
 pages differ.</li>
-<li><b>Pages</b>: how many of its pages are billed: on a transcript of several reporters only yours; <i>0 of 40: no
-invoice</i> when none of them are; <i>(typed)</i> when it is the Pages field's number.</li>
+<li><b>Your pages</b>: how many of its pages are billed: on a transcript of several reporters only yours; <i>0 of 40
+total: no invoice</i> when none of them are; <i>(typed)</i> when it is the Pages field's number.</li>
 </ul>
 <p>The line under the table says who orders what at which speed, then what Generate all bills: the days invoiced
 already (✓), those unticked in the job list, a day nobody ordered (no invoice for the case until someone does) and
@@ -716,7 +718,8 @@ the foot;</li>
 <li><b>Show when</b>: always, or only when it applies: more than one party ordered, one speed or several are
 offered, it covers several days, the attorney ordered an excerpt, and more.</li>
 </ul>
-<p>Texts can use placeholders such as <code>{case}</code>, <code>{index}</code>, <code>{pages}</code>,
+<p>Texts can use placeholders such as <code>{case}</code>, <code>{index}</code>, <code>{pages}</code> (your pages
+billed), <code>{total_pages}</code> (total pages, every reporter's),
 <code>{parties}</code> and <code>{bill_to}</code>; <code>{transcript} {is}</code> gives "transcript is" or
 "transcripts are". By default they are the notes the invoice always had, such as <i>The transcript is delivered once
 every party has paid</i> when several parties ordered, and your payment details. <b>Preview…</b> shows a made-up
@@ -728,7 +731,7 @@ invoice with your text; <b>Restore defaults</b> brings back the first ones.</p>
       """
 <p><b>The math</b> shows how each amount is reached, in tables:</p>
 <ul>
-<li><b>By invoice</b>: a row for each charge, with its pages, rate and cost, how it is paid and what this firm pays
+<li><b>By invoice</b>: a row for each charge, with its pages billed, rate and cost, how it is paid and what this firm pays
 (<i>Original | 59 | $5.40 | $318.60 | Each firm splits this cost (÷ 4) | $79.65</i>);</li>
 <li><b>Firms side by side</b>: a column for each firm.</li>
 </ul>
@@ -779,8 +782,9 @@ half a cent a page ($6,612.50 there, $6,610.00 here, for 1,000 pages).</p>
 pages…</b> (the button under the firms in Who ordered, or
 <i>Some days or pages…</i> in a firm's <i>What</i>). It is one table for every day of the case on that invoice (every day ticked, as a rule):</p>
 <ul>
-<li>each row is a <b>run of pages</b> of a day, typed in the transcript's own printed page numbers
-(<i>141-170</i>); the rows around a run you type make room for it;</li>
+<li>each row is a <b>run of pages</b> of a day, typed in its <b>Page numbers</b> cell in the transcript's own
+printed page numbers (<i>141-170</i>); the rows around a run you type make room for it. A job of several days is
+ordered whole: its cell shows the page numbers printed on its transcripts;</li>
 <li>each firm has a box: <b>tick the firms that ordered the run</b>. At first every ticked firm ordered every
 page;</li>
 <li><b>Split run</b> cuts a run in two. <b>Remove run</b> (or the Delete key, or a right-click) gives its pages to the
@@ -792,7 +796,7 @@ firm pays; under it, what each group of firms ordering
 together pays and each firm's invoice, as you type. Pages ordered together split the original and the judge's
 index; each firm pays its own copy, e-mailed copy and index. A run nobody ticks is billed to nobody.</p>
 <p>The <b>?</b> beside the button, and the one at the top of the window, show these steps in short.
-The window stays open beside the main window and follows what you change there. When the day's page count changes
+The window stays open beside the main window and follows what you change there. When the day's total page count changes
 so that the rows no longer end on its last page, the <i>Prices</i> line says <i>Who ordered which pages… needs checking</i> and no
 invoice is made for that day until you fix them.</p>
 <p>Example (no index): with $4.30 originals and $1.00 copies and e-mailed copies, 40 pages ordered by Dana Smith
@@ -810,6 +814,8 @@ ordered the run;</li>
 <li><b>Total pages transcribed</b>: every reporter's pages of the run;</li>
 <li><b>Total pages billed</b>: every reporter's pages of the run, when a firm ordered it.</li>
 </ul>
+<p>Under the table, each group of firms ordering together says both counts too: <i>43 of your pages billed
+(93 total pages)</i>.</p>
 <p><b>Columns ▾</b> (or a right-click on the table's headings) hides the counts you don't need. A <i>?</i> means
 which pages are yours can't be told yet: set your initials in Settings → My info, or say whose the first pages are
 under Whose pages….</p>
@@ -934,10 +940,12 @@ loosely too</i> to have numbers found only as typed.</li>
     T("rec-columns", RECORDS, "Choosing the columns", "columns show hide add sort heading pages speed ordered excerpt",
       """
 <p>Click <b>Columns…</b> (or right-click a column heading) to choose what each table shows; the choice is remembered.
-Invoices can show the court, part, judge and dates, the firm and e-mail, the pages billed, your pages and the
-transcript's pages, who wrote how many ("PR 65, DS 85"), the excerpt ordered, the parties, the speeds offered, the
+Invoices can show the court, part, judge and dates, the firm and e-mail, your pages billed, your pages transcribed and
+the total pages transcribed (every reporter's), who wrote how many ("PR 65, DS 85"), the excerpt ordered, the parties, the speeds offered, the
 <b>speed ordered</b> (the one paid for), the e-mailed copy and index, the amounts, the status and payment, notes and
 the file.</p>
+<p><i>Everything made</i> shows the <i>Pages on the file</i> (what each file counts: the pages ordered on a minute
+agreement or MOFR, those billed on an invoice), your pages transcribed and the total pages transcribed.</p>
 <p>Click a heading to sort by it. <i>Back to the usual columns</i> resets them.</p>
 """),
     T("rec-reopen", RECORDS, "Opening a job again", "reopen open again corrected invoice another day past job previous "
@@ -971,11 +979,11 @@ closed or a backup is restored.</p>
     T("rec-summary", RECORDS, "Summary and monthly recaps",
       "summary recap month year total income earnings how much made average per page report",
       """
-<p><b>Summary…</b> sums up this or last month, this or last year, or all time: invoices made, pages billed, billed,
+<p><b>Summary…</b> sums up this or last month, this or last year, or all time: invoices made, your pages billed, billed,
 paid, still owed, payments received in the period, the average per page and per invoice, and the firms billed most.
 <b>Copy</b> puts it on the clipboard.</p>
 <p>The first time you open Records in a month, a box says what last month came to ("Last month (September 2026) you
-made $870.00 with 243 pages (5 invoices)."), and the first time in a year, last year too. <i>Don't show me monthly or
+made $870.00 with 243 of your pages billed (5 invoices)."), and the first time in a year, last year too. <i>Don't show me monthly or
 annual recaps anymore</i> stops them; Settings → Options → <i>Recaps</i> turns them back on.</p>
 """),
     T("rec-backups", RECORDS, "Backups of your records", "backup restore copy lost records go back daily",
@@ -1186,10 +1194,10 @@ the Run sheet options, opens the folder of the case shown.</p>
       "correct wrong take misread initials undo only yours mine filter reporter highlight shade shading clear",
       """
 <p>The <b>Who transcribed what</b> card, at the bottom of the form, lists every take of every day ticked in the job
-list, read from the initials at the foot of the pages: the day, the reporter, the printed pages, how many, and the
-headers at the top of its pages as they are printed, each once (<i>PROCEEDINGS, DIRECT - PLAINTIFF - JANE
+list, read from the initials at the foot of the pages: the <i>Day</i>, the <i>Reporter</i>, the <i>Page numbers</i>, the <i>Pages in take</i> and the
+<i>Headers</i> at the top of its pages as they are printed, each once (<i>PROCEEDINGS, DIRECT - PLAINTIFF - JANE
 ROE</i>). Above it, what each reporter wrote in all (<i>These 3 days: Pat
-Reporter 144 pp. · DS 76 pp.</i>). It is there whenever a day ticked has a transcript, whatever outputs are
+Reporter 144 pages (you) · DS 76 pages</i>). It is there whenever a day ticked has a transcript, whatever outputs are
 ticked. It starts folded, the totals on its line: click its heading to see every take.</p>
 <p><b>Your takes</b> are shaded, your name in bold (Settings → Options → <i>Highlight your takes</i>, on at first).
 Above the table, <b>Only yours</b> shows only your takes, and a box for each reporter hides that reporter's takes
@@ -1198,7 +1206,7 @@ again.</p>
 <p><b>A take wrong?</b> When a page's initials were misread, or are missing, pages can land in the wrong take.
 Double-click the take (or right-click it → <i>Correct where this take ends…</i>), type the page it really ends on,
 and say yes in the <i>Are you sure?</i> box, which says how your pages change. The pages after it go to the next
-take, and the takes, your pages (<i>Yours</i>, the invoice) and the run sheet follow; the records of the files you
+take, and the takes, your pages (<i>Your pages</i> in the job list, the invoice) and the run sheet follow; the records of the files you
 make from then on keep the correction. A corrected take shows ✎. Right-click → <i>Undo my corrections to this
 transcript's takes</i> puts them back as the initials say. Files made already aren't changed: Generate the day again (a run sheet made already keeps its
 rows, so correct it in Excel).</p>
@@ -1258,8 +1266,8 @@ of its own, left unticked.</li>
       "warning pages yours initials footer new job undo clear sort order oldest newest heading column day of the week "
       "weekday",
       """
-<p>Each job has a row: its case, date, <i>Day</i> (the day of the week), <i>Pages</i> (the transcript's own, without
-the word index) and <i>Yours</i> (the pages with your initials at the foot of the page; <b>?</b> until it can tell).
+<p>Each job has a row: its case, date, <i>Day</i> (the day of the week), <i>Total pages</i> (every reporter's pages of the
+transcript, without the word index) and <i>Your pages</i> (the pages with your initials at the foot of the page; <b>?</b> until it can tell).
 Hover over a job for its full name, index number and documents.</p>
 <p><b>The ticks say which jobs count.</b> Every card on the right (Who ordered, Who pays what, Who transcribed
 what; the Who ordered which pages window, the ticked days of the shown day's invoice) shows every ticked job, whichever one is
@@ -1398,12 +1406,12 @@ turnaround from</i> (<a href="topic:dates-turnaround">more</a>).</li>
 <li><b>Speeds offered</b> and <b>Agreement form speed</b> (<a href="topic:inv-speeds">more</a>).</li>
 <li><b>Firms ordering the same pages</b>: <i>Bill the speed each firm's row shows</i>, or <i>Ask me each firm's speed
 at Generate</i> (<a href="topic:inv-who-ordered">more</a>).</li>
-<li><b>Granular detail shows</b>: <i>Page count</i>, <i>Pages for each day</i>, <i>Price per page</i>, <i>The charges
+<li><b>Granular detail shows</b>: <i>Your page count</i>, <i>Your pages for each day</i>, <i>Price per page</i>, <i>The charges
 in each amount</i>, <i>The split between parties</i>; and <i>Also save a detailed copy of each invoice</i>
 (<a href="topic:inv-granular">more</a>).</li>
 <li><b>Save the math</b> (<a href="topic:inv-math">more</a>).</li>
 <li><i>Each party also gets an e-mailed copy (Email column of the rate sheet)</i>; <i>Add an index (and one for the
-judge) from</i> 50 pages; <b>Index on several days</b> and <b>Index on shared pages</b>
+judge) from</i> 50 total pages; <b>Index on several days</b> and <b>Index on shared pages</b>
 (<a href="topic:inv-index">more</a>).</li>
 <li><b>Split invoices</b>: how firms that ordered the same pages at different speeds share the original
 (<a href="topic:exc-speeds">more</a>).</li>

@@ -170,6 +170,11 @@ def test_a_typed_page_count_is_the_days_pages_on_every_agreement(day, s):
     assert pages[("", "Alex B. Counsel")] == 100 and pages[(DS, "Sam Advocate")] == 30  # Dana: her own pages
     # with Excerpts... rows of the typed pages, an excerpt counts its runs of them
     day.portions = [(40, [A]), (100, [A, B])]
+    # (2.16: Dana's invoices split her pages of the 150 total pages, which rows on the 100 typed don't fit: held,
+    # not billed whole to both firms; Pat's own invoices alone fit them)
+    assert "can't end on both" in day.portions_problem()
+    for d in day.transcripts():
+        day.page_basis[d.key()] = ["me"]
     assert not day.portions_problem() and day.ordered_pages() == {A: 100, B: 60, "": 100}
 
 

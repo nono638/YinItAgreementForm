@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import __version__, courthouses
+from ..log import error as log_error
 from ..models import Attorney, FIELD_LABELS
 from ..settings import (AGREEMENT_FALLBACKS, AI_TICKS, CASE_FOLDER_EXISTING, CASE_FOLDER_PATTERN, DETAIL_ITEMS,
                         INDEX_RULES, INDEX_SHARED, MATH_SAVES, OUTPUT_FOLDERS, OUTPUTS, RECENT_JOBS_DAYS_MAX,
@@ -136,6 +137,7 @@ class SettingsDialog(QDialog):
         self.d_dir = QLineEdit(settings.rate_sheets_dir)
         from ..rates import default_dir
         self.d_dir.setPlaceholderText(str(default_dir()))
+        self.d_dir.editingFinished.connect(self._typed_sheet_dir)  # (typed, not Browsed: its sheets listed too)
         pick = QPushButton("Browse...")
         pick.clicked.connect(self._pick_sheet_dir)
         open_btn = QPushButton("Open folder")
@@ -271,8 +273,9 @@ class SettingsDialog(QDialog):
         self.o_fuzzy_numbers.setChecked(settings.fuzzy_numbers)
         f.addRow("Records search", self.o_fuzzy_numbers)
         self.o_recaps = QCheckBox("Show a recap of last month (and last year) when Records is first opened")
-        self.o_recaps.setToolTip("\"Last month you made $870.00 with 243 pages\": once a month, and once a year for "
-                                 "the year before.")
+        # (the user, 2026-10-30: every count says whose pages)
+        self.o_recaps.setToolTip("\"Last month you made $870.00 with 243 of your pages billed\": once a month, and "
+                                 "once a year for the year before.")
         self.o_recaps.setChecked(settings.recaps)
         f.addRow("Recaps", self.o_recaps)
         self.o_math = QCheckBox("Show the math of each invoice")
@@ -389,10 +392,11 @@ class SettingsDialog(QDialog):
         self.i_threshold = QSpinBox()
         self.i_threshold.setRange(1, 10000)
         self.i_threshold.setValue(settings.invoice_index_threshold)
-        self.i_threshold.setSuffix(" pages")
-        self.i_threshold.setFixedWidth(z(110))
+        # (the user, 2026-10-30: every count says whose pages): judged on every reporter's pages
+        self.i_threshold.setSuffix(" total pages")
+        self.i_threshold.setFixedWidth(z(140))
         tip = ("Counted on the whole transcript, every reporter's pages, though each invoice charges the index on\n"
-               "its own pages (your 45 of an 83-page transcript get one). A job's Peripherals… can say yes or no\n"
+               "its own pages (your 45 pages of 83 total pages get one). A job's Peripherals… can say yes or no\n"
                "for that job.")
         self.i_index.setToolTip(tip)
         self.i_threshold.setToolTip(tip)
@@ -745,6 +749,14 @@ class SettingsDialog(QDialog):
         d = QFileDialog.getExistingDirectory(self, "Rate sheets folder", self.d_dir.text() or self.d_dir.placeholderText())
         if d:
             self.d_dir.setText(d)
+            self._sheet_dir = d
+            self._load_sheet_names()
+
+    def _typed_sheet_dir(self):
+        """A sheets folder typed (or pasted) in, Enter pressed or the box left: the Rate sheet list is that
+        folder's, as after Browse..., so Save doesn't keep a sheet of the old folder with the new one."""
+        d = self.d_dir.text().strip()
+        if d != (self._sheet_dir or ""):
             self._sheet_dir = d
             self._load_sheet_names()
 
@@ -1226,6 +1238,7 @@ class SettingsDialog(QDialog):
         s.agreement_speed_first = self.i_first.currentData() or s.agreement_speed_first
         s.agreement_speed_fallback = self.i_fallback.currentData() or s.agreement_speed_fallback
         s.default_copies = self.d_copies.text().strip()
+        self._typed_sheet_dir()  # (a folder typed and Save pressed at once: the sheet is one of that folder's)
         s.rate_sheet = self.d_sheet.currentData() or s.rate_sheet
         s.rate_sheets_dir = self.d_dir.text().strip()
         for attr, spin in self.days.items():
@@ -1659,8 +1672,9 @@ class SplitSpeedsDialog(QDialog):
 
 DEFAULTS_TIP = "Your defaults for every invoice are in Settings → Invoice."
 # Peripherals... changes one job only: said at the top and the bottom of it, as it was taken for the settings
-JOB_ONLY_TIP = ("These choices are for this job only. New jobs start from Settings → Invoice, where the {n} pages "
-                "of the automatic index are set.")
+# (the user, 2026-10-30: every count says whose pages)
+JOB_ONLY_TIP = ("These choices are for this job only. New jobs start from Settings → Invoice, where the {n} total "
+                "pages of the automatic index are set.")
 
 
 def _tip(text: str) -> QLabel:
@@ -1715,12 +1729,14 @@ class InvoicePeripheralsDialog(QDialog):
         self.on_typed_box = None
         if typed:
             n, whole = typed
-            self.on_typed_box = QCheckBox(f"Judge it on the {n:,} pages you typed, not the transcript's {whole:,}")
+            # (the user, 2026-10-30: every count says whose pages)
+            self.on_typed_box = QCheckBox(f"Judge it on the {n:,} pages you typed, not the transcript's {whole:,} "
+                                          f"total pages")
             self.on_typed_box.setToolTip("Your answer when Generate asked (Est. number of pages typed below the\n"
                                          "transcript's count). Not asked yet: Generate asks. Same as Settings\n"
                                          "has it ask again.")
             self.on_typed_box.setChecked(bool(on_typed))
-        for key, label in (("auto", f"Auto: when the whole transcript has {t} pages or more"),
+        for key, label in (("auto", f"Auto: when the whole transcript has {t} total pages or more"),
                            ("on", "Yes, for this job (however short the transcript)"), ("off", "No, for this job")):
             rb = QRadioButton(label)
             rb.setProperty("key", key)
@@ -1789,7 +1805,8 @@ class InvoiceShowDialog(QDialog):
             self.boxes[key] = cb
             lay.addWidget(cb)
         lay.addSpacing(6)
-        lay.addWidget(_tip("\"Pages for each day\" is shown when the invoice covers several days. " + DEFAULTS_TIP))
+        lay.addWidget(_tip(f"\"{DETAIL_ITEMS['days']}\" is shown when the invoice covers several days. "
+                           + DEFAULTS_TIP))
         lay.addWidget(_invoice_buttons(self, self._defaults))
 
     def _defaults(self):
@@ -1934,8 +1951,12 @@ class PagesOwnerDialog(QDialog):
             self.s.reporters = {**self.s.reporters, initials: dlg.value()}
             try:
                 self.s.save()
-            except OSError:
-                pass
+            except OSError as e:
+                # (kept in the settings all the same, as Settings' own Save keeps them: saved again on closing)
+                log_error("could not save the settings", e)
+                QMessageBox.warning(self, "Could not save the settings",
+                                    f"{type(e).__name__}: {e}\n\nThese details are kept for now and saved again "
+                                    "when the app closes.")
 
     @staticmethod
     def _count(owners: list[str], targets: set[str], front: str | None) -> int:
@@ -1950,12 +1971,13 @@ class PagesOwnerDialog(QDialog):
                 front = item["front"].currentData()
             else:
                 front = found[0] if len(found) == 1 else None
-            parts = [f"{x.upper()}{' (you)' if x in self.own else ''}: {self._count(owners, {x}, front)} pp."
+            # (the user, 2026-10-30: every count says whose pages): "150 total pages · PR (you): 65 pages · ..."
+            parts = [f"{x.upper()}{' (you)' if x in self.own else ''}: {self._count(owners, {x}, front)} pages"
                      for x in found]
             unknown = sum(1 for o in owners if not o and front in (None, "none"))  # (Nobody: still no initials)
             if unknown:
-                parts.append(f"no initials: {unknown} pp.")
-            item["count"].setText(f"{len(owners)} pages · " + " · ".join(parts))
+                parts.append(f"no initials: {unknown} pages")
+            item["count"].setText(f"{len(owners)} total pages · " + " · ".join(parts))
             for value, rb in item["radios"].items():
                 n = len(owners) if value == "*" else self._count(owners, self.own if value == "me" else {value}, front)
                 rb.setText(f"{item['labels'][value]} ({n})")
@@ -2143,7 +2165,10 @@ class _PullThread(QThread):
         message."""
         try:
             import ollama
-            client = ollama.Client(host=self.host or None, timeout=None)
+            from ..extract_llm import client_options
+            # (no timeout: a model is GBs. Ollama on this computer reached directly, as every other client of it
+            # is: a proxy set up in Windows may not pass "localhost" on)
+            client = ollama.Client(host=self.host or None, timeout=None, **client_options(self.host))
             for part in client.pull(self.model, stream=True):
                 total, done = getattr(part, "total", None), getattr(part, "completed", None)
                 pct = int(done * 100 / total) if total and done else -1
@@ -2192,20 +2217,40 @@ class OllamaHelpDialog(QDialog):
         lay.addWidget(self.status)
         lay.addLayout(row)
         self.thread = None
+        # a download started before, from this help closed since, still going: shown here, and Download stays
+        # off until it ends (pressed again, it would download the model a second time beside it)
+        running = next((t for t in _BACKGROUND if isinstance(t, _PullThread) and not t.isFinished()), None)
+        if running is not None:
+            self._follow(running, "Downloading (started before)…")
 
     def _pull(self):
         """Starts the model download on a background thread and shows the progress bar."""
+        thread = _PullThread(self.model, self.host)
+        self._follow(thread, "Starting download…")
+        # kept from the start, not only when the dialog closes: the app can quit with the dialog still open
+        # (Windows logging off), and the dialog's own reference goes with it (finished downloads let go here)
+        _BACKGROUND[:] = [t for t in _BACKGROUND if not t.isFinished()] + [thread]
+        thread.start()
+
+    def _follow(self, thread: "_PullThread", status: str) -> None:
+        """Shows a download's progress here, Download greyed out until it ends (the thread's own end too: a
+        download that ended as this help opened gives Download back)."""
+        self.thread = thread
         self.pull_btn.setEnabled(False)
         self.bar.setVisible(True)
         self.bar.setRange(0, 0)
-        self.status.setText("Starting download…")
-        self.thread = _PullThread(self.model, self.host)
-        self.thread.progress.connect(self._progress)
-        self.thread.finished_ok.connect(self._done)
-        # kept from the start, not only when the dialog closes: the app can quit with the dialog still open
-        # (Windows logging off), and the dialog's own reference goes with it (finished downloads let go here)
-        _BACKGROUND[:] = [t for t in _BACKGROUND if not t.isFinished()] + [self.thread]
-        self.thread.start()
+        self.status.setText(status)
+        thread.progress.connect(self._progress)
+        thread.finished_ok.connect(self._done)
+        thread.finished.connect(self._ended)  # (a method, not a lambda: let go when this help is deleted)
+        if thread.isFinished():  # (it ended between the look in __init__ and now)
+            self._ended()
+
+    def _ended(self) -> None:
+        """The download followed ended (its message, if it reached this help, is shown by _done): Download is
+        offered again."""
+        self.bar.setVisible(False)
+        self.pull_btn.setEnabled(True)
 
     def _progress(self, status: str, pct: int):
         """Shows download progress: a percentage bar when the total is known, a busy bar otherwise."""
@@ -2261,6 +2306,9 @@ COMPONENTS = [
     ("x265 (used by pillow-heif)", "GPL-2.0-or-later", "https://www.videolan.org/developers/x265.html"),
     ("et_xmlfile (used by openpyxl)", "MIT", "https://foss.heptapod.net/openpyxl/et_xmlfile"),
     ("HTTPX (used by ollama-python)", "BSD-3-Clause", "https://www.python-httpx.org"),
+    ("httpcore, h11, anyio, idna (used by HTTPX)", "BSD-3-Clause and MIT", "https://github.com/encode/httpcore"),
+    ("certifi (used by HTTPX)", "MPL-2.0", "https://github.com/certifi/python-certifi"),
+    ("Pydantic (used by ollama-python)", "MIT", "https://docs.pydantic.dev"),
     ("OpenSSL (the look for a newer version)", "Apache-2.0", "https://www.openssl.org"),
     ("SQLite (the records)", "public domain", "https://www.sqlite.org"),
     ("Python", "PSF License", "https://www.python.org"),

@@ -499,12 +499,12 @@ def inv(no, created, pages=243, amount="870.00"):
 def test_but_whos_counting_once_in_twelve():
     invoices = [inv("2026-0001", "2026-09-03")]
     lines, _, _ = recap(invoices, date(2026, 10, 3), rng=lambda: 1 / 12 - 0.001)
-    assert lines == ["Last month (September 2026) you made $870.00 with 243 pages (1 invoice). $0.00 of it is paid so far. But who's counting?"]
+    assert lines == ["Last month (September 2026) you made $870.00 with 243 of your pages billed (1 invoice). $0.00 of it is paid so far. But who's counting?"]
     lines, _, _ = recap(invoices, date(2026, 10, 3), rng=lambda: 1 / 12)
-    assert lines == ["Last month (September 2026) you made $870.00 with 243 pages (1 invoice). $0.00 of it is paid so far."]
+    assert lines == ["Last month (September 2026) you made $870.00 with 243 of your pages billed (1 invoice). $0.00 of it is paid so far."]
     # only the monthly line: last year's never ends with it
     lines, _, _ = recap([inv("2026-0001", "2026-03-03")], date(2027, 1, 4), "2027-01", rng=lambda: 0)
-    assert lines == ["Last year (2026) you made $870.00 with 243 pages (1 invoice). $0.00 of it is paid so far."]
+    assert lines == ["Last year (2026) you made $870.00 with 243 of your pages billed (1 invoice). $0.00 of it is paid so far."]
 
 
 def test_april_fools():

@@ -270,7 +270,7 @@ def test_an_excerpt_of_none_of_my_pages_says_it_gets_no_invoice(window, tmp_path
     job.portions = [(4, [A, B]), (10, [A])]  # Dana Smith ordered pages 1-4: the other reporter's
     window._update_status()
     rows = rows_of(window)
-    assert rows["Alex B. Counsel"][3] == "6 of 10" and rows["Dana Smith"][3] == "0 of 4: no invoice"
+    assert rows["Alex B. Counsel"][3] == "6 of 10 total" and rows["Dana Smith"][3] == "0 of 4 total: no invoice"
 
 
 def test_a_day_waiting_for_whose_pages_opens_whose_pages(window, tmp_path, monkeypatch):
@@ -293,7 +293,7 @@ def test_unticking_a_day_in_the_job_list_updates_the_card(window, tmp_path):
     window.job_list.topLevelItem(window.jobs.index(second)).setCheckState(0, Qt.Unchecked)
     assert not second.include and rows_of(window)["Alex B. Counsel"][1:] == ("The whole day", "Expedite", "30")
     assert window.orders_info.text().endswith("Unticked, so left out: 6/4/2026.")
-    assert "Pages counts the pages billed" in window.orders_help.toolTip()  # (how they are billed: the ? beside it)
+    assert "Your pages counts the pages billed" in window.orders_help.toolTip()  # (how they are billed: the ? beside it)
 
 
 def run_now(self, fn, *args, on_done=None, on_error=None, on_progress=None, **kwargs):

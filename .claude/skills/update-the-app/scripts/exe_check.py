@@ -30,6 +30,12 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]  # .claude/skills/update-the-app/scripts/ -> the repository
+# Before minute_filler is imported (the made-up transcripts are made with it): its settings, records and log go
+# to a folder of this check's own, never into the user's real records.db
+run = Path(tempfile.mkdtemp(prefix="yinit-exe-check-"))
+for _name in ("APPDATA", "USERPROFILE", "HOME"):
+    os.environ[_name] = str(run / "import")
+(run / "import").mkdir()
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 import pymupdf  # noqa: E402
 from openpyxl import load_workbook  # noqa: E402
@@ -50,8 +56,8 @@ def kind(name: str) -> str:
 
 exe = ROOT / "dist" / "YinItAgreementForm" / "YinItAgreementForm.exe"
 if not exe.exists():
+    shutil.rmtree(run, ignore_errors=True)
     sys.exit(f"PROBLEM: {exe} is not there - build it first (PyInstaller)")
-run = Path(tempfile.mkdtemp(prefix="yinit-exe-check-"))
 src = run / "in"
 src.mkdir()
 transcript(src / "Transcript 6-3-2026 Roe v Poe.pdf")  # two reporters, a witness, a word index at the end
@@ -111,8 +117,9 @@ if len(rows) != 1:
     problems.append(f"one invoice should be recorded, not {len(rows)}")
 else:
     row = rows[0]
-    print("  invoice:", {k: row.get(k) for k in ("Pages", "Transcript pages", "Reporters", "Parties")})
-    if (row.get("Pages"), row.get("Transcript pages"), row.get("Parties")) != ("10", "20", "1") \
+    print("  invoice:", {k: row.get(k) for k in ("Your pages billed", "Total pages transcribed", "Reporters",
+                                                 "Parties")})
+    if (row.get("Your pages billed"), row.get("Total pages transcribed"), row.get("Parties")) != ("10", "20", "1") \
             or row.get("Date(s) of proceeding") != "6/3/2026, 6/4/2026":
         problems.append("the invoice should bill Pat's 10 of both days' 20 transcript pages (not the word index), "
                         "for one party")

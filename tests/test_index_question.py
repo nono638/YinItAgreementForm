@@ -56,7 +56,7 @@ def test_a_typed_count_is_asked_about_only_when_it_changes_the_index(tmp_path, s
     typed(job, "40")
     q = index_question([job], s)
     assert (q.jobs, q.typed, q.counted, q.transcripts) == ([job], 40, 83, 1)
-    assert (q.pdf_why, q.typed_why) == ("83 total pages, 50 or more", "40 total pages, under 50")
+    assert (q.pdf_why, q.typed_why) == ("83 total pages, 50 or more", "40 pages typed, under 50")
     assert indexed([job], s) == [True]  # (until answered: the transcript decides)
     typed(job, "60")  # an index either way: nothing to ask
     assert index_question([job], s) is None
@@ -65,7 +65,7 @@ def test_a_typed_count_is_asked_about_only_when_it_changes_the_index(tmp_path, s
     typed(job, "40")
     job.index_on_typed = True  # answered No: judged on the 40 typed
     assert index_question([job], s) is None and indexed([job], s) == [False]
-    assert index_reason(job.invoice_opts(), s) == "40 total pages, under 50"
+    assert index_reason(job.invoice_opts(), s) == "40 pages typed, under 50"
     job.index_on_typed = False  # answered Yes: judged on the transcript's 83
     assert index_question([job], s) is None and indexed([job], s) == [True]
     job.index_on_typed = None
@@ -111,7 +111,7 @@ def test_the_days_of_a_case_are_asked_about_together(tmp_path, s):
     typed(first, "40")
     q = index_question([first, second], s)
     assert (q.jobs, q.typed, q.counted) == ([first], 40, 83)
-    assert (q.pdf_why, q.typed_why) == ("a day of 83 pages, 50 or more", "no day has 50 pages")
+    assert (q.pdf_why, q.typed_why) == ("a day of 83 total pages, 50 or more", "no day has 50 pages (typed or total)")
     first.index_on_typed = True
     assert indexed([first, second], s) == [False, False] and second.index_on_typed is None
     first.index_on_typed = None
@@ -128,7 +128,7 @@ def test_each_day_on_its_own_keeps_the_other_days_index(tmp_path, s):
     typed(first, "40")
     q = index_question([first, second], s)
     assert q.jobs == [first]
-    assert (q.pdf_why, q.typed_why) == ("83 total pages, 50 or more", "40 total pages, under 50")
+    assert (q.pdf_why, q.typed_why) == ("83 total pages, 50 or more", "40 pages typed, under 50")
     first.index_on_typed = True
     assert indexed([first, second], s) == [False, True]
 
@@ -252,16 +252,15 @@ def answer(monkeypatch, *texts, other=None):
 def test_the_window_asks_and_keeps_the_answer_for_the_job(window, tmp_path, monkeypatch):
     forty_of_83(window, tmp_path)
     job = window.cur
-    assert window.inv_peripherals_info.text() == "E-mailed copy, index? Generate asks\n(40 typed, the transcript has 83)"
+    assert window.inv_peripherals_info.text() == "E-mailed copy, index? Generate asks\n(40 pages typed,\nthe transcript has 83 total pages)"
     asked = answer(monkeypatch, None)  # closed: Go back, nothing made, nothing kept
     assert not window._ask_index([[job]]) and job.index_on_typed is None
     asked = answer(monkeypatch, "No index")
     assert window._ask_index([[job]]) and job.index_on_typed is True and job.invoice_index is None
-    assert "You typed 40 pages in Est. number of pages; the transcript has 83." in asked[0]
+    assert "You typed 40 pages in Est. number of pages; the transcript has 83 total pages." in asked[0]
     assert ("Judged on the transcript, the invoice gets an index (83 total pages, 50 or more); judged on the pages "
-            "you typed, it gets none (40 total pages, under 50).") in asked[0]
-    assert window.inv_peripherals_info.text() == \
-        "E-mailed copy, no index\n(on the pages you typed: 40 total pages,\nunder 50)"
+            "you typed, it gets none (40 pages typed, under 50).") in asked[0]
+    assert window.inv_peripherals_info.text() == "E-mailed copy, no index\n(40 pages typed, under 50)"
     asked = answer(monkeypatch, "Yes, an index")
     assert window._ask_index([[job]]) and asked == [] and job.index_on_typed is True  # (answered: not asked again)
     job.index_on_typed = None
@@ -314,7 +313,7 @@ def test_peripherals_shows_and_changes_the_answer(window, tmp_path, monkeypatch)
         window._invoice_peripherals()
 
     run(lambda dlg: None)  # OK without touching it: still not answered
-    assert seen[-1] == ("Judge it on the 40 pages you typed, not the transcript's 83", False, True)
+    assert seen[-1] == ("Judge it on the 40 pages you typed, not the transcript's 83 total pages", False, True)
     assert job.index_on_typed is None
     run(lambda dlg: dlg.on_typed_box.setChecked(True))
     assert job.index_on_typed is True and window.inv_peripherals_info.text().startswith("E-mailed copy, no index")
@@ -351,10 +350,10 @@ def test_a_case_of_several_days_names_the_day_and_generate_all(window, tmp_path,
     window._show_case()
     window._update_status()
     assert window.inv_peripherals_info.text() == \
-        "E-mailed copy, index? Generate all asks\n(40 typed, the transcript has 83)"
+        "E-mailed copy, index? Generate all asks\n(40 pages typed,\nthe transcript has 83 total pages)"
     asked = answer(monkeypatch, "No index")
     assert window._ask_index([[first, second]])
-    assert "You typed 40 pages in Est. number of pages for 6/3/2026; the transcript has 83." in asked[0]
+    assert "You typed 40 pages in Est. number of pages for 6/3/2026; the transcript has 83 total pages." in asked[0]
     assert (first.index_on_typed, second.index_on_typed) == (True, None)
     window.s.invoice_index_rule = "each"
     first.index_on_typed = None

@@ -112,8 +112,10 @@ def speed_key(name: str) -> str:
 
 
 def parse_money(v) -> Decimal | None:
-    """'$1,234.5' / 4.3 / 'about 4.30 a page' -> Decimal('1234.50') etc.; None when there is no number."""
-    m = re.search(r"\d+(?:\.\d+)?", str(v if v is not None else "").replace(",", ""))
+    """'$1,234.5' / 4.3 / 'about 4.30 a page' -> Decimal('1234.50') etc.; '.50' and '$.75' are cents
+    (Decimal('0.50')), not 50 and 75; None when there is no number."""
+    # A number may start with its dot: a rate sheet's '.50' is fifty cents, never $50 a page.
+    m = re.search(r"\d*\.\d+|\d+", str(v if v is not None else "").replace(",", ""))
     return Decimal(m.group()).quantize(Decimal("0.01"), ROUND_HALF_UP) if m else None
 
 

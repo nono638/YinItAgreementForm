@@ -530,7 +530,8 @@ def _save(wb, path: Path) -> None:
     """Saves in one step: a run sheet open in Excel stays as it was (PermissionError). Dropbox or OneDrive may
     hold the file for a moment while they sync it, so a locked file is tried again a few times first."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.stem + ".saving.xlsx")
+    # each copy of the app and each thread its own: two saving at once must not write or delete one another's
+    tmp = path.with_name(f"{path.stem}.saving-{os.getpid()}-{threading.get_ident()}.xlsx")
     try:
         wb.save(tmp)
         for attempt in range(3):
@@ -595,8 +596,12 @@ def _read_ours(ws) -> list[Row]:
             continue
         pages = _number(v["pages"])
         start = v["start"]
-        if not isinstance(start, (int, float)) or isinstance(start, bool):  # a formula: the page after the row above
+        if _is_formula(start):  # a formula: the page after the row above
             start = prev_end + 1 if prev_end is not None else None
+        elif not isinstance(start, (int, float)) or isinstance(start, bool):
+            # blank or text ("TBD"): no first page. Counting on from the row above would give the row pages it
+            # never had (a scan's take, "not found"), so a later take on them would be skipped as already there.
+            start = None
         day = to_date(v["date"])
         # what was typed is written back as it was: a formula, or a date or page count that isn't one ("TBD").
         # (Text that starts with "=", a running head "== DIRECT ==" kept as text, is no formula: _as_text)
@@ -1227,8 +1232,13 @@ def _append_theirs(path: Path, opts: RunSheetOpts) -> None:
         return to_date(vals.cell(r, cols["date"]).value) if _is_formula(v) else to_date(v)
 
     def pages_at(r: int) -> int | None:
+        # a number, a sum typed in ("=25-1+1") or, for any other formula, the value Excel last saved for it
         p = get(r, "pages")
-        return int(p) if isinstance(p, (int, float)) and not isinstance(p, bool) and p > 0 else None
+        n = _number(p)
+        if n is None and _is_formula(p):
+            n = num(r, "pages")
+            n = int(n) if n is not None else None
+        return n if n is not None and n > 0 else None
 
     # what is on it: the rows with a reporter or pages (the page numbers worked out where not saved)
     old, last, prev_end = [], head, None
@@ -1239,7 +1249,7 @@ def _append_theirs(path: Path, opts: RunSheetOpts) -> None:
             continue
         start = get(r, "start")
         start = start if isinstance(start, (int, float)) and not _is_formula(start) else num(r, "start")
-        if start is None and prev_end is not None:
+        if start is None and prev_end is not None and _is_formula(get(r, "start")):  # a formula never saved
             start = prev_end + 1
         row = Row(day_at(r), str(get(r, "reporter") or ""), pages, int(start) if start else None)
         end = num(r, "end")

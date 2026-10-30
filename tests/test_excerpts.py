@@ -68,7 +68,7 @@ def test_the_runs_of_a_day_typed_in_its_printed_numbers(tmp_path, s):
     assert [(r.start, r.end) for r in runs] == [(1, 8), (9, 18), (19, 40)]
     runs = carve(runs, 1, 5, 25)  # widened over the runs around it
     assert [(r.start, r.end) for r in runs] == [(1, 4), (5, 25), (26, 40)]
-    assert d1.span(5, 25) == "105–125" and d1.place(5, 25) == "5–25 of 40"
+    assert d1.span(5, 25) == "105–125" and d1.place(5, 25) == "5–25 of 40 total pages"
 
 
 @pytest.mark.usefixtures("split_orders_choose")
@@ -146,6 +146,20 @@ def test_the_index_of_a_job_of_two_dates_is_priced_as_the_invoices_do(tmp_path, 
     (keys, pages, each), = p.groups
     assert pages == 60 and each["Regular"] == Decimal("249")
     assert [amounts["Regular"] for _, amounts in p.firms] == [Decimal("249.00")] * 2
+
+
+def test_a_job_of_two_dates_shows_the_page_numbers_printed_on_its_transcripts(tmp_path, s):
+    """A job of several days is ordered whole: its Page numbers cell showed its billed pages counted from 1
+    ("1–50"), read as page numbers. It shows the numbers printed on its transcripts, as read from the PDFs (the
+    user, 2026-10-30), each transcript's stretch."""
+    s.batch_combine_dates = True
+    docs, errors = read_docs([str(transcript_pdf(tmp_path / "D1.pdf", 30)),
+                              str(transcript_pdf(tmp_path / "D2.pdf", 20, date="June 4, 2026"))], s)
+    jobs = group(docs, s)
+    (day,) = case_days(jobs)
+    assert not day.splittable and day.pages == 50
+    assert day.span(1, day.pages) == "101–130, 101–120"
+    assert day.place(1, day.pages) == "every page (several days)"
 
 
 @pytest.mark.usefixtures("split_orders_choose")
@@ -303,7 +317,7 @@ def test_the_excerpts_window_follows_the_table_and_the_main_window(window, tmp_p
     w = window.excerpts
     assert w.isVisible() and [r.day.label for r in w.runs] == ["6/3/2026", "6/4/2026"]
     heads = [w.table.horizontalHeaderItem(c).text() for c in range(w.table.columnCount())]
-    assert heads[:6] == ["Date", "Weekday", "Pages", "Place in the day", "Alex B. Counsel", "Dana Smith"]
+    assert heads[:6] == ["Date", "Weekday", "Page numbers", "Place in the day", "Alex B. Counsel", "Dana Smith"]
     assert "Each pays · Regular" in heads and w.table.isColumnHidden(PLACE)  # the place is off by default
     w.table.item(0, PAGES).setText("121-140")  # Dana's excerpt of day 1: typed in the printed numbers
     assert [w.table.item(r, PAGES).text() for r in range(3)] == ["101–120", "121–140", "101–120"]
@@ -313,8 +327,9 @@ def test_the_excerpts_window_follows_the_table_and_the_main_window(window, tmp_p
     assert [w.table.item(r, DATE).font().italic() for r in range(3)] == [False, True, False]
     w.table.item(0, FIRST_FIRM + 1).setCheckState(Qt.Unchecked)  # Dana didn't order pages 101-120
     assert window.jobs[0].portions == [(20, [A.key()]), (40, [A.key(), B.key()])]
-    assert "Alex B. Counsel only: 20 pp." in w.summary.text()  # (day 2: both firms)
-    assert "Alex B. Counsel + Dana Smith: 40 pp." in w.summary.text() and "each of the 2 pays" in w.summary.text()
+    assert "Alex B. Counsel only: 20 of your pages billed (20 total pages)" in w.summary.text()  # (day 2: both)
+    assert "Alex B. Counsel + Dana Smith: 40 of your pages billed (40 total pages)" in w.summary.text()
+    assert "each of the 2 pays" in w.summary.text() and " pp." not in w.summary.text()
     assert "(÷ 2)" in w.table.item(1, w.table.columnCount() - 1).text()
     w.table.item(1, PAGES).setText("90-95")  # not a page of the day: said, and nothing changes
     assert "101–140" in w.problem.text() and window.jobs[0].portions == [(20, [A.key()]), (40, [A.key(), B.key()])]

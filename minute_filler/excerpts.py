@@ -14,7 +14,8 @@ Settings.invoice_index_rule says (with "any", another day of the invoice reachin
 firm that ordered 10 pages of a 100-page day pays an index of its 10 pages.
 
 prices() works out, as the table is changed, what each run costs each firm that ordered it, what each set of
-firms ordering together pays for its pages ("A + B: 15 pp., each pays ..."), and each firm's invoice.
+firms ordering together pays for its pages ("A + B: 15 of your pages billed (30 total pages) - each of the 2
+pays ..."), and each firm's invoice.
 
 Each firm on a run ordered it at a speed (Run.speeds; the day's, Job.speeds, unless the run has its own). A
 firm billed alone may leave it unset and choose from its invoice; firms that ordered a run together commit to
@@ -41,7 +42,8 @@ from .settings import Settings
 class Day:
     """One day of the case: its job, its date, the pages Excerpts splits (Job.portion_pages; a job of several
     days: all its billed pages, Job.invoice_pages) and the number printed on each of them (Job.printed_pages:
-    [] when not known, None for a page whose number isn't)."""
+    [] when not known, None for a page whose number isn't; a job of several days: every page of its
+    transcripts, Job.page_numbers, which only show)."""
     job: Job
     label: str
     pages: int
@@ -56,14 +58,23 @@ class Day:
 
     def span(self, a: int, b: int) -> str:
         """Pages a..b of the day (places, from 1) as the table shows them: '358–377' in the printed numbers when
-        they are known, else '1–20'."""
+        they are known, else '1–20'. A job of several days, ordered whole: the numbers printed on its
+        transcripts, as read ('236–461, 654–848'), not a count of its billed pages ('1–268' read as page
+        numbers: the user, 2026-10-30)."""
+        if not self.splittable:
+            return number_spans(self.printed) or "(not printed)"
         if self.numbered:
             a, b = self.printed[a - 1], self.printed[b - 1]
         return f"{a}–{b}" if a != b else str(a)
 
     def place(self, a: int, b: int) -> str:
-        """Pages a..b by their place in the day: '1–20 of 85'."""
-        return f"{a}–{b} of {self.pages}" if a != b else f"{a} of {self.pages}"
+        """Pages a..b by their place in the day: '1–20 of 85 total pages' (every reporter's: the pages split are
+        every page of the day's transcripts), '1–20 of 85 pages typed' when the Pages field was typed in (the
+        user's own count); a job of several days is ordered whole."""
+        if not self.splittable:
+            return "every page (several days)"
+        of = f"of {self.pages} pages typed" if self.job.pages_typed() else f"of {self.pages} total pages"
+        return f"{a}–{b} {of}" if a != b else f"{a} {of}"
 
     def parse(self, text: str) -> tuple[int, int]:
         """A run as typed ('141-170', '141 – 170', '141'), in the printed numbers when they are known, as
@@ -87,6 +98,20 @@ class Day:
         if a < 1 or b > self.pages:
             raise ValueError(f"{self.label} has pages 1–{self.pages}")
         return a, b
+
+
+def number_spans(printed: list) -> str:
+    """Printed page numbers as the stretches they run in: '236–461, 654–848' (a page without a known number
+    is left out and ends a stretch); "" when none is known."""
+    spans: list[list[int]] = []
+    prev = None
+    for n in printed:
+        if n is not None and prev is not None and n == prev + 1:
+            spans[-1][1] = n
+        elif n is not None:
+            spans.append([n, n])
+        prev = n
+    return ", ".join(f"{a}–{b}" if a != b else str(a) for a, b in spans)
 
 
 def _after(printed: list[int], n: int) -> int:
@@ -124,7 +149,7 @@ def case_days(group: list[Job]) -> list[Day]:
         days = job.invoice_days()
         label = days[0][0] if len(days) == 1 else job.case.get("dates") or job.title()
         out.append(Day(job, label or "(no date)", job.portion_pages() if len(days) == 1 else job.invoice_pages(),
-                       job.printed_pages() if len(days) == 1 else [], len(days) == 1))
+                       job.printed_pages() if len(days) == 1 else job.page_numbers(), len(days) == 1))
     return out
 
 
@@ -284,7 +309,8 @@ def billed_in(day: Day, run: Run) -> int:
 @dataclass
 class Counts:
     """A run's pages, as the Who ordered window counts them (the user, 2026-10-29: "Pages billed" read as every
-    reporter's): the user's own invoice bills (0 when nobody ordered the run); the user wrote (None when that
+    reporter's): the user's own invoice bills (0 when nobody ordered the run, or when Whose pages... bills other
+    reporters' pages only: no invoice of the user's is made); the user wrote (None when that
     can't be told: a transcript of several reporters while the user's initials aren't known, or whose first pages
     Whose pages... hasn't said whose they are, or the Pages field typed in); every reporter's; every reporter's a
     firm ordered."""
@@ -314,13 +340,16 @@ def count_runs(runs: list[Run]) -> dict[int, Counts]:
                 masks[id(day)] = (None, None, (job.billed_by("me").invoice_pages(), mine, total))
         billed, yours, whole = masks[id(day)]
         ordered = bool(run.keys)
+        # (Whose pages... bills other reporters only: no invoice of the user's bills these pages, typed in or not;
+        # billed_by("me") of a day typed in would still count the typed number)
+        mine_billed = "me" in day.job.bill_reporters()
         if day.splittable:
             n = run.end - run.start + 1
             mine = sum(yours[run.start - 1:run.end]) if yours is not None else None
             own = sum(billed[run.start - 1:run.end]) if billed is not None else n
         else:
             own, mine, n = whole
-        out[id(run)] = Counts(own if ordered else 0, mine, n, n if ordered else 0)
+        out[id(run)] = Counts(own if ordered and mine_billed else 0, mine, n, n if ordered else 0)
     return out
 
 
@@ -344,6 +373,9 @@ class Prices:
     # (the speed a firm is priced at while none is set for it: the agreement form's, see invoice.default_speed)
     fallback: str = ""
     committed: set[str] = field(default_factory=set)  # the firms whose invoice bills the speeds they ordered
+    # the runs (by id) of each set in groups and ordered_groups, by its firm keys (or its (key, speed) pairs): the
+    # window counts their pages as count_runs does, yours and every reporter's
+    members: dict[tuple, list[int]] = field(default_factory=dict)
 
 
 def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
@@ -427,6 +459,7 @@ def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
             at.setdefault(tuple((k, out.ordered[id(r)][k][0]) for k in keys), []).append(r)
         elif id(r) in out.runs:
             together.setdefault(keys, []).append(r)
+    out.members = {keys: [id(r) for r in rs] for keys, rs in (*together.items(), *at.items())}
     for keys, rs in together.items():
         shares = [x for r in rs for x in shares_of(r)]
         out.groups.append((keys, sum(x.pages for x in shares),

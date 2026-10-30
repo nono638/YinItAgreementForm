@@ -6,7 +6,9 @@ from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.win32.versioninfo import (VSVersionInfo, FixedFileInfo, StringFileInfo, StringTable,
                                                  StringStruct, VarFileInfo, VarStruct)
 
-VERSION = re.search(r'__version__\s*=\s*"([^"]+)"', Path("minute_filler/__init__.py").read_text()).group(1)
+# (by the spec's own folder, not where the build was started from; SPECPATH is PyInstaller's)
+VERSION = re.search(r'__version__\s*=\s*"([^"]+)"',
+                    Path(SPECPATH, "minute_filler", "__init__.py").read_text(encoding="utf-8")).group(1)
 nums = tuple(int(x) for x in (VERSION.split(".") + ["0"] * 4)[:4])
 version_info = VSVersionInfo(
     ffi=FixedFileInfo(filevers=nums, prodvers=nums),

@@ -48,7 +48,7 @@ def wait(win, until, seconds=30):
 
 
 def cells(item) -> list[str]:
-    """A row's text in every column: Case / file, Date, Day, Pages, Yours."""
+    """A row's text in every column: Case / file, Date, Day, Total pages, Your pages."""
     return [item.text(c) for c in range(len(JOB_COLS))]
 
 
@@ -85,13 +85,31 @@ def test_a_transcript_of_two_reporters_shows_the_pages_you_wrote(window, tmp_pat
     assert row.text(JOB_YOURS) == "?"
 
 
+def test_every_page_count_says_whose_pages(window, tmp_path):
+    """The user, 2026-10-30: a transcript is often written by several reporters, so a count says whose pages: the
+    job list's headings, Who ordered's and Who transcribed what's columns, the Invoice card's line (the pages it
+    bills: the user's own) and each reporter's total under the takes, the user's marked."""
+    from minute_filler.gui.main_window import ATT_COLS, ATT_PAGES, TAKE_COLS
+    pdf = transcript_pdf(tmp_path / "shared.pdf", pages=30, initials=["pr"] * 18 + ["ds"] * 12)
+    window.add_files([str(pdf)])
+    wait(window, lambda: len(window.cur.docs) == 1)
+    head = window.job_list.headerItem()
+    assert [head.text(c) for c in (JOB_PAGES, JOB_YOURS)] == ["Total\npages", "Your\npages"]  # (a narrow list)
+    assert ATT_COLS[ATT_PAGES] == "Your pages" and TAKE_COLS[3] == "Pages in take"
+    window.output_boxes["invoice"].setChecked(True)
+    window._refresh_outputs()
+    assert window.inv_info.text().startswith("18 of your pages")
+    window._update_status()
+    assert window.takes_info.text() == "This day: Pat 18 pages (you) · DS 12 pages"
+
+
 def test_pages_typed_in_are_yours(window, tmp_path):
     window.add_files([str(transcript_pdf(tmp_path / "t.pdf", pages=30))])
     wait(window, lambda: len(window.cur.docs) == 1)
     window.rows["est_pages"].choose("12")
     row = row_of(window, window.cur)
     assert cells(row)[JOB_PAGES:] == ["30", "12"]
-    assert "Yours: the 12 pages typed in Est. number of pages" in row.toolTip(0)
+    assert "Your pages: the 12 pages typed in Est. number of pages" in row.toolTip(0)
 
 
 def test_a_job_of_two_documents_lists_them_and_moves_one_out(window, tmp_path):
@@ -154,7 +172,7 @@ def test_an_unticked_job_is_greyed_and_the_list_says_what_ticks_and_yours_mean(w
     assert all(b is not None and b.color() == muted for b in greyed(row) + greyed(row.child(1)))
     assert greyed(row_of(window, one)) == [None] * len(JOB_COLS)
     assert row.toolTip(0).startswith(UNTICKED_ROW)
-    assert "initials at the foot of the page" in JOB_TIPS["Yours"] and TICK_TIP in JOB_TIPS["Case / file"]
+    assert "initials at the foot of the page" in JOB_TIPS["Your pages"] and TICK_TIP in JOB_TIPS["Case / file"]
     assert TICK_TIP in window.jobs_label.toolTip() and YOURS_TIP in window.jobs_label.toolTip()
     app = QtWidgets.QApplication.instance()
     was = app.palette()

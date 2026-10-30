@@ -68,7 +68,9 @@ BOX = "box:"  # a tick box's column key: "box:transcribed"
 class Col:
     """A column of a Records table: its key (kept in Settings.records_columns), heading, the value shown for a
     record, whether it is shown until the user chooses, how it sorts ("text", "num", "money" or "date") and,
-    for "date", the ISO date it sorts by. trash: shown only while the trash is."""
+    for "date", the ISO date it sorts by. trash: shown only while the trash is. tip: the heading's tooltip.
+    theirs_head: the heading while a row made in a colleague's name is listed too ("" = head), for a count
+    that is the user's on their own rows and the colleague's on theirs."""
     key: str
     head: str
     get: Callable
@@ -76,6 +78,8 @@ class Col:
     kind: str = "text"
     sort: Callable | None = None
     trash: bool = False
+    tip: str = ""
+    theirs_head: str = ""
 
 
 def _ordered(i: Invoice) -> str:
@@ -88,6 +92,8 @@ def _bill_to(i: Invoice) -> str:
     return i.client if not i.firm else f"{i.firm} ({i.bill_to})" if i.bill_to else i.firm
 
 
+THEIRS_TIP = "theirs on an invoice made in a colleague's name"  # (in the tooltips of the counts below)
+TOTAL_TIP = "Every reporter's pages of the transcript(s), yours and your colleagues'"
 INVOICE_COLS = [
     Col("paid", "Paid", lambda i: "", True),
     Col("no", "No.", lambda i: i.invoice_no, True),
@@ -101,9 +107,16 @@ INVOICE_COLS = [
     Col("bill_to", "Bill to", _bill_to, True),
     Col("firm", "Firm", lambda i: i.firm),
     Col("email", "E-mail", lambda i: i.email),
-    Col("pages", "Pages billed", lambda i: i.pages, True, "num"),
-    Col("my_pages", "My pages", lambda i: i.my_pages or "", True, "num"),
-    Col("transcript_pages", "Transcript pages", lambda i: i.transcript_pages or "", True, "num"),
+    # (the user, 2026-10-30: every count says whose pages): an invoice made in a colleague's name keeps their
+    # pages in the first two, so those say "Your / their" while one is listed (For reporter says whose)
+    Col("pages", "Your pages billed", lambda i: i.pages, True, "num",
+        tip=f"The pages the invoice bills: yours ({THEIRS_TIP}, For reporter)",
+        theirs_head="Your / their pages billed"),
+    Col("my_pages", "Your pages transcribed", lambda i: i.my_pages or "", True, "num",
+        tip=f"Your pages of the transcript(s) the invoice is for ({THEIRS_TIP}, For reporter)",
+        theirs_head="Your / their pages transcribed"),
+    Col("transcript_pages", "Total pages transcribed", lambda i: i.transcript_pages or "", True, "num",
+        tip=TOTAL_TIP),
     Col("reporters", "Reporters", lambda i: i.reporters),
     # made in another reporter's name (Whose pages...): theirs, so left out of the totals and By firm / By month
     Col("for_reporter", "For reporter", lambda i: i.reporter.upper(), True),
@@ -134,9 +147,15 @@ ACTIVITY_COLS = [
     Col("part", "Part", lambda a: a.part),
     Col("attorney", "Attorney", lambda a: a.attorney, True),
     Col("firm", "Firm", lambda a: a.firm, True),
-    Col("pages", "Pages", lambda a: a.pages or "", True, "num"),
-    Col("my_pages", "My pages", lambda a: a.my_pages or "", True, "num"),
-    Col("transcript_pages", "Transcript pages", lambda a: a.transcript_pages or "", True, "num"),
+    # (the user, 2026-10-30: every count says whose pages): what the file counts differs by kind (deliver.generate)
+    Col("pages", "Pages on the file", lambda a: a.pages or "", True, "num",
+        tip="What the file counts. An agreement or MOFR: the total pages ordered (every reporter's; none "
+            f"ordered, the pages billed). An invoice: the pages it bills, yours ({THEIRS_TIP}). A run sheet: the "
+            "pages of the takes added"),
+    Col("my_pages", "Your pages transcribed", lambda a: a.my_pages or "", True, "num",
+        tip=f"Your pages of the transcript(s) ({THEIRS_TIP})", theirs_head="Your / their pages transcribed"),
+    Col("transcript_pages", "Total pages transcribed", lambda a: a.transcript_pages or "", True, "num",
+        tip=TOTAL_TIP),
     Col("invoice_no", "Invoice No.", lambda a: a.invoice_no, True),
     Col("file", "File", lambda a: a.file_path, True),
     Col("deleted", "Deleted on", lambda a: us_date(a.deleted[:10]), True, "date", lambda a: a.deleted, True),
@@ -148,6 +167,25 @@ TABLES = {"invoices": INVOICE_COLS, "activity": ACTIVITY_COLS}
 def col_index(cols: list[Col], key: str) -> int:
     """The position of a column by its key (the tests and the window find columns this way, not by number)."""
     return next(i for i, c in enumerate(cols) if c.key == key)
+
+
+def _head(c: Col, theirs: bool = False) -> str:
+    """A column's heading; theirs: a row made in a colleague's name is listed too (Col.theirs_head)."""
+    return c.theirs_head if theirs and c.theirs_head else c.head
+
+
+def _label_heads(t: QTableWidget, cols: list[Col], heads: list[str]) -> None:
+    """Puts these headings on a table's columns, each with its column's tooltip (Col.tip); only what changed is
+    set (the tables are refilled often)."""
+    for i, (c, text) in enumerate(zip(cols, heads)):
+        it = t.horizontalHeaderItem(i)
+        if it is None:
+            it = QTableWidgetItem()
+            t.setHorizontalHeaderItem(i, it)
+        if it.text() != text:
+            it.setText(text)
+        if it.toolTip() != c.tip:
+            it.setToolTip(c.tip)
 
 
 class _Item(QTableWidgetItem):
@@ -334,8 +372,8 @@ class AmountsDialog(QDialog):
 
 
 class SummaryDialog(QDialog):
-    """Summary...: a period summed up (invoices, pages, billed, paid, owed, payments received, the firms billed
-    most), for this or last month, this or last year, or all time. Copy puts it on the clipboard as text.
+    """Summary...: a period summed up (invoices, your pages billed, billed, paid, owed, payments received, the
+    firms billed most), for this or last month, this or last year, or all time. Copy puts it on the clipboard as text.
     Invoices made in another reporter's name are left out (records.period_stats)."""
 
     def __init__(self, invoices: list[Invoice], parent=None, today: date | None = None):
@@ -426,6 +464,7 @@ class BackupsDialog(QDialog):
         row.addStretch(1)
         row.addWidget(close)
         lay.addLayout(row)
+        self.list.currentItemChanged.connect(self._can_restore)
         self.refill()
 
     def refill(self) -> None:
@@ -439,9 +478,17 @@ class BackupsDialog(QDialog):
             if counts is None:
                 item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
             self.list.addItem(item)
-        if self.list.count():
-            self.list.setCurrentRow(0)
-        self.restore_btn.setEnabled(self.list.count() > 0)
+        # the newest copy that can be read is the one chosen; Restore only for a copy that can be (one that
+        # can't, greyed, is never put back)
+        first = next((r for r in range(self.list.count()) if self.list.item(r).flags() & Qt.ItemIsEnabled), None)
+        if first is not None:
+            self.list.setCurrentRow(first)
+        self._can_restore()
+
+    def _can_restore(self, *_) -> None:
+        """Restore this copy… is offered while the copy chosen can be read."""
+        item = self.list.currentItem()
+        self.restore_btn.setEnabled(item is not None and bool(item.flags() & Qt.ItemIsEnabled))
 
     def backup_now(self) -> None:
         """Makes a copy now, whatever today's holds."""
@@ -458,7 +505,7 @@ class BackupsDialog(QDialog):
         """Puts the records back as they were in the copy chosen, after asking (unless ask is False). Refused
         while files are being made (see busy)."""
         item = self.list.currentItem()
-        if item is None:
+        if item is None or not item.flags() & Qt.ItemIsEnabled:  # (a copy that can't be read)
             return
         copy = Path(item.data(Qt.UserRole))
         if self.busy is not None and self.busy():
@@ -524,7 +571,9 @@ class RecordsWindow(QDialog):
             bottom.addWidget(b)
         bottom.addSpacing(z(14))
         for label, slot, tip in (
-                ("Summary…", self.show_summary, "A month or a year summed up: invoices, pages, billed, paid, owed"),
+                # (the user, 2026-10-30: every count says whose pages)
+                ("Summary…", self.show_summary,
+                 "A month or a year summed up: invoices, your pages billed, billed, paid, owed"),
                 ("Backups…", self.show_backups, "The daily copies of your records, to go back to one")):
             b = QPushButton(label)
             b.setToolTip(tip)
@@ -708,6 +757,7 @@ class RecordsWindow(QDialog):
 
         inner = QTabWidget()
         self.inv_table = _table(self._heads())
+        self._label_invoice_heads()  # (the tooltips)
         self._order_columns()
         # Only Notes can be typed into: a double-click or F2 (not any key: typing in the table must not start it)
         self.inv_table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
@@ -759,6 +809,7 @@ class RecordsWindow(QDialog):
         self.a_theirs = self._theirs_line()
         v.addWidget(self.a_theirs)
         self.act_table = _table([c.head for c in ACTIVITY_COLS])
+        _label_heads(self.act_table, ACTIVITY_COLS, [c.head for c in ACTIVITY_COLS])  # (the tooltips)
         self.act_table.itemDoubleClicked.connect(lambda it: self._open_activity(it.row()))
         self.act_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.act_table.customContextMenuRequested.connect(self._activity_menu)
@@ -784,10 +835,15 @@ class RecordsWindow(QDialog):
         return INVOICE_COLS + [Col(BOX + b.key, b.name, lambda i: "", True)
                                for b in self.boxes if b.on and b.kind == TICK]
 
-    def _heads(self) -> list[str]:
-        """The Invoices table's headings: Paid's as the Paid box is named (Settings → Records)."""
+    def _heads(self, theirs: bool = False) -> list[str]:
+        """The Invoices table's headings: Paid's as the Paid box is named (Settings → Records); theirs: an invoice
+        made in a colleague's name is listed too (its counts are theirs: Col.theirs_head)."""
         paid = next((b.name for b in self.boxes if b.kind == PAID), "Paid")
-        return [paid if c.key == "paid" else c.head for c in self.inv_cols]
+        return [paid if c.key == "paid" else _head(c, theirs) for c in self.inv_cols]
+
+    def _label_invoice_heads(self) -> None:
+        """The Invoices table's headings and their tooltips, as the invoices listed (self.shown) need them."""
+        _label_heads(self.inv_table, self.inv_cols, self._heads(any(i.reporter for i in self.shown)))
 
     def _order_columns(self) -> None:
         """Shows the tick boxes' columns right after Paid (they come last in inv_cols)."""
@@ -804,7 +860,7 @@ class RecordsWindow(QDialog):
         t = self.inv_table
         t.blockSignals(True)
         t.setColumnCount(len(self.inv_cols))
-        t.setHorizontalHeaderLabels(self._heads())
+        self._label_invoice_heads()
         t.blockSignals(False)
         self._order_columns()
         self.apply_columns("invoices")
@@ -857,10 +913,12 @@ class RecordsWindow(QDialog):
         """The menu of a table's columns, ticked when shown; clicking one shows or hides it."""
         m = QMenu(self)
         chosen = self.columns(which)
-        for c in self._cols(which):
+        t = self._table_of(which)
+        for i, c in enumerate(self._cols(which)):
             if c.trash or self._is_box(c.key):
                 continue
-            act = m.addAction(c.head)
+            head = t.horizontalHeaderItem(i)  # (as the heading reads now: "Your / their pages billed")
+            act = m.addAction(head.text() if head is not None else c.head)
             act.setCheckable(True)
             act.setChecked(c.key in chosen)
             act.toggled.connect(lambda on, k=c.key: self.set_columns(
@@ -993,6 +1051,7 @@ class RecordsWindow(QDialog):
             self._search_problem(self.i_text, str(e))
         place = self._place()
         t.blockSignals(True)  # setting the ticks and the notes must not look like the user changing them
+        self._label_invoice_heads()  # ("Your / their pages billed" while a colleague's invoice is listed)
         t.setSortingEnabled(False)
         t.setRowCount(0)
         status_col, notes_col = col_index(self.inv_cols, "status"), col_index(self.inv_cols, "notes")
@@ -1135,6 +1194,8 @@ class RecordsWindow(QDialog):
             rows = [a for a in rows if a.invoice_no not in theirs]
         self.act_shown = {a.id: a for a in rows}
         t = self.act_table
+        mixed = any(a.invoice_no in theirs for a in rows)  # (a colleague's invoice listed: its counts are theirs)
+        _label_heads(t, ACTIVITY_COLS, [_head(c, mixed) for c in ACTIVITY_COLS])
         place = self._place(t)
         t.setSortingEnabled(False)
         t.setRowCount(0)
@@ -1331,12 +1392,13 @@ class RecordsWindow(QDialog):
         t.blockSignals(False)
 
     def _set_paid(self, invoice_no: str, paid: bool) -> None:
-        """Marks an invoice paid (asking at which speed) or not paid, then shows the list afresh."""
+        """Marks an invoice paid (asking at which speed) or not paid, then shows the list afresh. A void invoice is
+        neither: marking it paid would quietly take its void away (Restore (not void) is for that)."""
         try:
             inv = self.ledger.invoice(invoice_no)  # as it is now, whatever the table showed
             if inv is not None and inv.deleted:
                 pass  # (in the trash: restore it first)
-            elif inv is not None and paid and inv.status != "paid":
+            elif inv is not None and paid and inv.status == "open":
                 dlg = PaidDialog(inv, self)
                 if dlg.exec() == QDialog.Accepted:
                     self.ledger.mark_paid(inv.invoice_no, *dlg.values())
@@ -1381,9 +1443,9 @@ class RecordsWindow(QDialog):
         if inv.deleted:
             self._trash_actions(m, "invoices", many)
         else:
-            if inv.status != "paid":
+            if inv.status == "open":  # (a void one is neither: Restore (not void) first)
                 m.addAction("Mark paid…", lambda: self._set_paid(inv.invoice_no, True))
-            else:
+            elif inv.status == "paid":
                 m.addAction("Mark not paid", lambda: self._set_paid(inv.invoice_no, False))
             # each box in use, on every invoice selected (not void) at once: ticked, or unticked when all are
             live = [i for i in many if i.status != "void"]
@@ -1548,8 +1610,9 @@ class RecordsWindow(QDialog):
         amounts, notes, a delete or a restore) and shows the lists afresh."""
         if not self.undo_stack:
             return
-        what, back = self.undo_stack.pop()
-        self._try_change(back)
+        last = self.undo_stack[-1]
+        if self._try_change(last[1]):  # (one that failed stays, to try again once the file can be written)
+            self.undo_stack = [e for e in self.undo_stack if e is not last]
         self._show_undo()
 
     # ------------------------------------------------------------ summary, backups, print, open again

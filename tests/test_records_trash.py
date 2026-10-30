@@ -51,7 +51,8 @@ def test_an_older_database_gets_the_new_columns(tmp_path):
         5, 10, "PR 5, DS 5", "No", "Yes")
     with open(tmp_path / "mirror" / "invoices.csv", encoding="utf-8-sig") as f:
         row = next(r for r in csv.DictReader(f) if r["Invoice No."] == "2026-0008")
-    assert row["My pages"] == "5" and row["Transcript pages"] == "10" and row["Excerpt"].startswith("6/3/2026")
+    assert row["Your pages transcribed"] == "5" and row["Total pages transcribed"] == "10"
+    assert row["Excerpt"].startswith("6/3/2026")
 
 
 def test_two_threads_opening_an_older_database_at_once(tmp_path):

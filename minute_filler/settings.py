@@ -381,10 +381,11 @@ MATH_SAVES = {
     "all": "Everyone's, in one PDF",
     "off": "Don't save it",
 }
-# What "Show granular detail" can add to an invoice: key -> label
+# What "Show granular detail" can add to an invoice: key -> label (the keys are saved; the labels may change:
+# the user, 2026-10-30: every count says whose pages, and these are the pages the invoice bills)
 DETAIL_ITEMS = {
-    "pages": "Page count",
-    "days": "Pages for each day",
+    "pages": "Your page count",
+    "days": "Your pages for each day",
     "per_page": "Price per page",
     "charges": "The charges in each amount",
     "split": "The split between parties",
@@ -421,7 +422,9 @@ TEXT_WHEN = {
     "split_even": "Granular detail shows the split; every party ordered every page",
     "mixed_speeds": "Pages were ordered together at different speeds",
 }
-TEXT_PLACEHOLDERS = ("{case} {index} {dates} {pages} {total_pages} {parties} {number} {name} {bill_to} "
+# (the user, 2026-10-30: every count says whose pages): {pages} and {total_pages} say whose
+TEXT_PLACEHOLDERS = ("{case} {index} {dates} {pages} (your pages billed) {total_pages} (total pages, every "
+                     "reporter's) {parties} {number} {name} {bill_to} "
                      "{transcript} (\"transcript\" or \"transcripts\") {is} (\"is\" or \"are\") "
                      "{shared} (\"the original and the judge's index\", what firms ordering the same pages split; "
                      "with Index on shared pages split, \"the original, the index and the judge's index\")")
@@ -585,12 +588,13 @@ class Settings:
     # the day besides its printed page numbers
     excerpt_hidden_speeds: list = field(default_factory=list)
     excerpt_show_place: bool = False
-    # its count columns hidden (excerpts COUNTS: "your_billed", "total_billed"...), and whether it shows only the
-    # runs with pages of the user's (the user, 2026-10-29)
+    # its count columns hidden (gui/excerpts.py COUNTS: "your_billed", "total_billed"...), and whether it shows
+    # only the runs with pages of the user's (the user, 2026-10-29)
     excerpt_hidden_cols: list = field(default_factory=list)
     excerpt_only_mine: bool = False
-    # Who transcribed what: only the user's takes shown, and the user's takes highlighted (Settings -> Options; on
-    # at first: "most people want to see just their portion", the user, 2026-10-29)
+    # Who transcribed what: only the user's takes shown (the card's own "Only yours" box, as it was last ticked;
+    # off at first), and the user's takes highlighted (Settings -> Options; on at first: "most people want to see
+    # just their portion", the user, 2026-10-29)
     takes_only_mine: bool = False
     takes_highlight_mine: bool = True
     # the user's answers when two attorney rows may be one firm or attorney ("Smith Law" and "Smith Law Group"):

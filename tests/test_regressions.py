@@ -696,7 +696,7 @@ def test_each_firms_index_note_says_what_its_own_invoice_charges(tmp_path):
     notes = {f.atty.firm: f.index_note for f in firm_invoices(case, s, opts)}
     assert notes == {"Able Law": "No index: 30 total pages, under 50.", "Best Law": "Index: 60 total pages, 50 or more."}
     s.invoice_index_rule = "any"  # (the whole invoice decides: the same reason for both)
-    assert {f.index_note for f in firm_invoices(case, s, opts)} == {"Index: a day of 60 pages, 50 or more."}
+    assert {f.index_note for f in firm_invoices(case, s, opts)} == {"Index: a day of 60 total pages, 50 or more."}
     d = tmp_path / "sheets"
     d.mkdir()
     (d / "No Index.csv").write_text("Rate,Original,Copy,Email\nRegular,$4.30,$1.00,$1.00\n", encoding="utf-8")

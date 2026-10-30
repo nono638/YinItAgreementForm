@@ -317,7 +317,11 @@ def test_no_folder_is_renamed_while_documents_are_being_read(window, qt, tmp_pat
     two_days(window, qt, tmp_path)
     window.cur = next(j for j in window.jobs if "10/14" in j.case.get("dates"))
     window._show_job()
-    window.work += 1  # (a document still being read: it would come in by the folder's old path)
+    # (a document still being read: it would come in by the folder's old path. Generate waits for reads to end
+    # (MainWindow._still_reading), so this is a read begun once Generate went ahead: a file dropped during
+    # Generate all)
+    monkeypatch.setattr(window, "_still_reading", lambda *a: False)
+    window.work += 1
     try:
         window.fill()
     finally:

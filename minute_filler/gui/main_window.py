@@ -28,13 +28,13 @@ The dates follow the day (workdays.py, Settings -> Dates): a form made on a week
 next business day (and one made after the evening hour, when Settings says so, the day after), and the delivery
 date is counted in business days; a note under each date says what moved it (_show_date_notes), and both are
 worked out again as the day turns (_redate, each minute). Each date has a calendar with the court holidays marked.
-The job list is a tree: a row per job (Case / file, Date, Day, Pages, Yours), sorted by date, oldest first, or by
-the heading clicked (JobItem, _job_sort_key), and, under a job of several documents, a row per document in the
-order read (DocItem); a document with no index number, or with another than its job's, gets a ⚠ there and a note
-under the list (_label_docs, _show_index_notes), and Generate asks first about documents whose index numbers
-don't match (_ask_index_numbers). A job's tick says whether its day counts: the cards of who ordered, pays and
-transcribed what show every day ticked, whichever day is shown (_considered), Generate all makes the days ticked
-but not made already (_to_generate, Job.made), and an unticked row is greyed (_dim).
+The job list is a tree: a row per job (Case / file, Date, Day, Total pages, Your pages), sorted by date, oldest
+first, or by the heading clicked (JobItem, _job_sort_key), and, under a job of several documents, a row per
+document in the order read (DocItem); a document with no index number, or with another than its job's, gets a ⚠
+there and a note under the list (_label_docs, _show_index_notes), and Generate asks first about documents whose
+index numbers don't match (_ask_index_numbers). A job's tick says whether its day counts: the cards of who
+ordered, pays and transcribed what show every day ticked, whichever day is shown (_considered), Generate all makes
+the days ticked but not made already (_to_generate, Job.made), and an unticked row is greyed (_dim).
 The "Pages and dates" card holds the rate sheet (one missing prices, or with a price lower at a faster speed, is
 warned about: _check_rate_sheet; opened from that warning to be filled in, it is read again each time it is saved:
 _watch_sheet) and the rate of the speed the forms name. The speeds the invoice offers (Speeds offered, each at its
@@ -136,8 +136,9 @@ from .zoom import sized, z
 FILE_FILTER = (f"Documents ({' '.join('*' + e for e in sorted(BATCH_EXT, key=lambda e: (e != '.pdf', e)))});;"
                "All files (*.*)")
 # The Who ordered table: a row per firm of the trial; the columns after Source are what it orders (_show_attorneys)
+# (the user, 2026-10-30: every count says whose pages)
 ATT_COLS = ["", "Name", "Firm", "Address", "Phone", "Fax", "Email", "Party / role", "Source", "What", "Speed",
-            "Pages"]
+            "Your pages"]
 ATT_FIELDS = [None, "name", "firm", "address", "phone", "fax", "email", "party", "source"]
 ATT_WHAT, ATT_SPEED, ATT_PAGES = 9, 10, 11
 # on a row's tick item: the day shown's own tick of the firm (its box may show the trial's: _show_order_cells), and
@@ -156,13 +157,14 @@ ATT_TIPS = {
     ATT_PAGES: "The pages its invoice bills of what it ordered: on a transcript of several reporters only\n"
                "yours (or those chosen under Whose pages…), of the pages it ordered",
 }
-TAKE_COLS = ["Day", "Reporter", "Printed pages", "Pages", "Headers"]  # the Who transcribed what card
+# the Who transcribed what card (the user, 2026-10-30: every count says whose pages)
+TAKE_COLS = ["Day", "Reporter", "Page numbers", "Pages in take", "Headers"]
 NO_INITIALS = "(initials not found)"  # a take's reporter, when its pages carry no initials
 TAKES_NOTE = ("A take wrong (initials misread or missing)? Double-click it to correct where it ends. Every take in "
               "full, kept day after day: tick Run sheet and Generate (the trial's run sheet, in Excel).")
 TAKES_TIP = ("The takes, from the initials at the foot of each page.\nDouble-click one (or right-click it) to correct "
              "where it ends, when a page's initials were misread or missing:\nthe pages after it go to the next take, "
-             "and your pages (Yours, the invoice) and the run sheet follow.\n✎ = corrected by you.")
+             "and your pages (the job list's Your pages, the invoice) and the run sheet follow.\n✎ = corrected by you.")
 
 
 def take_cells(row) -> list[str]:
@@ -178,13 +180,19 @@ def take_cells(row) -> list[str]:
     return [day, row.reporter or NO_INITIALS, pages, str(row.pages or 0), row.heads]
 
 
-def reporter_totals(rows) -> str:
-    """What each reporter wrote of these takes, most first: 'Pat Reporter 144 pp. · DS 76 pp.'."""
+def reporter_totals(rows, own: set[str] = frozenset()) -> str:
+    """What each reporter wrote of these takes, most first: 'Pat Reporter 144 pages (you) · DS 76 pages', the
+    user's marked (own: the user's initials, MainWindow._own_initials; the user, 2026-10-30: every count says
+    whose pages)."""
     by: dict[str, int] = {}
+    mine: set[str] = set()
     for row in rows:
         who = row.reporter or NO_INITIALS
         by[who] = by.get(who, 0) + (row.pages or 0)
-    return " · ".join(f"{who} {n:,} pp." for who, n in sorted(by.items(), key=lambda x: -x[1]))
+        if own and reporter_key(row.initials) in own:
+            mine.add(who)
+    return " · ".join(f"{who} {n:,} pages" + (" (you)" if who in mine else "")
+                      for who, n in sorted(by.items(), key=lambda x: -x[1]))
 
 
 def save_takes(rows, path: Path, csv_file: bool = False) -> Path:
@@ -213,7 +221,7 @@ def save_takes(rows, path: Path, csv_file: bool = False) -> Path:
                 cell.data_type = "s"
     for cell in ws[1]:
         cell.font = Font(bold=True)
-    for col, width in zip("ABCDE", (12, 24, 18, 8, 60)):
+    for col, width in zip("ABCDE", (12, 24, 18, 14, 60)):
         ws.column_dimensions[col].width = width
     path = path.with_suffix(".xlsx")
     wb.save(path)
@@ -224,7 +232,11 @@ SPEEDS_LOCKED_TIP = ("Speeds are chosen for the firms in the table below: these 
 SPEEDS_LOCKED_ASK = ("You already chose the firms' speeds in Who ordered.\n\nAre you sure you want to change the "
                      "speeds offered on invoices?")
 # the list of jobs on the left: a row per job, and under a job of several documents a row per document
-JOB_COLS = ["Case / file", "Date", "Day", "Pages", "Yours"]
+# (the user, 2026-10-30: every count says whose pages)
+JOB_COLS = ["Case / file", "Date", "Day", "Total pages", "Your pages"]
+OLD_JOB_COLS = {"Pages": "Total pages", "Yours": "Your pages"}  # (a sort kept in Settings.job_sort before then)
+# the headings as shown: the two counts on two lines (on one, in a list 350 pixels wide, the case kept 54)
+JOB_HEADS = [c.replace(" pages", "\npages") for c in JOB_COLS]
 JOB_DATE, JOB_DAY, JOB_PAGES, JOB_YOURS = 1, 2, 3, 4
 TICKED_ROW = ("Ticked: the cards on the right show this day, and Generate all makes it.\n"
               "Untick it to see the difference (nothing is removed).")
@@ -235,8 +247,8 @@ TICK_TIP = ("Ticked: this day counts. The cards on the right (who ordered, who p
             "what, Who ordered which pages…) show every ticked day, and Generate all makes them.\n"
             "Unticked (greyed): left out of both, to see the difference it makes. Nothing is removed:\n"
             "tick it again to bring it back.")
-YOURS_TIP = ("Yours: the pages with your initials at the foot of the page (your initials: Settings → My info).\n"
-             "Pages: every page of the transcript.")
+YOURS_TIP = ("Your pages: those with your initials at the foot of the page (your initials: Settings → My info).\n"
+             "Total pages: every reporter's pages of the transcript.")
 JOB_TIPS = {
     "Case / file": "One job per case and date. Click a job to check or edit it.\n" + TICK_TIP + "\n"
                    "A job read from several documents lists them under it: right-click one to\n"
@@ -244,8 +256,8 @@ JOB_TIPS = {
     "Date": "The date of the minutes (a document's own date, or what kind of document it is). Click a heading\n"
             "to sort the list by it, again to sort it the other way.",
     "Day": "The day of the week of the job's date (right-click the headings, or View, to hide it)",
-    "Pages": "The transcript's own pages (the word index after them left out)",
-    "Yours": "The pages you wrote: those with your initials at the foot of the page (every page when you\n"
+    "Total pages": "Total pages: every reporter's pages of the transcript (the word index after them left out)",
+    "Your pages": "The pages you wrote: those with your initials at the foot of the page (every page when you\n"
              "wrote it alone, or when no page has initials).\n"
              "A number typed in Est. number of pages shows as typed.\n"
              "? = can't tell yet: your initials aren't set (Settings → My info), or Whose pages…\n"
@@ -300,7 +312,7 @@ def _weekday(text: str) -> str:
 # how Who ordered's firms are billed: its ? button's (the line under the table says what Generate makes of them:
 # _show_orders)
 ORDERS_HELP = ("Each firm is billed for what its row says it ordered and nothing else, at the speed it shows;\n"
-               "Pages counts the pages billed of it: on a transcript of several reporters only yours (or those\n"
+               "Your pages counts the pages billed of it: on a transcript of several reporters only yours (or those\n"
                "chosen under Whose pages…), and the Pages field's number when you typed one. Firms that ordered\n"
                "the same pages are each billed one speed; a firm ordering alone may choose one from its invoice.\n"
                "Some days or pages only: Who ordered which pages…, one table of every day of the trial and\n"
@@ -324,7 +336,9 @@ OUTPUT_TOPICS = {"agreement": "make-agreement", "invoice": "inv-panel", "mofr": 
 BADGE_WORDS = {"regex": "found", "derived": "worked out"}
 BADGE_TIPS = {"regex": "Found in the document", "AI": "Suggested by the AI model - please check",
               "default": "Your default setting", "derived": "Worked out from the other details",
-              "PDF": "Counted from the transcript PDF, without the word index (the line under it says which pages)",
+              # (the user, 2026-10-30: every count says whose pages)
+              "PDF": "Total pages (every reporter's), counted from the transcript PDF, without the word index\n"
+                     "(the line under it says which pages)",
               "records": "From your records: an earlier job with the same index number - please check",
               "you": "Entered by you"}
 BADGE_WIDTH = 74  # (px at 100 %: "worked out" fits)
@@ -578,7 +592,8 @@ def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str =
              "one)" if firm_speeds else
              f"<b>{html.escape(form_speed or '(no speed)')}{rate}</b> (one speed, one rate)")
     out = [f"Minute agreement forms: {forms}. {offer}{span}:"]
-    heads = ["Firm", "Pages", "How it ordered them"] + (["Speed", "Amount"] if single else [
+    # (r.pages: the firm's pages billed, the user's own; the user, 2026-10-30: every count says whose pages)
+    heads = ["Firm", "Your pages billed", "How it ordered them"] + (["Speed", "Amount"] if single else [
         html.escape(sp) + (" (form)" if len(speeds) > 1 and speed_key(sp) == form else "") for sp in speeds])
     table = ["<table cellspacing='0' cellpadding='3'>",
              "<tr><th width='4'></th>" + "".join(f"<th align='left'>{h}&nbsp;&nbsp;</th>" for h in heads) + "</tr>"]
@@ -597,7 +612,7 @@ def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str =
     out.append("".join(table))
     if rates:
         out.append(f"{html.escape(rates.rstrip('.'))}. Each firm also pays for its own {html.escape(own)}; /pg is everything "
-                   "on its invoice divided by its pages.")
+                   "on its invoice divided by its pages billed.")
     if link:
         out.append(MATH_LINK)
     return "<br>".join(out)
@@ -641,6 +656,17 @@ def _following(keys: list[str], renamed: list) -> list[str]:
     for old, new in renamed:
         keys = renamed_keys(keys, old, new)
     return keys
+
+
+def _dated_snapshot(case, s, day: date) -> dict:
+    """deliver.case_snapshot of the case with its dates as of `day` (merge.refresh_dates on a copy: a date of
+    agreement filled in by default and a delivery date worked out are that day's), for Generate all to tell a
+    case changed while it ran: the window dating its days "11/3/2026" at midnight (_redate) is no change, while
+    a date the user typed ("10/30/2026" -> "11/2/2026"), an Index Number or a judge is."""
+    from ..deliver import case_snapshot
+    copy = deepcopy(case)
+    refresh_dates(copy, s, day)
+    return case_snapshot(copy)
 
 
 def _entry_text(a: Attorney) -> str:
@@ -1412,7 +1438,7 @@ class MainWindow(QMainWindow):
         self.job_list = QTreeWidget()
         self.job_list.setProperty("help_topic", "batch-job-list")
         self.job_list.setColumnCount(len(JOB_COLS))
-        self.job_list.setHeaderLabels(JOB_COLS)
+        self.job_list.setHeaderLabels(JOB_HEADS)
         for c, name in enumerate(JOB_COLS):
             self.job_list.headerItem().setToolTip(c, JOB_TIPS[name])
         hh = self.job_list.header()
@@ -2306,9 +2332,11 @@ class MainWindow(QMainWindow):
         if "details" in folded:
             pages, copies = case.get("est_pages"), case.get("copies")
             rate = case.get("rate")
+            # (the user, 2026-10-30: every count says whose pages: typed, the user's own; else every reporter's)
+            pages = f"{pages} pages typed" if pages and job.pages_typed() else f"{pages} total pages" if pages else ""
             bits = [self.sheet_box.currentText(),
                     f"{case.get('delivery')} ${rate}/pg" if case.get("delivery") and rate else case.get("delivery"),
-                    f"{pages} pages" if pages else "", f"{copies} {'copy' if copies == '1' else 'copies'}" if copies
+                    pages, f"{copies} {'copy' if copies == '1' else 'copies'}" if copies
                     else "", f"delivery {case.get('delivery_date')}" if case.get("delivery_date") else ""]
             lines["details"] = (bool(missing & set(DETAIL_KEYS)), bits)
         if "attorneys" in folded:  # (who orders what at which speed, as the line under its table says it)
@@ -3156,6 +3184,7 @@ class MainWindow(QMainWindow):
         """The column and the way the job list is sorted (Settings.job_sort): by date, oldest first, until the user
         clicks a heading (the user, 2026-10-22: a trial's days came newest first, as the documents were read)."""
         name, way = (list(self.s.job_sort) + ["", ""])[:2]
+        name = OLD_JOB_COLS.get(name, name)
         col = JOB_COLS.index(name) if name in JOB_COLS else JOB_DATE
         return col, Qt.DescendingOrder if way == "descending" else Qt.AscendingOrder
 
@@ -3167,7 +3196,7 @@ class MainWindow(QMainWindow):
 
     def _job_sort_key(self, job: Job, col: int) -> tuple:
         """What a job sorts by in the list's column col: its first date (Date and Day; a job without one after
-        those with one), its pages (Pages, Yours; blank after numbers) or its case (Case / file); then its date,
+        those with one), its pages (Total pages, Your pages; blank last) or its case (Case / file); then its date,
         its case and the order it was read in, so two jobs alike keep that order."""
         day = _first_day(job.case.get("dates"))
         when = (0, day.toordinal()) if day else (1, 0)
@@ -3189,9 +3218,9 @@ class MainWindow(QMainWindow):
         return sorted(self.jobs, key=lambda j: self._job_sort_key(j, col), reverse=order == Qt.DescendingOrder)
 
     def _fit_job_columns(self) -> None:
-        """The job list's Date, Day, Pages and Yours as wide as their text (the widest cell, or the heading, with
-        its arrow for the column sorted by), the case taking the rest: sized by Qt, every column kept room for the
-        sort arrow, and the case's name was cut to two letters in a column 360 pixels wide."""
+        """The job list's Date, Day, Total pages and Your pages as wide as their text (the widest cell, or the
+        heading, with its arrow for the column sorted by), the case taking the rest: sized by Qt, every column kept
+        room for the sort arrow, and the case's name was cut to two letters in a column 360 pixels wide."""
         lst = self.job_list
         hh = lst.header()
         bold = QFont(hh.font())
@@ -3204,7 +3233,7 @@ class MainWindow(QMainWindow):
         for c in (JOB_DATE, JOB_DAY, JOB_PAGES, JOB_YOURS):
             arrow = z(16) if c == hh.sortIndicatorSection() else 0
             need = max([cells.horizontalAdvance(r.text(c)) for r in rows] +
-                       [heads.horizontalAdvance(JOB_COLS[c]) + arrow])
+                       [max(heads.horizontalAdvance(line) for line in JOB_HEADS[c].split("\n")) + arrow])
             lst.setColumnWidth(c, need + z(16))
         self._fit_case_column()
 
@@ -3291,7 +3320,7 @@ class MainWindow(QMainWindow):
 
     def _job_tip(self, job: Job) -> str:
         """A job's tooltip: the case, its dates and index number in full, its documents, the pages typed (when
-        Yours shows them), what to check (the reasons for its ⚠, see Job.issues, the index numbers that don't
+        Your pages shows them), what to check (the reasons for its ⚠, see Job.issues, the index numbers that don't
         match among them), the documents with no index number (Job.index_number_notes), who the form is for and
         what was saved."""
         head = [job.case.get("case_name") or job.title(), job.case.get("dates"), job.case.get("index_no")]
@@ -3299,7 +3328,7 @@ class MainWindow(QMainWindow):
         names = [d.ing.name for d in job.docs]
         tip += ([f"{len(names)} documents:"] if len(names) > 1 else []) + (names or ["(no documents)"])
         if job.pages_typed():
-            tip.append(f"Yours: the {job.invoice_pages()} pages typed in Est. number of pages")
+            tip.append(f"Your pages: the {job.invoice_pages()} pages typed in Est. number of pages")
         issues = job.issues(self._outputs())
         if issues:
             tip.append("To check before Generate:")
@@ -3391,10 +3420,10 @@ class MainWindow(QMainWindow):
 
     def _refresh_job_labels(self, counts: dict | None = None):
         """Updates each row of the list (the job's name, date and day of the week, its transcripts' pages and the
-        user's, its tooltip (on the tick, what ticking does first; on Yours, what it counts), what it sorts by in
+        user's, its tooltip (on the tick, what ticking does first; on Your pages, what), what it sorts by in
         each column, its tick, greyed while unticked (_dim), and its documents' rows: _label_docs), sorts
         the list (_job_sort) and fits its columns (_fit_job_columns); then the heading above it and the Generate
-        buttons' words (_generate_labels: their numbers count every file, the math PDFs too). Pages and Yours are
+        buttons' words (_generate_labels: their numbers count every file, the math PDFs too). The two pages columns are
         hidden when no job has a transcript or pages typed in, Day while Settings.job_weekday is off. A single job
         has no tick, and its heading says "This job".
         counts: batch.output_counts of the jobs Generate all makes, when just counted (_show_counts)."""
@@ -3417,7 +3446,7 @@ class MainWindow(QMainWindow):
             for c, text in cells.items():
                 item.setText(c, text)
                 item.setToolTip(c, tip)
-            if multi:  # (what the tick does, where the tick is; what Yours counts, on its number)
+            if multi:  # (what the tick does, where the tick is; what Your pages counts, on it)
                 head = (UNTICKED_ROW if not job.include else
                         MADE_ROW.format(one=self._one_words(job)) if job.made else TICKED_ROW)
                 item.setToolTip(0, f"{head}\n\n{tip}")
@@ -3859,7 +3888,8 @@ class MainWindow(QMainWindow):
             self._put_cell_box(r, ATT_SPEED, self._firm_speed_box(key, counted) if ordering else None)
             if not ordering:
                 continue
-            text = str(order.pages) if order.billed == order.pages else f"{order.billed} of {order.pages}"
+            # (Your pages: the user, 2026-10-30: every count says whose pages)
+            text = str(order.pages) if order.billed == order.pages else f"{order.billed} of {order.pages} total"
             if order.pages and not order.billed:  # (an attorney billed none of its pages gets no invoice for them)
                 text += ": no invoice"
             if any(j.pages_typed() for j in order.whole + order.part):
@@ -4566,8 +4596,9 @@ class MainWindow(QMainWindow):
                 if not q.priced:  # no index can be charged either way: nothing to choose, but say why there's none
                     box.setIcon(QMessageBox.Warning)
                     box.setWindowTitle("No index price")
+                    # (the user, 2026-10-30: every count says whose pages)
                     box.setText(f"{title}\n\nYou typed {q.typed:,} pages in Est. number of pages{which}; {has} "
-                                f"{q.counted:,}.\n\nJudged on the transcript, {whom} {gets} an index "
+                                f"{q.counted:,} total pages.\n\nJudged on the transcript, {whom} {gets} an index "
                                 f"({q.pdf_why}), but your rate sheet has no index price for the speeds this invoice "
                                 "offers, so no index is charged.")
                     box.setInformativeText("To charge one, add a price in the Index column of the rate sheet (File → "
@@ -4583,9 +4614,10 @@ class MainWindow(QMainWindow):
                 box.setIcon(QMessageBox.Question)
                 box.setWindowTitle("Index for this invoice?")
                 box.setText(f"{title}\n\nYou typed {q.typed:,} pages in Est. number of pages{which}; {has} "
-                            f"{q.counted:,}.\n\nJudged on the transcript, {whom} {gets} an index ({q.pdf_why}); "
-                            f"judged on the pages you typed, {it} none ({q.typed_why}).\n\nInclude an index (and the "
-                            f"judge's) {'on this invoice' if whom == 'the invoice' else 'for ' + whom}?")
+                            f"{q.counted:,} total pages.\n\nJudged on the transcript, {whom} {gets} an index "
+                            f"({q.pdf_why}); judged on the pages you typed, {it} none ({q.typed_why}).\n\n"
+                            "Include an index (and the judge's) "
+                            f"{'on this invoice' if whom == 'the invoice' else 'for ' + whom}?")
                 box.setInformativeText("Your answer is kept for this job: Peripherals… in the Invoice card "
                                        "changes it.")
                 yes = box.addButton("Yes, an index", QMessageBox.YesRole)
@@ -5381,8 +5413,8 @@ class MainWindow(QMainWindow):
                     attorneys()
                 found.append((4, Problem("check", f"No invoice for the case yet: {stuck}",
                                          "No invoice for the case yet", other_day)))
-        if self.pages_warn.text().strip():
-            found.append((7, Problem("check", self.pages_warn.text().strip(), "Check the page count",
+        if self.pages_warn.text().strip():  # (the PDF's readings disagree: the user, 2026-10-30, whose pages)
+            found.append((7, Problem("check", self.pages_warn.text().strip(), "Check the total page count",
                                      field("est_pages"))))
         for key, note in self.date_notes.items():
             if note.text().startswith("⚠"):
@@ -5496,6 +5528,28 @@ class MainWindow(QMainWindow):
             self._toast("Still making the files of the batch - one moment.")
         return self.filling
 
+    def _still_reading(self, what: str = "") -> bool:
+        """True (after a box saying so) while documents are still being read, or the AI is still asked about one:
+        Generate and Generate all wait for them (the user, 2026-10-29: "you can't generate as things are still
+        being read"). A read ending while the files are made could put the day with another, tick a firm or set
+        a speed the files don't have. (self.work counts only reads here: _batch_running came first. A read
+        started while Generate all runs is still taken: _run_batch's bring_back and the checks after each
+        question are for that.) An AI question sent before the AI was turned off in Settings doesn't hold it
+        up: its answer is dropped when it comes (_maybe_ai). what: the button pressed, as it reads ("Generate
+        6/4/2026 only", "Generate all 3 days", the preview's "Save"; default: the Generate button's for the job
+        shown, _one_words)."""
+        asking = self.ai_pending if self.s.use_ai else 0
+        if not self.work and not asking:
+            return False
+        what = what or self._one_words(self.cur)
+        who = "Some documents are still being read" if self.work else "The AI is still reading the documents"
+        QMessageBox.information(
+            self, "Please wait for the reading to finish",
+            f"{who}. What they say can change this job (who ordered it, the speed, which day it is), so nothing "
+            f"is made until they are done.\n\nPress {what} again once the reading is finished (the bar at the top "
+            "goes away).")
+        return True
+
     def _commit_edit(self) -> tuple[int, str, int] | None:
         """A cell of the attorney table still being typed in (Ctrl+Enter pressed in it, a merge, an answer about
         the firms) is taken as typed. The editor is found in the table itself, not by the keyboard focus: a
@@ -5588,7 +5642,7 @@ class MainWindow(QMainWindow):
         exist and is taken as it is now (an invoice held meanwhile is asked about again before the files are
         made). Go back at the preview leaves the case folder to be asked about next time.
         """
-        if self._batch_running():
+        if self._batch_running() or self._still_reading():
             return
         self._commit_edit()
         self._sync_from_ui()
@@ -5727,6 +5781,9 @@ class MainWindow(QMainWindow):
         shown = replace(job, case=deepcopy(job.case), docs=list(job.docs), speeds=dict(job.speeds),
                         portions=deepcopy(job.portions), page_basis=deepcopy(job.page_basis),
                         front_owner=dict(job.front_owner))
+        # (a firm renamed from now on - typed in the table, an AI answer's remerge while the preview is up - is the
+        # same firm: the attorneys the files invoice follow it, as Generate all's copies do; see renamed_since)
+        renamed_from = len(job.renamed)
         previewed = False  # the preview showed the math
         # the day every file is dated (today, or the next business day: Settings -> Dates), the preview's too: one
         # made at 4:59 PM is saved as it was shown, though the evening hour came while it was open
@@ -5766,6 +5823,15 @@ class MainWindow(QMainWindow):
             job.settle_split_rule(self.s)
             billed_origin = {**origin, "job": {**origin["job"], "split_rule": job.split_rule}}
         self._settled = []  # (the files are made at the speeds set: kept)
+
+        def renamed_since() -> list:
+            """The job's firms renamed since `shown` was taken (Job.renamed's (old, new) pairs), put on `shown`'s
+            Excerpts... rows and speeds as Generate all puts them on its copies: "smith law" invoiced is "smith
+            law group" now, the same firm, not one still to bill."""
+            since = job.renamed[renamed_from:]
+            for old, new in since:
+                shown.rename_in_portions(old, new)
+            return since
         try:
             paths = generate(case, self.s, out_dir, outputs, opts, runsheet=sheet, folders=input_folders(job),
                              invoiced=keys, origin=origin, math=math, detailed=detailed, ordered=ordered,
@@ -5777,8 +5843,9 @@ class MainWindow(QMainWindow):
             job.saved, job.error = made, f"{type(e).__name__}: {e}"
             if keys:
                 # some attorneys' invoices were made: trying again doesn't bill them twice. A day invoiced before
-                # is billable again for the others only (billed_keys() is empty while it is invoiced).
-                job.invoiced_keys = list(dict.fromkeys(job.billed_keys() + keys))
+                # is billable again for the others only (billed_keys() is empty while it is invoiced). (Under
+                # the names they have now: a firm renamed while the preview was open is the one invoiced.)
+                job.invoiced_keys = list(dict.fromkeys(job.billed_keys() + _following(keys, renamed_since())))
                 job.invoiced = False
             show_save_error(self, e, "Could not make the files", ("\n\nSaved before the problem:\n"
                             + "\n".join(p.name for p in made) if made else "")
@@ -5795,13 +5862,15 @@ class MainWindow(QMainWindow):
         # preview was open (_billing_changed: a document added, another firm ticked, the speed, the parties): the
         # files just made don't bill that. When only who orders changed (or the speed, the parties), those just
         # invoiced aren't billed again by Generate all, but a firm ticked meanwhile is (as Generate all's own run)
-        changed = _billing_changed(job, shown)
+        # (a firm only renamed meanwhile is no change: the same firm, under its new name)
+        since = renamed_since()
+        changed = _billing_changed(job, shown, since)
         if not changed:
             job.made = True
             if "invoice" in outputs:
                 job.invoiced, job.invoice_set = True, new_invoice_set()
         elif keys and not _pages_changed(job, shown):
-            job.invoiced_keys = list(dict.fromkeys(job.billed_keys() + keys))
+            job.invoiced_keys = list(dict.fromkeys(job.billed_keys() + _following(keys, since)))
             job.invoiced = False
         # the detailed copies and the math PDFs are kept for when they're asked for: not opened or printed now
         from ..invoice_math import is_math_file
@@ -5886,9 +5955,13 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logfile.error("could not make the preview", e)
                 return QMessageBox.question(self, "No preview", "The preview could not be made "
-                                            f"({type(e).__name__}).\n\nSave the files without it?") == QMessageBox.Yes
+                                            f"({type(e).__name__}).\n\nSave the files without it?") == QMessageBox.Yes \
+                    and not self._still_reading()
             before = self.s.save_math
             accepted = dlg.exec() == PreviewDialog.Accepted
+            # (Save while a document handed over meanwhile is still read: wait, then Save again, as Generate all's)
+            while accepted and not self._closing and self._still_reading("Save"):
+                accepted = dlg.exec() == PreviewDialog.Accepted
             self._math_saves_kept(before)
             return accepted
 
@@ -6137,7 +6210,7 @@ class MainWindow(QMainWindow):
         """
         if len(self.jobs) < 2:
             return self.fill()
-        if self._batch_running():
+        if self._batch_running() or self._still_reading(self._all_words()):
             return
         self._commit_edit()
         self._sync_from_ui()
@@ -6291,16 +6364,16 @@ class MainWindow(QMainWindow):
                                    runsheet_to=sheet_for.get(id(j), (None, None))[0],
                                    runsheet_group=sheet_for.get(id(j), (None, None))[1], renamed=[])
                     for j in self.jobs}
-        from ..deliver import case_snapshot
         copies = copy_jobs()
-        # (as the copies are: a firm renamed from now on is followed by the attorneys its copy invoices, and a
-        # job whose case is no longer this one when the batch ends - another Index Number, judge, caption... -
-        # is not marked made: its files say what the copy said; see _run_batch)
-        for j in self.jobs:
-            j.renamed = []
-        cases = {id(j): case_snapshot(j.case) for j in chosen}
         todo, settings = [copies[id(j)] for j in chosen], deepcopy(self.s)
         dating = document_day(self.s)  # (every file's date, the preview's too: today, or the next business day)
+        # (as the copies are: a firm renamed from now on is followed by the attorneys its copy invoices, and a
+        # job whose case is no longer this one when the batch ends - another Index Number, judge, caption... -
+        # is not marked made: its files say what the copy said; see _run_batch. Its dates as of the files' day:
+        # midnight coming meanwhile is no change, _dated_snapshot)
+        for j in self.jobs:
+            j.renamed = []
+        cases = {id(j): _dated_snapshot(j.case, settings, dating.day) for j in chosen}
         if self.s.preview_before_saving and _previewed(outputs):
             # the files are shown first, with the math, made from copies of their own: what is saved is what was
             # shown (the copies above), and Go back saves nothing
@@ -6355,7 +6428,7 @@ class MainWindow(QMainWindow):
             logfile.error("could not make the preview of the batch", e)
             if QMessageBox.question(self, "No preview", f"The preview could not be made ({type(e).__name__})."
                                     "\n\nSave the files without it?") == QMessageBox.Yes \
-                    and not self._batch_running():
+                    and not self._batch_running() and not self._still_reading(self._all_words()):
                 then(False)
             else:
                 back()
@@ -6403,13 +6476,19 @@ class MainWindow(QMainWindow):
                     self._job_status()
                     if QMessageBox.question(self, "No preview", f"The preview could not be made ({type(e).__name__})."
                                             "\n\nSave the files without it?") == QMessageBox.Yes \
-                            and not self._batch_running():
+                            and not self._batch_running() and not self._still_reading(self._all_words()):
                         then(False)
                     else:
                         back()
                     return
                 before = self.s.save_math
                 save = dlg.exec() == PreviewDialog.Accepted
+                # Save pressed while a document is still read (one dropped, or handed over, while the preview was
+                # made): nothing is saved until it is done (the user, 2026-10-30: "there should just be a pop-up
+                # saying please wait for reads to finish"), and the preview comes back for Save then. (The preview's
+                # own count is off self.work already: ended.)
+                while save and not self._closing and self._still_reading("Save"):
+                    save = dlg.exec() == PreviewDialog.Accepted
                 previewed = dlg.math is not None
                 self._math_saves_kept(before)
             finally:
@@ -6428,7 +6507,8 @@ class MainWindow(QMainWindow):
             tmp.cleanup()
             self._job_status()
             if QMessageBox.question(self, "No preview", "The preview could not be made.\n\nSave the files "
-                                    "without it?") == QMessageBox.Yes and not self._batch_running():
+                                    "without it?") == QMessageBox.Yes and not self._batch_running() \
+                    and not self._still_reading(self._all_words()):  # (then Generate all again, the reads done)
                 then(False)
             else:
                 back()
@@ -6443,8 +6523,9 @@ class MainWindow(QMainWindow):
         back to the jobs when it ends (what was billed, when it stops with an error too). previewed: the preview
         showed the math (else it is shown after, when Settings.show_math is on). dating: the day every file is
         dated (workdays.document_day, as Generate all started; default: now's), which the message at the end
-        says when it isn't today. cases: deliver.case_snapshot of each job's case as its copy was made, by
-        id(job): a job whose case is another when the batch ends is not marked made (None: not checked)."""
+        says when it isn't today. cases: _dated_snapshot of each job's case as its copy was made (its dates as of
+        dating's day), by id(job): a job whose case is another when the batch ends is not marked made (None: not
+        checked)."""
         dating = dating or document_day(self.s)
         # the case folders named for fewer days get these days' too, before anything is saved into them (here,
         # with the window's jobs: those saved into them follow; the copies are made into them as named now, with
@@ -6484,7 +6565,6 @@ class MainWindow(QMainWindow):
             to them meanwhile (Job.renamed: a firm typed in the table, a read's remerge). Returns the jobs that
             changed while the batch ran, by id(job), each with its line for the message: they are not marked
             made, so the next Generate all makes them as they are now."""
-            from ..deliver import case_snapshot
             changed: dict[int, str] = {}
             for j in chosen:
                 copy, renamed = copies[id(j)], j.renamed
@@ -6523,8 +6603,11 @@ class MainWindow(QMainWindow):
                     j.invoiced, j.invoiced_keys = copy.invoiced, copy.invoiced_keys
                     j.invoice_set = copy.invoice_set  # (the days billed together: the cards show them so)
                 # another Index Number, judge, caption... typed meanwhile (an AI answer, a read): its files say
-                # what the copy said, so it is made again (its invoice is kept as billed)
-                if cases is not None and id(j) in cases and case_snapshot(j.case) != cases[id(j)]:
+                # what the copy said, so it is made again (its invoice is kept as billed). Midnight or the
+                # evening hour came meanwhile is no change (_redate dated the default dates for the next day):
+                # both are dated as the files are
+                if cases is not None and id(j) in cases and _dated_snapshot(j.case, settings,
+                                                                            dating.day) != cases[id(j)]:
                     changed.setdefault(id(j), f"•  {j.title()}")
             return changed
 
@@ -7059,24 +7142,26 @@ class MainWindow(QMainWindow):
         ask_tip = ("A speed with \"?\" is not set yet: firms that order the same pages commit to a speed.\n"
                    "Generate asks for it (set it beforehand in Who ordered)." if asked else "")
         self.inv_info.setToolTip(ask_tip)
+        # (the pages billed are the user's own: the user, 2026-10-30, every count says whose pages)
+        yours, alone = f"{opts.pages} of your pages", f"{job.invoice_pages()} of your pages"
         if len(group) > 1 and job.invoiced:  # (the days one invoice billed already: batch.bill_sets)
-            self.inv_info.setText(f"Invoiced already ✓: one invoice for {len(group)} days ({opts.pages} pp.)\n"
+            self.inv_info.setText(f"Invoiced already ✓: one invoice for {len(group)} days ({yours})\n"
                                   f"{prices}")
             self.inv_info.setToolTip(
                 f"These {len(group)} days were billed on one invoice for each attorney: Generate all won't bill\n"
-                f"them again. \"{self._one_words(job)}\" bills the day shown again, alone ({job.invoice_pages()} pp.).")
+                f"them again. \"{self._one_words(job)}\" bills the day shown again, alone ({alone}).")
         elif len(group) > 1:
-            self.inv_info.setText(f"Generate all: one invoice for {len(group)} days ({opts.pages} pp.)\n{prices}")
+            self.inv_info.setText(f"Generate all: one invoice for {len(group)} days ({yours})\n{prices}")
             forms = ("It also makes one minute agreement per attorney (its days and pages) and one MOFR\n"
                      "for these days (Settings → Options).\n" if self.s.forms_per_case else
                      "The minute agreements and MOFRs are made for each day (Settings → Options).\n")
             self.inv_info.setToolTip(
                 f"Generate all bills these {len(group)} days of the case on one invoice for each attorney\n"
                 f"(the days it is ticked on, and the pages it ordered).\n{forms}"
-                f"\"{self._one_words(job)}\" makes the day shown alone ({job.invoice_pages()} pp.)."
+                f"\"{self._one_words(job)}\" makes the day shown alone ({alone})."
                 + (f"\n\n{ask_tip}" if ask_tip else ""))
         else:
-            self.inv_info.setText(f"{opts.pages} pp." + ("\n" if per_firm else " · ") + prices)
+            self.inv_info.setText(yours + ("\n" if per_firm else " · ") + prices)
         return firms, len(group)
 
     def _warn(self, text: str) -> None:
@@ -7261,6 +7346,11 @@ class MainWindow(QMainWindow):
             return f"Generate {self._job_date(job) or 'this day'} only"
         return "Generate this job"
 
+    def _all_words(self) -> str:
+        """What the Generate all button says, without its count ("Generate all 3 days", "Generate the 1 day
+        left"; _generate_labels), for a box that tells the user to press it again."""
+        return self.fill_all_btn.text().split("  (")[0] or "Generate all"
+
     def _show_live_math(self, link: str = "") -> None:
         """The links of the Who pays what card and the Invoice card ("invoice"): the whole math of the invoices
         the card shows (Who pays what: every day ticked; the Invoice card: the job shown's invoice), as things
@@ -7318,15 +7408,17 @@ class MainWindow(QMainWindow):
             text = f"Billing {billed} of {whole} total pages\n(chosen under Whose pages…)"
         if len(days) > 1 and not held:
             text = f"One invoice for {len(days)} days: {text[0].lower()}{text[1:]}"
+        # (the user, 2026-10-30: every count says whose pages)
         self.inv_pages_info.setToolTip("\n".join(
-            f"{j.case.get('dates') or j.title()}: {j.invoice_pages()} of {j.transcript_pages()} pages"
+            f"{j.case.get('dates') or j.title()}: {j.invoice_pages()} of {j.transcript_pages()} total pages"
             for j in days) if len(days) > 1 else "")
         others = list(dict.fromkeys(r for j in days for r in j.bill_reporters() if r != "me"))
         if others and not held:  # invoices in other reporters' names too (Whose pages... ticked them)
             if not any("me" in j.bill_reporters() for j in days):
                 text = "Not yours"
             text += "\nalso " + ", ".join(
-                f"{r.upper()}'s ({sum(j.billed_by(r).invoice_pages() for j in days if r in j.bill_reporters())})"
+                f"{r.upper()}'s ({sum(j.billed_by(r).invoice_pages() for j in days if r in j.bill_reporters())} "
+                "pages)"
                 for r in others)
             bare = [r.upper() for r in others if not self.s.reporter(r).has_details()]
             if bare:
@@ -7470,7 +7562,7 @@ class MainWindow(QMainWindow):
         t.setRowCount(len(rows))
         for r, row in enumerate(rows):
             for c, text in enumerate(take_cells(row)):
-                item = QTableWidgetItem(text + (" ✎" if row.corrected and c == TAKE_COLS.index("Printed pages") else ""))
+                item = QTableWidgetItem(text + (" ✎" if row.corrected and c == TAKE_COLS.index("Page numbers") else ""))
                 if row.corrected:
                     item.setToolTip("Corrected by you (right-click: undo the corrections of this transcript)")
                 t.setItem(r, c, item)
@@ -7557,7 +7649,7 @@ class MainWindow(QMainWindow):
         t.setFixedHeight(t.horizontalHeader().height() + 4 + sum(t.rowHeight(r) for r in range(t.rowCount())
                                                                  if not t.isRowHidden(r)))
         days = len({row.day for row in rows})
-        info = f"{'This day' if days == 1 else f'These {days} days'}: " + reporter_totals(rows)
+        info = f"{'This day' if days == 1 else f'These {days} days'}: " + reporter_totals(rows, own)
         if shown < len(rows):
             info += f"  ·  showing {shown} of {len(rows)} takes"
         self.takes_info.setText(info)
@@ -7658,7 +7750,7 @@ class MainWindow(QMainWindow):
         it really ends on, then, in an "Are you sure?" box, which pages move, where the take ends then (the same
         reporter's next take joins it when it reaches it) and how the user's pages change. Ended later, the pages
         up to there become the take's; ended sooner, its pages after there become the next take's
-        (takes.moved_end). The correction is the transcript's (Doc.fixes): the takes, Yours, the pages billed and
+        (takes.moved_end). The correction is the transcript's (Doc.fixes): the takes, Your pages, the pages billed and
         the run sheet follow, and the records of the files made from then on keep it (batch.page_fixes). Refused,
         with a box that says why, for the transcript's last take, a take whose initials aren't known yet (Whose
         pages… says) and pages without printed numbers; nothing is done while Generate all runs."""
@@ -7753,7 +7845,7 @@ class MainWindow(QMainWindow):
 
     def _takes_changed(self, job: Job) -> None:
         """After a transcript's takes changed (corrected, or the corrections undone): the job merged again (its
-        pages are worked out from the takes as they are now) and every card, the job list's Yours among them,
+        pages are worked out from the takes as they are now) and every card, the job list's Your pages too,
         shown again."""
         self._remerge(job)
         self._update_status()
@@ -7865,31 +7957,37 @@ class MainWindow(QMainWindow):
         (invoice.index_reason, on every page of the transcripts), why on a line of its own: 'E-mailed copy,
         index\n(83 total pages, 50 or more)', 'E-mailed copy, no index\n(40 total pages, under 50)', 'No e-mailed
         copy (this job), index\n(turned on for this job)'. With no pages yet, the rule: 'E-mailed copy, index from
-        50 pages'. question: a typed page count that changes whether there is an index (batch.index_question):
-        'E-mailed copy, index? Generate asks\n(40 typed, the transcript has 83)' ('Generate all asks' for an
-        invoice of several days: several). on_typed: a day of it is judged on its typed count, as answered
-        (Job.index_on_typed): '(on the pages you typed: 40 total pages, under 50)'. priced False: the rate sheet has
-        no index price for the invoice's speeds (those offered and those firms ordered at: invoice.index_priced),
-        so days that get an index are charged none: 'E-mailed copy, no index charged\n(the rate sheet has no index
-        price)'."""
+        50 total pages'. question: a typed page count that changes whether there is an index
+        (batch.index_question): 'E-mailed copy, index? Generate asks\n(40 pages typed,\nthe transcript has 83 total
+        pages)' ('Generate all asks' for an invoice of several days: several). on_typed: a day of it is judged on
+        its typed count, as answered (Job.index_on_typed): '(40 pages typed, under 50)'.
+        priced False: the rate sheet has no index price for the invoice's speeds (those offered and those firms
+        ordered at: invoice.index_priced), so days that get an index are charged none: 'E-mailed copy, no index
+        charged\n(the rate sheet has no index price)'."""
         from ..invoice import index_mode, index_reason, indexed_days
         s = self.s
         email = s.invoice_include_email if opts.email is None else opts.email
         text = ("E-mailed copy" if email else "No e-mailed copy") + (" (this job)" if opts.email is not None else "")
         if not priced and opts.pages and any(indexed_days(opts, s)):
             return f"{text}, no index charged\n(the rate sheet has no index price)"
+        # (the user, 2026-10-30: every count says whose pages)
+        if index_mode(opts, s) == "auto" and not opts.pages and question is None:
+            return f"{text}, index from {s.invoice_index_threshold} total pages"
         if question is not None:
             has = "the transcripts have" if question.transcripts > 1 else "the transcript has"
-            return (f"{text}, index? Generate{' all' if several else ''} asks\n"
-                    f"({question.typed:,} typed, {has} {question.counted:,})")
-        if index_mode(opts, s) == "auto" and not opts.pages:
-            return f"{text}, index from {s.invoice_index_threshold} pages"
-        mine = "on the pages you typed: " if on_typed and index_mode(opts, s) == "auto" else ""
-        why = f"({mine}{index_reason(opts, s)})"  # (on a line of its own)
+            text = f"{text}, index? Generate{' all' if several else ''} asks"
+            why = f"({question.typed:,} pages typed, {has} {question.counted:,} total pages)"
+        else:
+            reason = index_reason(opts, s)
+            # (a reason saying "40 pages typed" says it already: not "on the pages you typed: 40 pages typed")
+            mine = "on the pages you typed: " if on_typed and index_mode(opts, s) == "auto" and \
+                "typed" not in reason else ""
+            text = f"{text}, {'index' if any(indexed_days(opts, s)) else 'no index'}"
+            why = f"({mine}{reason})"  # (on a line of its own)
         if len(why) > LINE_WIDTH and ", " in why:  # broken after its comma, not with "more)" left on a line alone
             head, _, tail = why.rpartition(", ")
             why = f"{head},\n{tail}"
-        return f"{text}, {'index' if any(indexed_days(opts, s)) else 'no index'}\n{why}"
+        return f"{text}\n{why}"
 
     def _invoice_peripherals(self):
         """Peripherals…: the e-mailed copy and the index for this job's invoice, and the other days on it; and,

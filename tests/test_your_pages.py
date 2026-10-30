@@ -155,7 +155,16 @@ def test_the_window_has_the_four_counts(excerpts):
 def test_the_pages_nobody_ordered_are_every_reporters(excerpts):
     """Pages 6-7, Dana's, are ordered by nobody: the summary's Nobody line counts them, as Total pages
     transcribed does (it counted the user's pages only, none here, and wasn't shown)."""
-    assert "Nobody: 2 pp. (not billed)" in excerpts.summary.text()
+    assert "Nobody: 2 total pages, 0 of them yours (not billed)" in excerpts.summary.text()
+
+
+def test_the_lines_under_the_table_say_your_pages_and_total_pages(excerpts):
+    """A bare "3 pp." under the table read as all the run's pages, beside printed numbers of 5 pages (the user,
+    2026-10-30): each set of firms says both counts, as the table's Your pages billed and Total pages billed."""
+    text = excerpts.summary.text()
+    assert "Dana Smith (Expedite): 3 of your pages billed (5 total pages)" in text, text  # (pages 1-5, both firms)
+    assert "Alex B. Counsel only: 2 of your pages billed (3 total pages)" in text, text  # (pages 8-10)
+    assert " pp." not in text
 
 
 def test_a_count_hidden_under_columns_is_kept(excerpts):

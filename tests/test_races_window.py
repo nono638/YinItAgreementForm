@@ -300,3 +300,58 @@ def test_a_tick_spread_from_another_day_keeps_a_name_being_typed(two_days):
     editor = open_editor(win)
     assert win.att.state() == QtWidgets.QAbstractItemView.EditingState and editor is not None
     assert editor.text().startswith("Dana Smi") and editor.cursorPosition() == len("Dana Smi")
+
+
+# ------------------------------------------------------------------ Generate waits for the reading to finish
+@pytest.fixture
+def boxes(monkeypatch, qt):
+    """The titles and texts of the information boxes shown (answered at once)."""
+    shown = []
+    monkeypatch.setattr(qt.QMessageBox, "information", lambda parent, title, text, *a: shown.append((title, text)))
+    return shown
+
+
+def test_generate_waits_while_a_document_is_still_being_read(previewing, boxes):
+    """A read still going (the user, 2026-10-29: "you can't generate as things are still being read"): a box says
+    to wait, nothing is made; the read over, Generate makes the files."""
+    job = previewing.cur
+    previewing.work = 1
+    previewing.fill()
+    assert boxes and boxes[-1][0] == "Please wait for the reading to finish"
+    assert "Some documents are still being read" in boxes[-1][1] and "Press Generate again" in boxes[-1][1]
+    assert not job.saved and not job.made
+    previewing.work = 0
+    previewing.fill()
+    assert job.saved and job.made
+
+
+def test_generate_waits_while_the_ai_is_still_asked(previewing, boxes):
+    """An AI answer still to come can tick a firm or set the speed: Generate waits for it too."""
+    previewing.s.use_ai = True  # (asked while the AI is on: an answer to a question sent before it was off is dropped)
+    previewing.ai_pending = 1
+    previewing.fill()
+    assert "The AI is still reading the documents" in boxes[-1][1] and not previewing.cur.saved
+    previewing.ai_pending = 0
+
+
+def test_generate_all_waits_while_a_document_is_still_being_read(tmp_path, monkeypatch, make_window, qt, boxes):
+    """Two days: Generate all waits while a read goes on (a read ending during the batch could put one day with
+    the other), then makes them both."""
+    from minute_filler.gui import dialogs
+    from test_gui_batch import two_days
+    monkeypatch.setattr(qt.QMessageBox, "exec", lambda self: 0)
+    monkeypatch.setattr(dialogs.ClarifyDialog, "exec", lambda self: 0)  # (not expected; never waits)
+    s = settings(tmp_path)
+    s.save_math = "off"
+    win = make_window(s)
+    win.output_boxes["agreement"].setChecked(False)
+    win.output_boxes["invoice"].setChecked(True)
+    two_days(win, tmp_path)
+    win.work = 1
+    win.fill_all_jobs()
+    # (the button named as it reads)
+    assert "Press Generate all 2 days again" in boxes[-1][1] and not win.filling and not any(j.saved for j in win.jobs)
+    win.work = 0
+    win.fill_all_jobs()
+    wait(win, lambda: not win.filling)
+    assert all(j.saved and j.made for j in win.jobs)

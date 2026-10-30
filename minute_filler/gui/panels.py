@@ -101,8 +101,9 @@ def invoice(win, inv: QFormLayout) -> None:
     includes.addStretch(1)
     inv.addRow("Includes:", includes)
     win.inv_detail = QCheckBox("Show granular detail")
+    # (the user, 2026-10-30: every count says whose pages)
     win.inv_detail.setToolTip("For this job's invoice only (off for every new job): also show what Customize…\n"
-                              "lists, such as the page count, the price per page and the charges in each amount.\n"
+                              "lists, such as your page count, the price per page and the charges in each amount.\n"
                               "Unticked, the invoice shows each speed's turnaround and amount only.")
     win.inv_detail.toggled.connect(win._invoice_detail_changed)
     inv.addRow("", with_button(

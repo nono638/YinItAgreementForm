@@ -36,8 +36,9 @@ CUSTOM_KEY = re.compile(r"c[0-9a-z]{1,32}")  # the key of a box of the user's ow
 COLOUR = re.compile(r"#[0-9a-fA-F]{6}")
 # The Records columns a box's name may not take (they would be two columns of one name in the CSV copies and
 # the window): the CSV copies' (records.INVOICE_COLUMNS) and these, which only the window has
-WINDOW_HEADINGS = ("Paid", "No.", "Pages billed", "Offered (each party)", "Speed ordered", "Deleted on",
-                   "Gone for good on")
+WINDOW_HEADINGS = ("Paid", "No.", "Pages billed", "Your pages billed", "Your / their pages billed",
+                   "Your pages transcribed", "Your / their pages transcribed", "Total pages transcribed",
+                   "Pages on the file", "Offered (each party)", "Speed ordered", "Deleted on", "Gone for good on")
 
 
 @dataclass
@@ -141,8 +142,9 @@ def rule_rows(rules: list[ColourRule]) -> list[dict]:
 
 def _taken_headings() -> set[str]:
     """The headings of the Records columns a box may not be named (lower case)."""
-    from .records import INVOICE_COLUMNS  # (here: records imports the settings, through log, and they import this)
-    return {h.lower() for h in (*INVOICE_COLUMNS, *WINDOW_HEADINGS)}
+    from .records import INVOICE_COLUMNS, OLD_INVOICE_COLUMNS  # (here: records imports the settings, through
+    # log, and they import this); the old headings too: a box named "Pages" before they changed keeps its " (2)"
+    return {h.lower() for h in (*INVOICE_COLUMNS, *OLD_INVOICE_COLUMNS, *WINDOW_HEADINGS)}
 
 
 def clean_boxes(rows) -> list[TrackBox]:

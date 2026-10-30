@@ -141,6 +141,9 @@ class DayOrder:
     total: int = 0  # every page of the day's transcripts (more than `pages` when several reporters wrote them)
     # who wrote how many pages of the day's transcripts ({"pr": 6, "ds": 4}; "" = no initials), for the records
     reporters: dict = field(default_factory=dict)
+    # the user's own pages of the day, for the records' "Your pages transcribed", when fewer than `pages`: its
+    # transcripts billed whole (Whose pages... -> The whole transcript; batch.Job.day_yours). None = `pages`
+    mine: int | None = None
 
 
 def reporters_text(counts: dict) -> str:
@@ -185,6 +188,10 @@ class InvoiceOpts:
     # the Pages field was typed in (batch.Job.pages_typed): my_pages is that number, which is not the pages the
     # user wrote ("The Pages field: 40 of 83 total pages", not "You wrote 40 of 83")
     typed: bool = False
+    # a day's transcripts are billed whole (Whose pages... -> The whole transcript; DayOrder.mine): my_pages is the
+    # user's own pages, fewer than those billed. The math says nothing of who wrote them (invoice_math.about), as
+    # it billed every page of them anyway
+    billed_whole: bool = False
     # made for another reporter's pages, in their name: their initials ("ds"; see Settings.as_reporter); "" =
     # the user's own invoice
     reporter: str = ""
@@ -473,7 +480,7 @@ def job_quotes(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[Quote]:
     or the job's own speed (else Settings.agreement_speed()) when none of them is. The index is judged on every
     page of the transcripts (judged_pages). ValueError without a page count."""
     if opts.pages <= 0:
-        raise ValueError("an invoice needs the transcript's page count")
+        raise ValueError("an invoice needs pages to bill")  # (the user, 2026-10-30: every count says whose pages)
     return quotes_for(opts.day_pages(), opts.parties, s.sheet(), s, case.get("delivery") or s.agreement_speed(),
                       opts.email, opts.index, judged_pages(opts))
 
@@ -692,6 +699,36 @@ def judged_pages(opts: InvoiceOpts) -> list[int]:
     return [max(days[0], opts.total_pages)] if len(days) == 1 else days
 
 
+def judged_typed(opts: InvoiceOpts) -> list[bool]:
+    """For each of judged_pages, whether it is the number the user typed in the Pages field rather than every page
+    of the transcripts: a day without a transcript, or one answered to be judged on its typed number (both
+    DayOrder.total 0), or a number typed above the transcripts' own count (judged_pages takes the larger): a day
+    typed 90 whose transcript has 83 pages is judged on "90 pages typed", not "90 total pages" (CLAUDE.md: a
+    number typed in the Pages field is pages typed)."""
+    if opts.orders:
+        # (the pages billed are above every page of the transcripts only when typed in: no transcript, total 0)
+        return [d.pages > d.total for d in opts.orders]
+    days = opts.day_pages()
+    if len(days) == 1:
+        return [opts.typed and days[0] > opts.total_pages]
+    return [opts.typed] * len(days)
+
+
+def _whose(typed: list[bool]) -> str:
+    """The words after a count of judged pages (the user, 2026-10-30: every count says whose pages): "pages
+    typed" when every day counted is a number typed, "total pages" when none is, else "pages" (index_reason
+    then says "(typed and total)" after it, see _mixed)."""
+    if typed and all(typed):
+        return "pages typed"
+    return "total pages" if not any(typed) else "pages"
+
+
+def _mixed(typed: list[bool], both: str) -> str:
+    """What follows a count of days of both kinds, some judged on a number typed, some on every page of their
+    transcripts: " (typed or total)" ("every day has 50 pages or more (typed or total)"); "" otherwise."""
+    return f" ({both})" if any(typed) and not all(typed) else ""
+
+
 def index_mode(opts: InvoiceOpts, s: Settings) -> str:
     """"auto", "on" or "off": the job's own choice (Peripherals...), else as the invoice settings say."""
     return opts.index if opts.index is not None else ("auto" if s.invoice_include_index else "off")
@@ -704,31 +741,37 @@ def indexed_days(opts: InvoiceOpts, s: Settings) -> list[bool]:
 
 def index_reason(opts: InvoiceOpts, s: Settings, days: list[int] | None = None) -> str:
     """Why the invoice's days get an index or not, in a few words, for the Invoice card and the math:
-    "83 total pages, 50 or more", "40 total pages, under 50", "a day of 60 pages, 50 or more" (Settings: if any
-    day reaches the threshold, every day gets one), "1 of 2 days have 50 pages or more", "turned on for this
-    job", "turned off for this job", "turned off in Settings → Invoice". days: the days of one firm's invoice
-    (their places in opts.orders). Under the rule "each", where each day is judged alone, the reason is about
-    those days only: "30 total pages, under 50" for a firm that ordered only the short day, not "1 of 2 days
-    have 50 pages or more". Under the other rules the whole invoice decides, so it says the same for every firm."""
+    "83 total pages, 50 or more", "40 total pages, under 50", "40 pages typed, under 50" (judged on a number
+    typed: judged_typed), "a day of 60 total pages, 50 or more" (Settings: if any day reaches the threshold,
+    every day gets one), "1 of 2 days have 50 total pages or more", "every day has 50 pages or more (typed or
+    total)" (some days judged on a number typed, some not), "turned on for this job", "turned off for
+    this job", "turned off in Settings → Invoice". days: the days of one firm's invoice (their places in
+    opts.orders). Under the rule "each", where each day is judged alone, the reason is about those days only:
+    "30 total pages, under 50" for a firm that ordered only the short day, not "1 of 2 days have 50 total pages
+    or more". Under the other rules the whole invoice decides, so it says the same for every firm."""
     mode, t = index_mode(opts, s), s.invoice_index_threshold
     if mode == "on":
         return "turned on for this job"
     if mode == "off":
         return "turned off for this job" if opts.index is not None else "turned off in Settings → Invoice"
-    pages, rule = judged_pages(opts), s.invoice_index_rule
+    pages, typed, rule = judged_pages(opts), judged_typed(opts), s.invoice_index_rule
     if rule == "each" and days is not None:
-        pages = [pages[i] for i in days]
+        pages, typed = [pages[i] for i in days], [typed[i] for i in days]
+    # (the user, 2026-10-30: every count says whose pages): "total pages", or "pages typed" (_whose)
     if len(pages) < 2 or rule == "total":
         n = sum(pages)
         over = f" over {len(pages)} days" if len(pages) > 1 else ""
-        return f"{n:,} total pages{over}, " + (f"{t} or more" if n >= t else f"under {t}")
+        return (f"{n:,} {_whose(typed)}{over}{_mixed(typed, 'typed and total')}, "
+                + (f"{t} or more" if n >= t else f"under {t}"))
     big = [p for p in pages if p >= t]
+    whose, mixed = _whose(typed), _mixed(typed, "typed or total")
     if not big:
-        return f"no day has {t} pages"
+        return f"no day has {t} {whose}{mixed}"
     if rule == "each":
-        return (f"every day has {t} pages or more" if len(big) == len(pages)
-                else f"{len(big)} of {len(pages)} days have {t} pages or more")
-    return f"a day of {max(pages):,} pages, {t} or more"
+        return (f"every day has {t} {whose} or more{mixed}" if len(big) == len(pages)
+                else f"{len(big)} of {len(pages)} days have {t} {whose} or more{mixed}")
+    top = pages.index(max(pages))
+    return f"a day of {max(pages):,} {_whose([typed[top]])}, {t} or more"
 
 
 def index_note(indexed: bool, why: str, priced: bool = True) -> str:
@@ -822,7 +865,7 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
         return [FirmInvoice(a, case, opts, quotes, group, note) for a in orderers
                 if opts.skip_key(a) not in opts.skip]
     if opts.pages <= 0:
-        raise ValueError("an invoice needs the transcript's page count")
+        raise ValueError("an invoice needs pages to bill")  # (the user, 2026-10-30: every count says whose pages)
     got = firm_pages(opts.orders, [_key(a) for a in orderers])
     indexed = indexed_days(opts, s)  # (judged on every page of each day, whoever wrote it: see index_pages)
     email = s.invoice_include_email if opts.email is None else opts.email
@@ -853,7 +896,9 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
             shares = [Share(x.pages, x.n, indexed[i]) for i, x in parts]
             quotes = None
         billed = [(opts.orders[i].date, sum(x.pages for x in xs)) for i, xs in days]
-        mine = sum(opts.orders[i].pages for i, _ in days)
+        # (the user's own pages of its days: fewer than those billed where the transcripts are billed whole)
+        mine = sum(o.pages if o.mine is None else o.mine for o in (opts.orders[i] for i, _ in days))
+        whole_billed = any(opts.orders[i].mine is not None for i, _ in days)
         # (as the index is judged: a Pages number typed above a transcript's count, its caption page only, is
         # the day's count, not the transcript's 1 page)
         whole = sum(index_pages([opts.orders[i] for i, _ in days]))
@@ -861,7 +906,7 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
         # and the "shared" text); orders made without the counts keep the invoice's own
         own = reporters_text(day_reporters([opts.orders[i] for i, _ in days]))
         fopts = replace(opts, pages=sum(p for _, p in billed), days=billed, orders=[], skip=[],
-                        parties=max(x.n for x in shares), my_pages=mine, total_pages=whole,
+                        parties=max(x.n for x in shares), my_pages=mine, total_pages=whole, billed_whole=whole_billed,
                         reporters=own if any(o.reporters for o in opts.orders) else opts.reporters,
                         excerpt=_excerpt(opts.orders, [_key(a) for a in orderers], k))
         fcase = case

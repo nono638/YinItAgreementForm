@@ -338,6 +338,38 @@ def test_records_lists_their_invoices_only_when_asked(qt, s):
     win.close()
 
 
+def test_records_page_counts_say_whose(qt, s):
+    """Every page count's heading says whose pages (the user, 2026-10-30): "Your pages billed" while the user's own
+    invoices alone are listed, "Your / their pages billed" once a colleague's invoice is listed too (its counts are
+    hers; For reporter says whose), and "Total pages transcribed" for every reporter's. Everything made counts
+    differently by kind: its heading and tooltip say so."""
+    from minute_filler.gui.records_window import ACTIVITY_COLS, RecordsWindow, col_index
+    records_with_theirs(s)
+    win = RecordsWindow(s)
+    win.reload()
+
+    def head(t, cols, key):
+        return t.horizontalHeaderItem(col_index(cols, key))
+
+    def heads(t, cols):
+        return [head(t, cols, k).text() for k in ("pages", "my_pages", "transcript_pages")]
+    assert heads(win.inv_table, win.inv_cols) == ["Your pages billed", "Your pages transcribed",
+                                                  "Total pages transcribed"]
+    assert heads(win.act_table, ACTIVITY_COLS) == ["Pages on the file", "Your pages transcribed",
+                                                   "Total pages transcribed"]
+    assert "Every reporter's pages" in head(win.inv_table, win.inv_cols, "transcript_pages").toolTip()
+    assert "colleague's name" in head(win.inv_table, win.inv_cols, "pages").toolTip()
+    tip = head(win.act_table, ACTIVITY_COLS, "pages").toolTip()
+    assert "agreement" in tip and "invoice" in tip and "run sheet" in tip
+    win.show_theirs(True)
+    assert heads(win.inv_table, win.inv_cols)[:2] == ["Your / their pages billed", "Your / their pages transcribed"]
+    assert heads(win.act_table, ACTIVITY_COLS)[1] == "Your / their pages transcribed"
+    win.show_theirs(False)
+    assert heads(win.inv_table, win.inv_cols)[:2] == ["Your pages billed", "Your pages transcribed"]
+    assert heads(win.act_table, ACTIVITY_COLS)[1] == "Your pages transcribed"
+    win.close()
+
+
 def test_records_opened_again_hides_their_invoices(make_window, s):
     """Their invoices shown stay listed while Records is open (opened again from the main window, or the records
     read again); closed and opened again, it lists the user's own alone."""

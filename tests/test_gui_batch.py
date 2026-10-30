@@ -131,7 +131,7 @@ def test_outputs_and_invoice_need_a_transcript(window, tmp_path):
     window.add_files([str(transcript_pdf(tmp_path / "t.pdf", pages=12))])
     wait(window, lambda: len(window.cur.docs) == 1)
     assert window.cur.invoice_pages() == 12
-    assert "12 pp." in window.inv_info.text() and "Regular" in window.inv_info.text()
+    assert "12 of your pages" in window.inv_info.text() and "Regular" in window.inv_info.text()
     for a in window.case.attorneys:
         a.checked = "Counsel" in (a.firm or "")
     window._show_attorneys()
@@ -264,9 +264,9 @@ def test_days_of_a_case_share_one_invoice_and_its_peripherals(window, tmp_path, 
     window.add_files([str(transcript_pdf(tmp_path / "a.pdf", pages=30, date="June 3, 2026")),
                       str(transcript_pdf(tmp_path / "b.pdf", pages=60, date="June 4, 2026"))])
     wait(window, lambda: len(window.jobs) == 2 and all(j.docs for j in window.jobs))
-    assert window.inv_info.text().startswith("Generate all: one invoice for 2 days (90 pp.)\nRegular $")
+    assert window.inv_info.text().startswith("Generate all: one invoice for 2 days (90 of your pages)\nRegular $")
     assert "Generate 6/3/2026 only" in window.inv_info.toolTip()
-    assert window.inv_peripherals_info.text() == "E-mailed copy, index\n(a day of 60 pages, 50 or more)"
+    assert window.inv_peripherals_info.text() == "E-mailed copy, index\n(a day of 60 total pages, 50 or more)"
     # Peripherals… for this job: its other day on the same invoice gets the same choice
     monkeypatch.setattr(dialogs.InvoicePeripheralsDialog, "exec", lambda self: 1)
     monkeypatch.setattr(dialogs.InvoicePeripheralsDialog, "values", lambda self: (False, "off"))
@@ -489,7 +489,7 @@ def test_days_generate_all_made_stay_in_every_card(window, tmp_path, monkeypatch
     assert window.cur is second
     assert "Invoiced already (✓): 6/3/2026, 6/4/2026. Generate all won't bill them again" in         window.orders_info.text()
     assert window.pays.text().startswith("Invoiced already ✓") and "for these 2 days" in window.pays.text()
-    assert window.inv_info.text().startswith("Invoiced already ✓: one invoice for 2 days (90 pp.)")
+    assert window.inv_info.text().startswith("Invoiced already ✓: one invoice for 2 days (90 of your pages)")
     assert len({r.day for r in window._take_rows}) == 2
     assert window._excerpt_group() == [first, second]
 
@@ -515,13 +515,13 @@ def test_the_price_line_says_what_generate_all_bills(window, tmp_path, monkeypat
     from minute_filler.gui import dialogs
     window.output_boxes["invoice"].setChecked(True)
     two_days(window, tmp_path)
-    assert window.inv_info.text().startswith("Generate all: one invoice for 2 days (90 pp.)\n")
+    assert window.inv_info.text().startswith("Generate all: one invoice for 2 days (90 of your pages)\n")
     window.jobs[1].include = False  # unticked: Generate all bills the day shown alone
     window._refresh_outputs()
-    assert window.inv_info.text().startswith("30 pp. · Regular") and not window.inv_info.toolTip()
+    assert window.inv_info.text().startswith("30 of your pages · Regular") and not window.inv_info.toolTip()
     window.jobs[1].include, window.jobs[1].invoiced = True, True  # billed already
     window._refresh_outputs()
-    assert window.inv_info.text().startswith("30 pp. · Regular")
+    assert window.inv_info.text().startswith("30 of your pages · Regular")
     window.jobs[1].invoiced = False
 
     def untick_meanwhile(self):  # the days on the invoice are taken when the window closes
@@ -613,10 +613,10 @@ def one_day_two_attorneys(window, tmp_path, pages=30):
 def test_who_ordered_splits_the_day_and_the_prices_show_each_attorney(window, tmp_path, monkeypatch):
     one_day_two_attorneys(window, tmp_path)
     assert window.inv_who.isEnabled() and window.inv_parties.isEnabled()
-    assert window.inv_info.text() == "30 pp. · Regular $124.50 · Expedite (form) $147.00 each"  # 30 x (4.30 / 2 + 2)
+    assert window.inv_info.text() == "30 of your pages · Regular $124.50 · Expedite (form) $147.00 each"  # 30 x (4.30 / 2 + 2)
     split(window, monkeypatch, [(10, [A]), (30, [A, B])])
     # Alex: (10 + 20 / 2) x 4.30 + 30 + 30 = 146.00; Dana: 10 x 4.30 + 20 + 20 = 83.00
-    assert window.inv_info.text().splitlines() == ["30 pp.", "Alex B. Counsel: Regular $146.00 · Expedite (form) $174.00",
+    assert window.inv_info.text().splitlines() == ["30 of your pages", "Alex B. Counsel: Regular $146.00 · Expedite (form) $174.00",
                                                    "Dana Smith: Regular $83.00 · Expedite (form) $98.00"]
     assert not window.inv_parties.isEnabled() and window.inv_who.text().startswith("✓")
     split(window, monkeypatch, [(30, [A, B])])  # everyone ordered every page: no rows kept
@@ -644,7 +644,7 @@ def test_the_days_of_a_case_bill_each_attorney_for_its_own_days(window, tmp_path
     window._refresh_outputs()
     # Alex: 30 x (4.30 + 4 x 1.00) = 249.00, then (60 / 2 x 4.30) + 60 + 60 + 60 (its own index) + 30 (half the
     # judge's) = 339.00; Dana: 339.00. Expedite: 294.00 + 393.00; 393.00
-    assert window.inv_info.text().splitlines() == ["Generate all: one invoice for 2 days (90 pp.)",
+    assert window.inv_info.text().splitlines() == ["Generate all: one invoice for 2 days (90 of your pages)",
                                                    "Alex B. Counsel: Regular $588.00 · Expedite (form) $687.00",
                                                    "Dana Smith: Regular $339.00 · Expedite (form) $393.00"]
     assert window.inv_who.isEnabled()  # Who ordered which pages… shows both days, whoever is ticked on the day shown
@@ -662,7 +662,7 @@ def test_a_split_order_s_prices_say_its_speeds_are_asked(window, tmp_path):
     window.jobs[1].case.attorneys = [counsel(), smith()]
     window._show_case()
     window._refresh_outputs()
-    assert window.inv_info.text().splitlines() == ["Generate all: one invoice for 2 days (90 pp.)",
+    assert window.inv_info.text().splitlines() == ["Generate all: one invoice for 2 days (90 of your pages)",
                                                    "Alex B. Counsel: Expedite? $687.00", "Dana Smith: Expedite? $393.00"]
     assert "Generate asks for it" in window.inv_info.toolTip()
     window.jobs[0].set_speed(A, "Regular")
@@ -784,7 +784,7 @@ def test_who_ordered_follows_a_rename_and_needs_checking_when_an_attorney_is_unt
 
     split(window, monkeypatch, [(30, [A])])  # Who ordered which pages…: Alex alone ordered the day
     assert window.cur.portions is None and [a.checked for a in window.cur.case.attorneys] == [True, False]
-    assert window.inv_info.text().startswith("30 pp. · Regular $189.00") and window.inv_parties.isEnabled()
+    assert window.inv_info.text().startswith("30 of your pages · Regular $189.00") and window.inv_parties.isEnabled()
 
 
 @pytest.mark.usefixtures("split_orders_choose")  # (each firm's price at each speed)
@@ -795,7 +795,7 @@ def test_retyping_the_pages_keeps_who_ordered(window, tmp_path, monkeypatch):
     window.rows["est_pages"].choose("3")  # "30" -> "3" -> "30", as when a digit is typed again
     assert window.cur.portions == rows
     assert " ".join(window.inv_info.text().split()) == \
-        "⚠ Who ordered which pages… needs checking (its rows don't end on this day's 3 pages)"  # (wrapped)
+        "⚠ Who ordered which pages… needs checking (its rows don't end on this day's 3 pages typed)"  # (wrapped)
     window.rows["est_pages"].choose("30")
     assert window.cur.portions == rows and window.inv_who.text().startswith("✓")
     assert window.inv_info.text().splitlines()[1].startswith("Alex B. Counsel: Regular $146.00")
@@ -1021,10 +1021,10 @@ def test_peripherals_are_for_this_job_only_and_say_so(qt):
     dlg = InvoicePeripheralsDialog(None, None, s)
     assert dlg.windowTitle() == "Peripherals for this job"
     radios = [b.text() for b in dlg.index.buttons()]
-    assert radios == ["Auto: when the whole transcript has 60 pages or more",
+    assert radios == ["Auto: when the whole transcript has 60 total pages or more",
                       "Yes, for this job (however short the transcript)", "No, for this job"]
     notes = " ".join(w.text() for w in dlg.findChildren(QtWidgets.QLabel))
-    assert "for this job only" in notes and "New jobs start from Settings → Invoice, where the 60 pages" in notes
+    assert "for this job only" in notes and "New jobs start from Settings → Invoice, where the 60 total pages" in notes
     assert "Auto counts every reporter's pages of the transcript, not only yours." in notes
     assert "Same as Settings" in [b.text() for b in dlg.findChildren(QtWidgets.QPushButton)]
     assert dlg.values() == (None, None)

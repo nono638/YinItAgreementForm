@@ -123,7 +123,7 @@ def test_the_status_names_the_first_thing_to_check_and_reaches_what_it_missed(wi
     window._answer_firm(False)
     window.pages_warn.setText("⚠ The PDF's pages may be 28, not 30: check the count")
     window._job_status()
-    assert window.status.text().endswith(": Check the page count ›")
+    assert window.status.text().endswith(": Check the total page count ›")
     window.status.clicked.emit()
     assert window.rows["est_pages"].edit.property("flash") is True
     window.pages_warn.setText("")
@@ -349,11 +349,14 @@ def test_the_job_list_is_by_date_oldest_first_and_sorts_by_any_heading(window, t
     assert shown(window) == ["10/21/2026", "10/20/2026", "10/19/2026", "10/14/2026"]
     window.job_list.sortByColumn(JOB_PAGES, Qt.AscendingOrder)
     assert shown(window, JOB_PAGES) == ["8", "10", "12", "14"]  # (as numbers: "10" < "8" as text)
-    assert Settings.load().job_sort == ["Pages", "ascending"]
+    assert Settings.load().job_sort == ["Total pages", "ascending"]
     window._refresh_jobs()  # (rebuilt: sorted as chosen)
     assert shown(window, JOB_PAGES) == ["8", "10", "12", "14"]
     again = make_window(Settings.load())
     assert again._job_sort() == (JOB_PAGES, Qt.AscendingOrder)
+    old = Settings.load()  # kept before the headings said whose pages (the user, 2026-10-30): still that column
+    old.job_sort = ["Yours", "descending"]
+    assert make_window(old)._job_sort() == (JOB_PAGES + 1, Qt.DescendingOrder)
 
 
 def test_the_day_column_says_the_weekday_and_can_be_hidden(window, tmp_path, make_window):

@@ -353,11 +353,12 @@ def about(f: FirmInvoice) -> str:
     wrote some ("You wrote 45 of 83 total pages.", as the Invoice card's Billed line says it; "DS wrote ..." on
     an invoice in another reporter's name; "The Pages field: 40 of 83 total pages." when that number was typed,
     as it need not be the pages the user wrote), and whether there is an index and why ("Index: 83 total pages,
-    50 or more."). "" when there is neither."""
+    50 or more."). "" when there is neither. Nothing is said of who wrote a transcript billed whole (Whose
+    pages... -> The whole transcript: InvoiceOpts.billed_whole): every page of it is billed."""
     o = f.opts
     mine, whole = o.my_pages or o.pages, o.total_pages
     bits = []
-    if whole > mine:
+    if whole > mine and not o.billed_whole:
         who = "The Pages field:" if o.typed else f"{o.reporter.upper()} wrote" if o.reporter else "You wrote"
         bits.append(f"{who} {mine:,} of {whole:,} total pages.")
     if f.index_note:
@@ -616,7 +617,10 @@ def who_pays(firms: list[FirmInvoice]) -> list[PayRow]:
     invoice's own amount (per_party). Invoices made the old way (no shares) say "alone" or "split 3 ways"."""
     out = []
     for f in firms:
-        parts = next((l.parts for q in f.quotes[:1] for l in q.lines if l.parts), [])
+        # every Original line's parts: a firm billed at two speeds has a line for each ("Original (Daily)" for
+        # 40 pages alone, "Original (Regular)" for 50 shared by 2), and the first alone said "alone"
+        parts = [p for q in f.quotes[:1] for l in q.lines if l.charge == "Original" for p in l.parts]
+        parts = parts or next((l.parts for q in f.quotes[:1] for l in q.lines if l.parts), [])
         n = f.opts.parties
         how = how_shared(parts) if parts else "alone" if n <= 1 else f"split {n} ways"
         if any(q.mixed for q in f.quotes):

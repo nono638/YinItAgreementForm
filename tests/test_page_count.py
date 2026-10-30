@@ -61,7 +61,7 @@ def test_an_index_over_a_quarter_of_the_pdf_is_warned_about(tmp_path):
     c = ing.count
     assert c.readings == {"scan": 8, "lines": 8, "back": 8}
     assert (c.pages, c.confidence) == (8, 0.55)
-    assert c.warning == "⚠ 12 of the PDF's 20 pages were taken for the word index, more than a quarter: check the count"
+    assert c.warning == "⚠ 12 of the PDF's 20 total pages were taken for the word index, more than a quarter: check the count"
 
 
 def test_a_short_transcripts_index_may_take_five_pages(tmp_path):
@@ -87,7 +87,7 @@ def test_two_counts_each_with_two_readings_are_both_offered():
     c = count_pages(facts)
     assert c.readings == {"scan": 22, "lines": 22, "back": 20, "numbers": 20}
     assert (c.pages, c.others, c.confidence) == (22, [20], 0.55)
-    assert c.warning == ("⚠ the PDF reads as 22 pages (reading the pages up to the word index) or 20 (the word index "
+    assert c.warning == ("⚠ the PDF reads as 22 total pages (reading the pages up to the word index) or 20 (the word index "
                          "found from the end): check the count")
 
 
@@ -120,7 +120,7 @@ def test_the_line_under_the_pages_field(tmp_path):
     job, _ = job_of(page_numbered_transcript(tmp_path / "Roe 6-3-2026.pdf", 20, index_pages=4))
     assert job.pages_help() == ("Transcript pages 378–397 · excludes the 4 word-index pages after them", "")
     job.case.fields["est_pages"] = FieldState("50", SRC_USER, 1.0)
-    assert job.pages_help()[0] == "Typed by you · the transcript has 20 pages, index excluded"
+    assert job.pages_help()[0] == "Typed by you · the transcript has 20 total pages, index excluded"
 
     job, _ = job_of(page_numbered_transcript(tmp_path / "Roe 6-4-2026.pdf", 12))
     assert job.pages_help() == ("Transcript pages 378–389 (no word index)", "")
@@ -130,8 +130,8 @@ def test_the_line_under_the_pages_field(tmp_path):
                                 "counted from the pages with line numbers: the word index looked too long", "")
 
     job, _ = job_of(page_numbered_transcript(tmp_path / "Roe 6-8-2026.pdf", 8, index_pages=12, numbered=False))
-    assert job.pages_help() == ("8 transcript pages · excludes the 12 word-index pages after them",
-                                "⚠ 12 of the PDF's 20 pages were taken for the word index, more than a quarter: "
+    assert job.pages_help() == ("8 total pages · excludes the 12 word-index pages after them",
+                                "⚠ 12 of the PDF's 20 total pages were taken for the word index, more than a quarter: "
                                 "check the count")
 
 
@@ -139,7 +139,7 @@ def test_two_transcripts_of_one_day(tmp_path):
     job, _ = job_of(page_numbered_transcript(tmp_path / "Roe 6-3-2026 AM.pdf", 20, index_pages=4),
                     page_numbered_transcript(tmp_path / "Roe 6-3-2026 PM.pdf", 12, first=398))
     assert job.transcript_pages() == 32
-    assert job.pages_help() == ("2 transcripts, 20 + 12 pages · excludes the 4 word-index pages after them", "")
+    assert job.pages_help() == ("2 transcripts, 20 + 12 total pages · excludes the 4 word-index pages after them", "")
 
 
 # ------------------------------------------------------------------ the window
@@ -181,7 +181,7 @@ def test_the_window_says_what_each_page_number_counts(window, tmp_path):
 def test_the_window_warns_when_the_count_looks_wrong(window, tmp_path):
     load(window, page_numbered_transcript(tmp_path / "Roe 6-3-2026.pdf", 8, index_pages=12, numbered=False))
     window._refresh_outputs()
-    assert window.pages_warn.text().startswith("⚠ 12 of the PDF's 20 pages were taken for the word index")
+    assert window.pages_warn.text().startswith("⚠ 12 of the PDF's 20 total pages were taken for the word index")
     assert not window.pages_warn.isHidden()
     assert window.rows["est_pages"].edit.property("review")  # amber
 
@@ -200,7 +200,7 @@ def test_a_number_typed_over_a_scanned_pdf_says_so(tmp_path):
     job, _ = job_of(page_numbered_transcript(tmp_path / "Roe 6-3-2026.pdf", 7))
     job.transcripts()[0].ing.count = PageCount(7, how="pdf")  # (no reading could tell, as for a scan)
     job.case.fields["est_pages"] = FieldState("50", SRC_USER, 1.0)
-    assert job.pages_help()[0] == "Typed by you · the PDF has 7 pages"
+    assert job.pages_help()[0] == "Typed by you · the PDF has 7 total pages"
 
 
 def test_no_transcript_no_line(window, tmp_path):
@@ -249,7 +249,7 @@ def test_a_numbered_word_index_is_not_counted_by_the_printed_numbers():
     end, so all four readings say 8, and the index (12 of 20 pages) is warned about, never billed."""
     c = count_pages(pages(8, start=1) + pages(12, start=9, initials="", lined=False, index=True))
     assert c.readings == {"scan": 8, "lines": 8, "back": 8, "numbers": 8}
-    assert c.pages == 8 and c.warning.startswith("⚠ 12 of the PDF's 20 pages")
+    assert c.pages == 8 and c.warning.startswith("⚠ 12 of the PDF's 20 total pages")
     # an exhibit list on page 6 stops the scan; the index found from the end, 13 numbered pages, isn't billed
     body = pages(83, start=378, lined=False)
     body[5] = PageFacts(PageMark(number=383), index=True)
@@ -282,7 +282,7 @@ def test_scanned_pages_after_a_typed_cover_page_are_counted(tmp_path):
     assert (c.pages, c.how, c.confidence) == (30, "pdf", 0.55) and "every page is counted" in c.warning
     assert ing.marks == []
     job, _ = job_of(tmp_path / "Roe 6-3-2026.pdf")
-    assert job.pages_help() == ("30 pages: every page of the PDF", c.warning)  # (no "no word index" beside it)
+    assert job.pages_help() == ("30 total pages: every page of the PDF", c.warning)  # (no "no word index" beside it)
 
 
 def test_a_scanned_page_sheet_writes_no_warning_in_the_log(tmp_path, caplog):
@@ -303,7 +303,7 @@ def test_a_reading_that_leaves_a_sensible_index_beats_two_that_dont(tmp_path):
     c = ingest_file(scanned(tmp_path / "Roe.pdf", 10, index_pages=3)).count
     assert c.readings == {"scan": 1, "lines": 1, "back": 11}
     assert (c.pages, c.index_pages, c.others, c.confidence) == (11, 3, [1], 0.55)
-    assert c.warning == ("⚠ the PDF reads as 11 pages (the word index found from the end) or 1 (reading the pages "
+    assert c.warning == ("⚠ the PDF reads as 11 total pages (the word index found from the end) or 1 (reading the pages "
                          "up to the word index; that leaves more than a quarter of the PDF to the index): check the "
                          "count")
 
@@ -348,7 +348,7 @@ def test_an_index_with_a_page_of_line_numbers_after_it_is_warned_about():
     c = count_pages(facts)
     assert c.readings == {"scan": 20, "lines": 25, "numbers": 25}
     assert (c.pages, c.others, c.confidence) == (25, [20], 0.55)
-    assert c.warning == ("⚠ the PDF reads as 25 pages (the pages with line numbers) or 20 (reading the pages up to "
+    assert c.warning == ("⚠ the PDF reads as 25 total pages (the pages with line numbers) or 20 (reading the pages up to "
                          "the word index): pages in between look like the word index, check the count")
 
 
@@ -368,4 +368,4 @@ def test_the_run_sheet_row_of_a_transcript_without_initials(tmp_path):
 def test_a_scanned_transcript_says_every_page_is_counted(tmp_path):
     job, _ = job_of(page_numbered_transcript(tmp_path / "Roe 6-3-2026.pdf", 7))
     job.transcripts()[0].ing.count = PageCount(7, how="pdf")
-    assert job.pages_help() == ("7 pages: every page of the PDF (no text to find a word index in)", "")
+    assert job.pages_help() == ("7 total pages: every page of the PDF (no text to find a word index in)", "")

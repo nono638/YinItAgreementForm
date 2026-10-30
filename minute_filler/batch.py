@@ -504,24 +504,25 @@ class Job:
         name = (lambda d: f"{d.ing.name}: " if many else "")
         warns = [name(d) + c.warning.removeprefix("⚠ ") for d, _, c in reads if c and c.warning]
         warning = "⚠ " + "\n".join(warns) if warns else ""
+        # (the user, 2026-10-30: every count says whose pages): the transcripts' counts are "total pages"
         if all(c and c.how == "pdf" for _, _, c in reads):  # no reading could tell: every page is counted
             if self.pages_typed():
-                return f"Typed by you · the PDF{'s have' if many else ' has'} {total} pages", warning
+                return f"Typed by you · the PDF{'s have' if many else ' has'} {total} total pages", warning
             why = "" if warns else " (no text to find a word index in)"
-            return f"{total} pages: every page of the PDF{'s' if many else ''}{why}", warning
+            return f"{total} total pages: every page of the PDF{'s' if many else ''}{why}", warning
         if index:
             gone = (f"excludes the {index} word-index page{'s' if index > 1 else ''} "
                     f"after {'them' if index > 1 else 'it'}")
         else:
             gone = "no word index"
         if self.pages_typed():
-            line = (f"Typed by you · the transcript{'s have' if many else ' has'} {total} pages, "
+            line = (f"Typed by you · the transcript{'s have' if many else ' has'} {total} total pages, "
                     f"{'index excluded' if index else 'no word index'}")
         elif many:
-            line = f"{len(docs)} transcripts, {' + '.join(str(n) for _, n, _ in reads)} pages · {gone}"
+            line = f"{len(docs)} transcripts, {' + '.join(str(n) for _, n, _ in reads)} total pages · {gone}"
         else:
             c = reads[0][2]
-            span = f"Transcript pages {c.first}–{c.last}" if c and c.first is not None else f"{total} transcript pages"
+            span = f"Transcript pages {c.first}–{c.last}" if c and c.first is not None else f"{total} total pages"
             line = f"{span} · {gone}" if index else f"{span} ({gone})"
         notes = [name(d) + c.note for d, _, c in reads if c and c.note and not c.warning]
         return "\n".join([line] + notes), warning
@@ -803,16 +804,33 @@ class Job:
         portion_pages."""
         if self.pages_typed():
             return []
+        # (counted on where a number wasn't read: a run typed "141-170" still finds its pages on the one day)
+        out = self._numbers(count_on=True)
+        return out if len(out) == self.portion_pages() else []
+
+    def page_numbers(self) -> list[int | None]:
+        """The number printed on each page of the job's transcripts, one transcript after the other, as read
+        from the PDFs, whatever is billed or typed in ([236, ..., 328, None, 330, ...]; None where none was
+        read, never worked out from the page before). The Who ordered window shows a job of several days by
+        them (the user, 2026-10-30: "extracted as is from the PDFs"; excerpts.number_spans leaves a page
+        without a number out)."""
+        return self._numbers(count_on=False)
+
+    def _numbers(self, count_on: bool) -> list[int | None]:
+        """page_numbers; count_on: a page whose number wasn't read is numbered on from the one before (and a
+        transcript whose pages weren't read at all from its first page's number), as printed_pages does."""
         out: list[int | None] = []
         for d in self.transcripts():
             n = transcript_pages(d.ing)
             nums = [m.number for m in d.ing.marks[:n]]
             nums += [None] * (n - len(nums))
-            prev = d.ing.first_page_no - 1 if d.ing.first_page_no is not None and not d.ing.marks else None
+            if not d.ing.marks and d.ing.first_page_no is not None and nums:
+                nums[0] = d.ing.first_page_no  # (no page read: the number printed on its first page)
+            prev = None
             for x in nums:
-                prev = x if x is not None else (prev + 1 if prev is not None else None)
+                prev = x if x is not None else (prev + 1 if prev is not None and count_on else None)
                 out.append(prev)
-        return out if len(out) == self.portion_pages() else []
+        return out
 
     def invoice_days(self) -> list[tuple[str, int]]:
         """(date, pages) of each day billed, earliest first: a line per day of the transcripts (volumes of one
@@ -839,6 +857,27 @@ class Job:
         by_day: dict[date | None, int] = {}
         for d in self.transcripts():
             by_day[self._day_of(d)] = by_day.get(self._day_of(d), 0) + transcript_pages(d.ing)
+        return [n for _, n in sorted(by_day.items())]
+
+    def day_yours(self) -> list[int] | None:
+        """The pages the user wrote of each day of invoice_days, for the records' "Your pages transcribed"
+        (invoice.DayOrder.mine), when they aren't the pages billed: a transcript billed whole (Whose pages... ->
+        The whole transcript) bills every reporter's pages, 10, of which the user wrote 5. None when the pages
+        billed are the user's own anyway (or the Pages field was typed in: that number is the user's count). A
+        transcript that can't tell (your_pages_of None) counts the pages billed, as before."""
+        if self.pages_typed() or not any(self.basis_of(d)[0] == "*" for d in self.transcripts()):
+            return None
+
+        def yours(d: Doc) -> int:
+            n = self.your_pages_of(d) if self.basis_of(d)[0] == "*" else None
+            return self.billed_pages_of(d) if n is None else n
+
+        days = self.invoice_days()
+        if len(days) < 2:
+            return [sum(yours(d) for d in self.transcripts())] if days else []
+        by_day: dict[date | None, int] = {}
+        for d in self.transcripts():
+            by_day[self._day_of(d)] = by_day.get(self._day_of(d), 0) + yours(d)
         return [n for _, n in sorted(by_day.items())]
 
     def ordered_days(self) -> list[tuple[str, dict[str, int]]]:
@@ -933,13 +972,15 @@ class Job:
         """The invoice's pages (of each day), ordering parties (the ticked attorneys unless set), who ordered
         which pages, the attorneys invoiced already by a run that stopped part way, the job's own Peripherals
         and granular detail choices, and the split rule it is priced by (its own, else its trial's; "" = as
-        Settings say)."""
+        Settings say). my_pages: the user's own pages (day_yours, when the transcripts are billed whole)."""
+        yours = self.day_yours()
         return InvoiceOpts(self.invoice_pages(), self.parties or max(1, len(self.ticked_keys())),
                            days=self.invoice_days(), email=self.invoice_email, index=self.invoice_index,
                            show=self.invoice_show, detail=self.invoice_detail, orders=self.invoice_orders(),
-                           skip=self.billed_keys(), my_pages=self.invoice_pages(),
+                           skip=self.billed_keys(), my_pages=sum(yours) if yours is not None else self.invoice_pages(),
                            total_pages=self.transcript_pages(), reporters=self.reporters_text(),
-                           typed=self.pages_typed(), split_rule=self.split_rule or self.trial_rule)
+                           typed=self.pages_typed(), split_rule=self.split_rule or self.trial_rule,
+                           billed_whole=yours is not None)
 
     def settle_split_rule(self, s: Settings) -> None:
         """Its invoices are being made: the split rule they are priced by is the job's from now on (split_rule),
@@ -1014,12 +1055,34 @@ class Job:
         if not self.invoice_days() or len(self.invoice_days()) > 1:
             return "it is for one day, and this job no longer is"
         if not self.portions_fit_pages():
-            return f"its rows don't end on this day's {self.portion_pages()} pages"
+            # (the user, 2026-10-30: every count says whose pages)
+            whose = "pages typed" if self.pages_typed() else "total pages"
+            return f"its rows don't end on this day's {self.portion_pages()} {whose}"
         ticked = set(self.ticked_keys()) | {ORDERED_BY_NOBODY}  # (a run nobody ordered: billed to nobody)
         if any(not keys or any(k not in ticked for k in keys) for _, keys, *_ in self.portions):
             return "it names an attorney no longer ticked"
         if not self.ticked_keys():
             return "nobody is ticked"
+        return self._typed_portions_problem()
+
+    def _typed_portions_problem(self) -> str:
+        """portions_problem for the other reporters' invoices of a day whose Pages field is typed in ("" when
+        there is none): the typed number is the user's own count, so another reporter's invoices split that
+        reporter's pages of the whole transcript (billed_by), and rows that end on the pages typed don't fit
+        them: "the 6 pages typed are your own count, and DS's invoices split DS's pages of the 10 total pages:
+        the rows can't end on both: clear the Pages field, or untick DS under Whose pages…". Without this
+        check DS's set was billed whole, split between every firm, with no word said."""
+        if not self.pages_typed():  # (billed_by changes nothing else about the rows; no copy is typed in)
+            return ""
+        for r in self.bill_reporters():
+            if r == "me":
+                continue
+            theirs = self.billed_by(r)
+            if theirs.portions_problem():
+                who = r.upper()
+                return (f"the {self.invoice_pages()} pages typed are your own count, and {who}'s invoices split "
+                        f"{who}'s pages of the {theirs.portion_pages()} total pages, so the rows can't end on both: "
+                        f"clear the Pages field, or untick {who} under Whose pages…")
         return ""
 
     def portions_check(self) -> str:
@@ -1062,6 +1125,8 @@ class Job:
         days, totals, counts = self.invoice_days(), self.day_totals(), self.day_reporters()
         if self.index_on_typed and self.pages_typed():
             totals = []
+        yours = self.day_yours()
+        yours = yours if yours is not None and len(yours) == len(days) else [None] * len(days)
         rows = self.valid_portions()
         if rows and len(days) == 1:
             out, start = [], 0
@@ -1075,13 +1140,14 @@ class Job:
                 out.append(Portion(sum(mask[start:last]) if mask is not None else last - start, list(keys),
                                    span=span, speeds=self.portion_speeds(keys, i)))
                 start = last
-            return [DayOrder(days[0][0], days[0][1], out, totals[0] if totals else 0, counts[0] if counts else {})]
+            return [DayOrder(days[0][0], days[0][1], out, totals[0] if totals else 0, counts[0] if counts else {},
+                             yours[0])]
         keys = self.ticked_keys()
         n = self.parties or len(keys)  # with nobody ticked: every attorney on the invoice (see firm_pages)
         totals += [0] * (len(days) - len(totals))
         counts += [{}] * (len(days) - len(counts))
-        return [DayOrder(day, pages, [Portion(pages, keys, n, speeds=self.portion_speeds(keys))], total, who)
-                for (day, pages), total, who in zip(days, totals, counts)]
+        return [DayOrder(day, pages, [Portion(pages, keys, n, speeds=self.portion_speeds(keys))], total, who, mine)
+                for (day, pages), total, who, mine in zip(days, totals, counts, yours)]
 
     # ------------------------------------------------------------- the speed each firm ordered
 
@@ -3083,7 +3149,10 @@ def joint_invoice(group: list[Job]) -> tuple[CaseInfo, InvoiceOpts]:
     opts = first.invoice_opts()
     opts.days, opts.pages = days, sum(n for _, n in days)
     opts.orders = [o for job in group for o in job.invoice_orders()]
-    opts.my_pages, opts.total_pages = opts.pages, sum(j.transcript_pages() for j in group)
+    # (the user's own pages: fewer than those billed on a day whose transcripts are billed whole, DayOrder.mine)
+    opts.my_pages = sum(o.pages if o.mine is None else o.mine for o in opts.orders)
+    opts.billed_whole = any(o.mine is not None for o in opts.orders)
+    opts.total_pages = sum(j.transcript_pages() for j in group)
     opts.reporters = reporters_text(day_reporters(opts.orders))
     opts.typed = any(j.pages_typed() for j in group)
 
@@ -3462,7 +3531,7 @@ class IndexQuestion:
     """What to ask when a typed page count decides the index another way than the transcript (index_question):
     the days asked about (their answer goes on them: Job.index_on_typed), the pages typed and their transcripts'
     own pages (40 typed, the transcript has 83) and how many transcripts those are, and why there is an index
-    judged on the transcripts and none on the pages typed ("83 total pages, 50 or more", "40 total pages, under
+    judged on the transcripts and none on the pages typed ("83 total pages, 50 or more", "40 pages typed, under
     50": invoice.index_reason). (Judged on fewer pages, a day never gets an index it wouldn't have.) priced:
     the rate sheet has an index price for a speed the invoice bills (one it offers, or one a firm committed to:
     invoice.index_priced); without one no index is charged either way, so the window warns rather than asks."""

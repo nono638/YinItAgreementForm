@@ -753,7 +753,7 @@ def test_a_period_summed_up():
     assert str(st.received) == "86.00"  # paid in September, for an invoice of August
     assert (st.unpaid, st.oldest_unpaid) == (1, "2026-09-03") and [n for n, _ in st.firms] == ["Smith LLP", "Counsel & Counsel"]
     rows = dict(stats_rows(st))
-    assert rows["Billed"] == "$870.00" and rows["Pages billed"] == "243" and rows["Billed per page"] == "$3.58"
+    assert rows["Billed"] == "$870.00" and rows["Your pages billed"] == "243" and rows["Billed per page"] == "$3.58"
     assert rows["Unpaid invoices"] == "1 (the oldest from 9/3/2026)"
     assert dict(stats_rows(period_stats([])))["Billed per invoice"] == "$0.00"
 
@@ -766,14 +766,29 @@ def test_the_recap_once_a_month_and_once_a_year():
                     amount_paid="4.30", paid_date="2025-03-09")]
     never = lambda: 1.0  # (never "But who's counting?", see test_show_the_math)
     lines, month, year = recap(invoices, date(2026, 10, 3), rng=never)
-    assert lines == ["Last month (September 2026) you made $870.00 with 243 pages (2 invoices). "
+    assert lines == ["Last month (September 2026) you made $870.00 with 243 of your pages billed (2 invoices). "
                      "$440.00 of it is paid so far.",
-                     "Last year (2025) you made $4.30 with 1 page (1 invoice)."]
+                     "Last year (2025) you made $4.30 with 1 of your pages billed (1 invoice)."]
     assert (month, year) == ("2026-10", "2026")
     assert recap(invoices, date(2026, 10, 20), month, year)[0] == []  # the same month: said once
     assert recap(invoices, date(2026, 11, 2), month, year)[0] == []  # a month without invoices says nothing
     lines, month, year = recap(invoices, date(2027, 1, 4), "2026-12", "2026", rng=never)
-    assert lines == ["Last year (2026) you made $870.00 with 243 pages (2 invoices). $440.00 of it is paid so far."]
+    assert lines == ["Last year (2026) you made $870.00 with 243 of your pages billed (2 invoices). "
+                     "$440.00 of it is paid so far."]
+
+
+def test_the_recap_and_summary_count_your_pages_only():
+    """The recap and the Summary say the pages are the user's (the user, 2026-10-30: every count says whose
+    pages), and they are: an invoice made in a colleague's name (Whose pages...) adds neither its pages nor its
+    money."""
+    mine = inv("2026-0001", "2026-09-03", pages=65, amount="280.00")
+    theirs = inv("DS-2026-0001", "2026-09-04", pages=85, amount="365.00", reporter="ds")
+    never = lambda: 1.0  # noqa: E731
+    lines, _, _ = recap([mine, theirs], date(2026, 10, 3), year_seen="2026", rng=never)
+    assert lines == ["Last month (September 2026) you made $280.00 with 65 of your pages billed (1 invoice). "
+                     "$0.00 of it is paid so far."]
+    rows = dict(stats_rows(period_stats([mine, theirs], *period("Last month", date(2026, 10, 3))[:2])))
+    assert rows["Your pages billed"] == "65" and "Pages billed" not in rows
 
 
 def test_the_recap_pops_up_when_records_opens_and_can_be_turned_off(window, monkeypatch, qt):
@@ -790,7 +805,7 @@ def test_the_recap_pops_up_when_records_opens_and_can_be_turned_off(window, monk
         return 0
     monkeypatch.setattr(qt.QMessageBox, "exec", box)
     window.open_records()
-    assert len(shown) == 1 and "you made $870.00 with 243 pages (1 invoice)" in shown[0][0]
+    assert len(shown) == 1 and "you made $870.00 with 243 of your pages billed (1 invoice)" in shown[0][0]
     assert shown[0][1] == "Don't show me monthly or annual recaps anymore"
     window.open_records()
     assert len(shown) == 1 and window.s.recap_month == f"{date.today():%Y-%m}"  # once a month

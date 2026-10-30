@@ -101,13 +101,43 @@ def test_why_there_is_an_index_or_not_in_a_few_words():
 
     assert why([83]) == "83 total pages, 50 or more" and why([1200]) == "1,200 total pages, 50 or more"
     assert why([49]) == "49 total pages, under 50"
-    assert why([30, 60]) == "a day of 60 pages, 50 or more" and why([30, 40]) == "no day has 50 pages"
-    assert why([30, 60], "each") == "1 of 2 days have 50 pages or more"
-    assert why([50, 60], "each") == "every day has 50 pages or more" and why([30, 40], "each") == "no day has 50 pages"
+    assert why([30, 60]) == "a day of 60 total pages, 50 or more" and why([30, 40]) == "no day has 50 total pages"
+    assert why([30, 60], "each") == "1 of 2 days have 50 total pages or more"
+    assert why([50, 60], "each") == "every day has 50 total pages or more"
+    assert why([30, 40], "each") == "no day has 50 total pages"
     assert why([20, 30], "total") == "50 total pages over 2 days, 50 or more"
     assert why([20, 29], "total") == "49 total pages over 2 days, under 50"
     assert why([10], index="on") == "turned on for this job" and why([90], index="off") == "turned off for this job"
     assert why([90], include=False) == "turned off in Settings → Invoice"
+
+
+def test_an_index_judged_on_a_number_typed_says_pages_typed():
+    """The user, 2026-10-30: every count says whose pages. A day judged on the number typed in Est. number of
+    pages (DayOrder.total 0: answered so, or no transcript) is "pages typed", not "total pages"; days of both
+    kinds say so. A number typed above the transcript's count is judged as typed: pages typed."""
+    s = pat_settings()
+    s.invoice_include_index, s.invoice_index_rule = True, "any"
+
+    def why(days, rule="any"):  # days: (pages, total)
+        s.invoice_index_rule = rule
+        opts = InvoiceOpts(sum(p for p, _ in days), days=[(f"6/{i + 3}/2026", p) for i, (p, _) in enumerate(days)],
+                           orders=[DayOrder(f"6/{i + 3}/2026", p, total=t) for i, (p, t) in enumerate(days)])
+        return index_reason(opts, s)
+
+    assert why([(40, 0)]) == "40 pages typed, under 50"
+    assert why([(120, 3)]) == "120 pages typed, 50 or more"  # (typed above the transcript's own count)
+    assert why([(40, 83)]) == "83 total pages, 50 or more"  # (judged on the transcript)
+    assert why([(60, 0), (30, 30)]) == "a day of 60 pages typed, 50 or more"
+    assert why([(40, 0), (30, 30)]) == "no day has 50 pages (typed or total)"
+    assert why([(60, 0), (50, 50)], "each") == "every day has 50 pages or more (typed or total)"
+    assert why([(60, 0), (30, 30)], "each") == "1 of 2 days have 50 pages or more (typed or total)"
+    assert why([(40, 0), (30, 30)], "total") == "70 pages over 2 days (typed and total), 50 or more"
+    assert why([(40, 0), (30, 0)], "each") == "no day has 50 pages typed"
+    # without the orders (invoices made the old way): the Pages field typed decides
+    opts = InvoiceOpts(40, typed=True, total_pages=0)
+    assert index_reason(opts, s) == "40 pages typed, under 50"
+    assert index_reason(InvoiceOpts(40, typed=True, total_pages=83), s) == "83 total pages, 50 or more"
+    assert index_reason(InvoiceOpts(120, typed=True, total_pages=120), s) == "120 total pages, 50 or more"
 
 
 # ------------------------------------------------------------------ a firm's own share

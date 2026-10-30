@@ -2,16 +2,18 @@
 who ordered which pages of the whole case, as a table (see excerpts.py). Its ? (and the one beside its button in
 the main window) shows how to use it, step by step (show_how_to).
 
-A row per run of pages of a day: its date and weekday (in italics on the day's later runs), the pages (typed in
-the transcript's own page numbers, "141-170", or by place in the day when they aren't known; the runs around a
-run typed make room for it), optionally its place in the day ("1–20 of 85": Settings.excerpt_show_place), a box
+A row per run of pages of a day: its date and weekday (in italics on the day's later runs), its page numbers
+(typed in the transcript's own page numbers, "141-170", or by place in the day when they aren't known; the runs
+around a run typed make room for it; a job of several days shows the numbers printed on its transcripts),
+optionally its place in the day ("1–20 of 85 total pages": Settings.excerpt_show_place), a box
 per firm (firms_of: one column for a firm, however many of its attorneys appear, headed by its colour's square as
 in the main window; ticked = that firm ordered the run; the boxes of each set of firms ordering together have a
 colour of their own, the colour of that set's line under the table), its pages counted (COUNTS: the user's
 billed and transcribed, every reporter's transcribed and billed; each can be hidden under Columns ▾) and, for
 each speed offered, what each firm that ordered it pays for it. Only your pages hides, as it is ticked, the runs
 with none of the user's pages, and Clear filter shows them again. Under the table the same prices by the firms ordering
-together ("A + B: 15 pp., each pays ...") and each firm's invoice. Split run cuts a run in two; Remove run (or
+together ("A + B: 15 of your pages billed (30 total pages) - each of the 2 pays ...": every count says whose
+pages it counts, the user's or every reporter's, the user, 2026-10-30) and each firm's invoice. Split run cuts a run in two; Remove run (or
 the Delete key) gives a run's pages to the run above it (excerpts.remove: every page stays in one run); Remove
 this day's excerpts makes a day one run again, Remove all excerpts every day of the case. A right-click on a run
 offers the same. Every change is kept at once (on the days' jobs) and the main window follows it; a change made
@@ -62,8 +64,11 @@ COUNTS = (
     ("total_transcribed", "Total pages\ntranscribed", "Every reporter's pages of the run"),
     ("total_billed", "Total pages\nbilled", "Every reporter's pages of the run, when a firm ordered it; else 0"),
 )
+PAGES_TIP = ("The page numbers printed on the transcript (where they aren't known: the run's place in the day). "
+             "Type a run here, e.g. 141-170. How many of the pages are yours: the count columns")
+PLACE_TIP = "The run's place among the day's pages: 1–20 of 85 total pages (every reporter's)"
 UNKNOWN = ("Which of these pages are yours can't be told: set your initials in Settings → My info, or say whose "
-           "the first pages are under Whose pages… (a day whose Pages were typed in isn't counted by page)")
+           "the first pages are under Whose pages… (a day whose Est. number of pages was typed in isn't counted by page)")
 # A colour for each set of firms ordering together (in the order listed under the table): their boxes are
 # tinted with it (see-through, so it works on the light and the dark theme) and their line starts with it
 GROUP_COLORS = ("#2563eb", "#16a34a", "#ea580c", "#9333ea", "#0d9488", "#db2777", "#ca8a04", "#dc2626")
@@ -78,7 +83,7 @@ TITLE = "Who ordered which pages"  # the window's title (the main window's butto
 HOW_TO = """<p>Use it when a firm ordered <b>only some pages</b> of a day (an excerpt), not the whole transcript.</p>
 <ol>
 <li>Each row is a <b>run of pages</b> of a day. At first a day is one run: every ticked firm ordered all of it.</li>
-<li>To make a run, type its pages in the transcript's printed page numbers (<i>141-170</i>) in the Pages cell. The
+<li>To make a run, type its pages in the transcript's printed page numbers (<i>141-170</i>) in the Page numbers cell. The
 rows around it make room.</li>
 <li><b>Tick the firms that ordered</b> each run, and untick the ones that didn't. A run nobody ticks is billed to
 nobody.</li>
@@ -173,7 +178,7 @@ class ExcerptsWindow(QDialog):
         opts = QHBoxLayout()
         self.place = QCheckBox("Show each run's place in the day")
         self.place.setChecked(s.excerpt_show_place)
-        self.place.setToolTip("Besides the printed page numbers: pages 1–20 of 85")
+        self.place.setToolTip("Besides the page numbers: the run's place in the day, 1–20 of 85 total pages")
         self.place.toggled.connect(self._place_toggled)
         opts.addWidget(self.place)
         opts.addSpacing(z(12))
@@ -330,7 +335,7 @@ class ExcerptsWindow(QDialog):
             cb.setVisible(choice)
         shown = [sp for sp in p.speeds if sp not in self.s.excerpt_hidden_speeds] if choice else []
         firms = self.firms
-        heads = ["Date", "Weekday", "Pages", "Place in the day"] + [a.label() for a in firms] + [
+        heads = ["Date", "Weekday", "Page numbers", "Place in the day"] + [a.label() for a in firms] + [
             head for _, head, _ in COUNTS] + [f"Each pays · {sp}" for sp in shown]
         self._counts = count_runs(self.runs)
         # a colour per set of firms ordering together (those at set speeds: per set of firms and speeds)
@@ -358,6 +363,8 @@ class ExcerptsWindow(QDialog):
             if marks.get(a.key()) is not None:
                 head.setIcon(badge_icon(marks[a.key()], z(TAG_HEIGHT)))
                 head.setToolTip(f"{head.toolTip()}\n{side_name(marks[a.key()])}".strip())
+        t.horizontalHeaderItem(PAGES).setToolTip(PAGES_TIP)
+        t.horizontalHeaderItem(PLACE).setToolTip(PLACE_TIP)
         t.setRowCount(len(self.runs))
         first = FIRST_FIRM + len(firms)
         for k, (_, _, tip) in enumerate(COUNTS):
@@ -377,7 +384,8 @@ class ExcerptsWindow(QDialog):
                     it.setToolTip("The same day as the run above")
             pages = self._cell(r, PAGES, day.span(run.start, run.end), day.splittable)
             pages.setToolTip(f"Type a run of {day.label}'s pages, e.g. {day.span(1, min(day.pages, 20))}"
-                             if day.splittable else "This job covers several days: it is ordered whole")
+                             if day.splittable else "This job covers several days: it is ordered whole. These are "
+                             "the page numbers printed on its transcripts")
             self._cell(r, PLACE, day.place(run.start, run.end), False)
             at = p.ordered.get(id(run))  # (key -> (speed, what it pays): firms at the speeds they ordered)
             group = tuple((k, at[k][0]) for k in run.keys) if at else tuple(run.keys)
@@ -451,43 +459,47 @@ class ExcerptsWindow(QDialog):
 
     def _summary(self, p, shown: list[str]) -> str:
         """The prices under the table: by the firms ordering together (at the speeds they ordered, when set:
-        "Counsel & Counsel (Daily) + Smith Law (Immediate): 60 pp. - Counsel & Counsel pays $345.00, Smith Law
-        $435.00 (one original, at Immediate)", the split rule saying how: SplitRule.run_note, the job's once
-        billed, else the one its trial was first billed by (Job.trial_rule), else Settings'), then each firm's
-        invoice."""
+        "Counsel & Counsel (Daily) + Smith Law (Immediate): 60 of your pages billed (60 total pages) - Counsel &
+        Counsel pays $345.00, Smith Law $435.00 (one original, at Immediate)", the split rule saying how:
+        SplitRule.run_note, the job's once billed, else the one its trial was first billed by (Job.trial_rule),
+        else Settings'), then each firm's invoice."""
         names = {a.key(): a.label() for a in self.firms}
         if not shown and not p.ordered:
             return "<i>Tick a speed above to see the prices.</i>"
         lines = ["<b>The pages by who ordered them together</b> (each with its colour in the table)"]
-        for i, (keys, pages, each) in enumerate(p.groups):
+        for i, (keys, _, each) in enumerate(p.groups):
             who = " + ".join(names.get(k, k) for k in keys)
             alone = len(keys) == 1
             costs = " · ".join(f"{sp} {money_exact(each[sp])}" for sp in shown if sp in each)
             swatch = f'<span style="color:{GROUP_COLORS[i % len(GROUP_COLORS)]}">■</span> '
-            lines.append(f"{swatch}{who}{' only' if alone else ''}: {pages} pp. - "
+            lines.append(f"{swatch}{who}{' only' if alone else ''}: {self._pages_of(p.members.get(keys, []))} - "
                          + (f"costs {costs}" if alone else f"each of the {len(keys)} pays {costs}"))
         order = {sp.name: i for i, sp in enumerate(self.s.sheet().speeds)}  # (cheapest first: the last, fastest)
         # (as it was billed, if so, or as an earlier day of its trial was: Job.trial_rule)
         billed = next((d.job.split_rule for d in self.days if d.job.split_rule), "") or \
             next((d.job.trial_rule for d in self.days if d.job.trial_rule), "")
         rule = courthouses.split_rule(billed or self.s.invoice_split_rule)
-        for i, (pairs, pages, each) in enumerate(p.ordered_groups, len(p.groups)):
+        for i, (pairs, _, each) in enumerate(p.ordered_groups, len(p.groups)):
             who = " + ".join(f"{names.get(k, k)} ({sp})" for k, sp in pairs)
             swatch = f'<span style="color:{GROUP_COLORS[i % len(GROUP_COLORS)]}">■</span> '
             if len(pairs) == 1:
-                lines.append(f"{swatch}{who} only: {pages} pp. - costs {money_exact(each[pairs[0][0]])}")
+                lines.append(f"{swatch}{who} only: {self._pages_of(p.members.get(pairs, []))} - costs "
+                             f"{money_exact(each[pairs[0][0]])}")
                 continue
             pays = ", ".join(f"{names.get(k, k)} {'pays ' if n == 0 else ''}{money_exact(each[k])}"
                              for n, (k, _) in enumerate(pairs))
             kinds = list(dict.fromkeys(sp for _, sp in pairs))
             fastest = max(kinds, key=lambda sp: order.get(sp, -1))
             how = f" ({rule.run_note(fastest)})" if len(kinds) > 1 else ""
-            lines.append(f"{swatch}{who}: {pages} pp. - {pays}{how}")
+            lines.append(f"{swatch}{who}: {self._pages_of(p.members.get(pairs, []))} - {pays}{how}")
         # (every reporter's pages, as the table's Total pages transcribed has them, not only the invoice's: the
-        # user, 2026-10-29)
-        nobody = sum(self._counts[id(r)].total_transcribed for r in self.runs if not r.keys)
-        if nobody:
-            lines.append(f"Nobody: {nobody} pp. (not billed)")
+        # user, 2026-10-29), and the user's among them when that can be told
+        nobody = [self._counts[id(r)] for r in self.runs if not r.keys]
+        total = sum(n.total_transcribed for n in nobody)
+        if total:
+            mine = [n.your_transcribed for n in nobody]
+            yours = "" if None in mine else f", {sum(mine)} of them yours"
+            lines.append(f"Nobody: {total} total pages{yours} (not billed)")
         if p.firms:
             how = ("its price a page rounded to the cent" if self.s.invoice_rounding == "page"
                    else "rounded up to the cent")
@@ -499,6 +511,14 @@ class ExcerptsWindow(QDialog):
                                    if key in p.committed or sp in shown or sp not in p.speeds)
                 lines.append(f"{names.get(key, key)}: {costs}")
         return "<br>".join(lines)
+
+    def _pages_of(self, runs: list[int]) -> str:
+        """The pages of a line under the table (the runs, by id, of a set of firms ordering together:
+        Prices.members), both counts said: "43 of your pages billed (93 total pages)", as the table's Your pages
+        billed and Total pages billed (a bare "43 pp." read as all the pages: the user, 2026-10-30)."""
+        counts = [self._counts[i] for i in runs if i in self._counts]
+        return (f"{sum(n.your_billed for n in counts)} of your pages billed "
+                f"({sum(n.total_billed for n in counts)} total pages)")
 
     def _firm_speed_boxes(self) -> None:
         """The row above the table: a box per firm with the speed it ordered all its pages of the case at

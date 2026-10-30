@@ -63,8 +63,9 @@ from .invoice_calc import fmt, money
 from .log import error as log_error
 from .rates import parse_amount
 
-# One writer at a time: the CSV copies are rewritten whole (the batch runs on another thread than the window).
-_MIRROR_LOCK = threading.Lock()
+# One writer at a time: the CSV copies are rewritten whole (the batch runs on another thread than the window,
+# and Records' Export CSV... writes on the window's). Re-entrant: mirror holds it around export_csv, which takes it.
+_MIRROR_LOCK = threading.RLock()
 # This app's threads take invoice numbers one at a time (invoice.make_invoice holds it from taking the number to
 # adding the row). It only queues threads of this copy of the app: what keeps two copies from one number is the
 # row reserve_invoice_no enters in used_numbers before the invoice is drawn.
@@ -261,14 +262,16 @@ def summarize(invoices: list[Invoice]) -> tuple[Summary, dict[str, Summary], dic
     return total, dict(sorted(by_client.items(), key=lambda kv: -kv[1].billed)), dict(sorted(by_month.items()))
 
 
-# The exported tables (CSV, Excel): (header, value) per column
+# The exported tables (CSV, Excel): (header, value) per column. Each page count says whose pages, in the Records
+# window's words (CLAUDE.md): "Your pages billed", "Your pages transcribed", "Total pages transcribed", and for
+# everything made "Pages on the file"
 INVOICE_TABLE = [
     ("Invoice No.", lambda i: i.invoice_no), ("Date", lambda i: us_date(i.created)), ("Case", lambda i: i.case_name),
     ("Index No.", lambda i: i.index_no), ("Court", lambda i: i.court), ("Part", lambda i: i.part),
     ("Date(s) of proceeding", lambda i: i.dates), ("Judge", lambda i: i.judge),
     ("Bill to", lambda i: i.bill_to), ("Firm", lambda i: i.firm), ("E-mail", lambda i: i.email),
-    ("Pages", lambda i: i.pages), ("My pages", lambda i: i.my_pages or ""),
-    ("Transcript pages", lambda i: i.transcript_pages or ""), ("Reporters", lambda i: i.reporters),
+    ("Your pages billed", lambda i: i.pages), ("Your pages transcribed", lambda i: i.my_pages or ""),
+    ("Total pages transcribed", lambda i: i.transcript_pages or ""), ("Reporters", lambda i: i.reporters),
     ("For reporter", lambda i: i.reporter.upper()),
     ("Excerpt", lambda i: i.excerpt), ("Parties", lambda i: i.parties),
     ("Speeds offered", lambda i: ", ".join(i.amounts)), ("Offered (per party)", Invoice.offered_text),
@@ -281,17 +284,16 @@ ACTIVITY_TABLE = [
     ("Date", lambda a: us_date(a.ts)), ("Time", lambda a: a.ts[11:16]), ("Made", lambda a: KINDS.get(a.kind, a.kind)),
     ("Case", lambda a: a.case_name), ("Index No.", lambda a: a.index_no), ("Date(s) of proceeding", lambda a: a.dates),
     ("Judge", lambda a: a.judge), ("Part", lambda a: a.part), ("Attorney", lambda a: a.attorney),
-    ("Firm", lambda a: a.firm), ("Pages", lambda a: a.pages or ""), ("My pages", lambda a: a.my_pages or ""),
-    ("Transcript pages", lambda a: a.transcript_pages or ""), ("Invoice No.", lambda a: a.invoice_no),
+    ("Firm", lambda a: a.firm), ("Pages on the file", lambda a: a.pages or ""),
+    ("Your pages transcribed", lambda a: a.my_pages or ""),
+    ("Total pages transcribed", lambda a: a.transcript_pages or ""), ("Invoice No.", lambda a: a.invoice_no),
     ("File", lambda a: a.file_path),
 ]
 INVOICE_COLUMNS = [h for h, _ in INVOICE_TABLE]
 ACTIVITY_COLUMNS = [h for h, _ in ACTIVITY_TABLE]
-
-
-def invoice_row(i: Invoice) -> list:
-    """One invoice as a row of the exported tables (see INVOICE_TABLE)."""
-    return [get(i) for _, get in INVOICE_TABLE]
+# The CSV copies' headings before 2.16, still taken for the tick boxes (tracking._taken_headings): a box named
+# "Pages (2)" because of them keeps its name, rather than a box the user has called so changing under them
+OLD_INVOICE_COLUMNS = ("Pages", "My pages", "Transcript pages")
 
 
 def invoice_table(boxes: list[tuple[str, str]] = ()) -> list:
@@ -715,11 +717,14 @@ class Ledger:
             self._run_all(steps)
 
     def restore(self, invoices: list[str] = (), activity: list[int] = ()) -> None:
-        """Takes records out of the trash (an invoice with the rows of everything made that name it)."""
+        """Takes records out of the trash (an invoice with the rows of everything made that name it and were
+        deleted with it: a row the user deleted on its own before stays in the trash)."""
         steps = []
         for no in invoices:
+            # (the rows deleted with the invoice carry its deleted stamp: put back first, while it is still set)
+            steps.append(("UPDATE activity SET deleted=NULL WHERE invoice_no=? AND kind='invoice' "
+                          "AND deleted=(SELECT deleted FROM invoices WHERE invoice_no=?)", (no, no)))
             steps.append(("UPDATE invoices SET deleted=NULL WHERE invoice_no=?", (no,)))
-            steps.append(("UPDATE activity SET deleted=NULL WHERE invoice_no=? AND kind='invoice'", (no,)))
         steps += [("UPDATE activity SET deleted=NULL WHERE id=?", (i,)) for i in activity]
         if steps:
             self._run_all(steps)
@@ -887,7 +892,8 @@ class Ledger:
             src.backup(dst)  # (SQLite's own copy: whole, even while another thread writes)
         tmp.replace(target)
         if prune:
-            copies = backups(folder)
+            # only the copies this app names: a file the user put there ("records keep me.db") is never deleted
+            copies = [p for p in backups(folder) if _BACKUP_NAME.match(p.name)]
             daily = [p for p in copies if _backup_key(p)[1] == ""]
             forced = [p for p in copies if p not in daily]
             for old in daily[max(1, keep):] + forced[FORCED_KEPT:]:
@@ -960,8 +966,13 @@ class Ledger:
         invoices.csv has a column for each of `boxes` too (invoice_table). Each is written to a temporary file
         first and then put in place, so a copy is never left half written; one that can't be (open in Excel)
         doesn't stop the other, and the first such error is raised after. Text Excel would open as a formula is
-        kept as text (csv_text)."""
-        folder = Path(folder)
+        kept as text (csv_text). One at a time (_MIRROR_LOCK): an export from Records while Generate all's mirror
+        writes the same folder would otherwise find the files held by the other, or put the other's half in."""
+        with _MIRROR_LOCK:
+            return self._export_csv(Path(folder))
+
+    def _export_csv(self, folder: Path) -> list[Path]:
+        """export_csv, while it holds _MIRROR_LOCK."""
         folder.mkdir(parents=True, exist_ok=True)
         out, problem = [], None
         table = invoice_table(self.boxes)
@@ -969,7 +980,8 @@ class Ledger:
                                   [[get(i) for _, get in table] for i in self.invoices()]),
                                  ("activity.csv", ACTIVITY_COLUMNS, [activity_row(a) for a in self.activity()])):
             p = folder / name
-            tmp = p.with_name(f".{name}.{os.getpid()}.tmp")
+            # (each copy of the app and each thread its own: another copy may write the same folder meanwhile)
+            tmp = p.with_name(f".{name}.{os.getpid()}-{threading.get_ident()}.tmp")
             try:
                 with open(tmp, "w", newline="", encoding="utf-8-sig") as f:  # the BOM: Excel reads it as UTF-8
                     w = csv.writer(f)
@@ -1208,7 +1220,7 @@ def backup_day(copy: Path) -> str:
 class Stats:
     """A period summed up (see period_stats). Void invoices count for nothing."""
     invoices: int = 0                       # invoices made in the period
-    pages: int = 0                          # pages they bill
+    pages: int = 0                          # the user's own pages they bill (a colleague's invoices: left out)
     billed: Decimal = Decimal("0.00")       # what they count for (see Invoice.billed)
     paid: Decimal = Decimal("0.00")         # of that, paid so far
     outstanding: Decimal = Decimal("0.00")  # of that, still owed
@@ -1265,7 +1277,8 @@ def period(name: str, today: date | None = None) -> tuple[str, str, str]:
 
 def stats_rows(st: Stats) -> list[tuple[str, str]]:
     """A period's sums as (caption, value) lines, for the Summary box and its Copy button."""
-    rows = [("Invoices made", str(st.invoices)), ("Pages billed", f"{st.pages:,}"),
+    # (the user, 2026-10-30: every count says whose pages): the user's own invoices only (period_stats)
+    rows = [("Invoices made", str(st.invoices)), ("Your pages billed", f"{st.pages:,}"),
             ("Billed", fmt(st.billed)), ("Paid so far", fmt(st.paid)), ("Still owed", fmt(st.outstanding)),
             ("Payments received in this period", fmt(st.received)),
             ("Billed per page", fmt(st.per_page)),
@@ -1285,7 +1298,8 @@ FOOLED = "$65,000.00"  # what last month came to on April 1
 def recap(invoices: list[Invoice], today: date | None = None, month_seen: str = "",
           year_seen: str = "", rng=random.random) -> tuple[list[str], str, str]:
     """What to say when the records are first opened in a month, and in a year: (lines, month mark, year
-    mark). A line for last month ("Last month (September 2026) you made $870.00 with 243 pages (5 invoices).")
+    mark). A line for last month ("Last month (September 2026) you made $870.00 with 243 of your pages billed (5
+    invoices).")
     unless month_seen is this month already, and one for last year unless year_seen is this year; a month or
     year without invoices gets no line. The marks ("2026-10", "2026") are what to remember as seen. One time in
     COUNTING (rng() below 1/COUNTING) the line for last month ends "But who's counting?"."""
@@ -1297,7 +1311,8 @@ def recap(invoices: list[Invoice], today: date | None = None, month_seen: str = 
         st = period_stats(invoices, *period(name, today)[:2])
         if not st.invoices:
             return
-        text = (f"{lead} you made {fmt(st.billed)} with {st.pages:,} page{'' if st.pages == 1 else 's'} "
+        # (the user, 2026-10-30: every count says whose pages): the user's own invoices only (period_stats)
+        text = (f"{lead} you made {fmt(st.billed)} with {st.pages:,} of your pages billed "
                 f"({st.invoices} invoice{'' if st.invoices == 1 else 's'}).")
         if st.outstanding > 0:
             text += f" {fmt(st.paid)} of it is paid so far."
@@ -1479,6 +1494,6 @@ th {{ color:var(--muted); font-weight:600; font-size:12px; text-transform:upperc
 <h2>By month</h2><div class="card"><table><tr><th>Month</th><th>Invoices</th><th>Billed</th><th>Paid</th>
 <th>Outstanding</th></tr>{month_rows}</table></div>
 <h2>Invoices</h2><div class="card"><table><tr><th>No.</th><th>Date</th><th>Case</th><th>Index No.</th>
-<th>Bill to</th><th>Pages</th><th>Billed</th><th>Status</th></tr>{inv_rows}</table></div>
+<th>Bill to</th><th>Your pages billed</th><th>Billed</th><th>Status</th></tr>{inv_rows}</table></div>
 </main></body></html>
 """

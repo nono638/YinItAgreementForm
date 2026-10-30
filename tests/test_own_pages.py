@@ -244,7 +244,7 @@ def test_the_billed_line_is_the_whole_invoices_on_every_day_of_it(window, tmp_pa
         seen.append((window.inv_pages_info.text(), window.inv_pages_info.toolTip()))
     assert seen[0] == seen[1]
     assert " ".join(seen[0][0].split()) == "One invoice for 2 days: you wrote 6 of 10 total pages"  # (wrapped)
-    assert seen[0][1] == "6/3/2026: 3 of 6 pages\n6/4/2026: 3 of 4 pages"
+    assert seen[0][1] == "6/3/2026: 3 of 6 total pages\n6/4/2026: 3 of 4 total pages"
 
 
 def test_the_invoice_panel_shows_my_pages_and_asks_whose(window, tmp_path, monkeypatch):
@@ -299,7 +299,8 @@ def test_the_math_names_a_typed_page_count_as_the_pages_field(tmp_path, s):
     """A Pages number typed in is billed, but it need not be the pages the user wrote: with 40 typed on a
     transcript Pat wrote 45 pages of 83, the math said "You wrote 40 of the 83 total pages". It says what the
     Invoice card says. A number typed above the transcript's count (only its caption page is there) is the whole
-    transcript too: 120 total pages, not 3."""
+    transcript too: 120 total pages, not 3; the index is judged on those 120 pages typed (CLAUDE.md: a number
+    typed is pages typed)."""
     from minute_filler.invoice import firm_invoices
     from minute_filler.invoice_math import about
     from minute_filler.models import FieldState, SRC_USER
@@ -310,7 +311,7 @@ def test_the_math_names_a_typed_page_count_as_the_pages_field(tmp_path, s):
     caption = job_with(tmp_path, s, [PR] * 3, name="Roe caption 6-4-2026.pdf", attorneys=[alex()])
     caption.case.fields["est_pages"] = FieldState("120", SRC_USER, 1.0, [])
     firm, = firm_invoices(caption.case, s, caption.invoice_opts())
-    assert firm.opts.total_pages == 120 and about(firm) == "Index: 120 total pages, 50 or more."
+    assert firm.opts.total_pages == 120 and about(firm) == "Index: 120 pages typed, 50 or more."
 
 
 def test_a_held_transcript_with_a_long_name_does_not_widen_the_invoice_card(window, tmp_path, qt):
@@ -367,9 +368,9 @@ def test_whose_pages_still_counts_pages_without_initials_set_to_count_for_nobody
     from minute_filler.gui.dialogs import PagesOwnerDialog
     dlg = PagesOwnerDialog([("k", "Roe.pdf", ["", "", PR, PR, DS, DS])], {PR}, {}, {})
     item = dlg.items[0]
-    assert "no initials: 2 pp." in item["count"].text()
+    assert "no initials: 2 pages" in item["count"].text()
     item["front"].setCurrentIndex(item["front"].findData("none"))  # Nobody (not billed)
-    assert "no initials: 2 pp." in item["count"].text() and item["radios"]["me"].text() == "My pages (2)"
+    assert "no initials: 2 pages" in item["count"].text() and item["radios"]["me"].text() == "My pages (2)"
     item["front"].setCurrentIndex(item["front"].findData(PR))
     assert "no initials" not in item["count"].text()
 
@@ -424,9 +425,9 @@ def test_who_transcribed_what_lists_each_reporters_pages_of_the_trial(window, tm
     assert [r[:2] for r in rows] == [["6/3/2026", me], ["6/3/2026", "DS"], ["6/3/2026", me],
                                      ["6/4/2026", me], ["6/4/2026", "DS"], ["6/4/2026", me]]
     assert sum(int(r[3]) for r in rows) == 10
-    assert window.takes_info.text() == "These 2 days: Pat 6 pp. · DS 4 pp."
+    assert window.takes_info.text() == "These 2 days: Pat 6 pages (you) · DS 4 pages"
     window._fold_card(window.takes_card, True)  # (folded: the totals on its line)
-    assert window.takes_card.summary.text() == "These 2 days: Pat 6 pp. · DS 4 pp."
+    assert window.takes_card.summary.text() == "These 2 days: Pat 6 pages (you) · DS 4 pages"
     window._fold_card(window.takes_card, False)
     for name, filt in (("w.xlsx", "Excel workbook (*.xlsx)"), ("w.csv", "CSV file (*.csv)")):
         monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName",
@@ -436,4 +437,4 @@ def test_who_transcribed_what_lists_each_reporters_pages_of_the_trial(window, tm
     assert [c.value for c in ws[1]] == TAKE_COLS and ws.cell(2, 2).value == me and ws.cell(2, 4).value == 2
     with open(tmp_path / "w.csv", encoding="utf-8-sig") as f:
         lines = list(csv.reader(f))
-    assert lines[0] == TAKE_COLS and lines[-1] == ["Each reporter", "Pat 6 pp. · DS 4 pp."]
+    assert lines[0] == TAKE_COLS and lines[-1] == ["Each reporter", "Pat 6 pages · DS 4 pages"]
