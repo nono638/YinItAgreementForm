@@ -1739,8 +1739,9 @@ class MainWindow(QMainWindow):
         hh = self.att.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.Interactive)
         hh.setStretchLastSection(False)
-        # (What as wide as "The whole trial (12 days)", Speed as "They choose: Regular or Expedite" mostly)
-        for i, w in enumerate([30, 140, 190, 230, 115, 105, 190, 130, 60, 200, 150, 80]):
+        # (What as wide as "The whole trial (12 days)", Speed as "They choose: Regular or Expedite" mostly, Your
+        # pages as "300 of 412 total")
+        for i, w in enumerate([30, 140, 190, 230, 115, 105, 190, 130, 60, 200, 150, 115]):
             sized(self.att, "setColumnWidth", i, w, keep=1)
         for col, tip in ATT_TIPS.items():
             self.att.horizontalHeaderItem(col).setToolTip(tip)
