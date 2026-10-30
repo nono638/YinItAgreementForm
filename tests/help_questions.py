@@ -150,4 +150,7 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("show only my takes", ("run-who-transcribed",)),
     ("how many of my pages were billed in each excerpt", ("exc-your-pages", "exc-table")),
     ("stop shading my rows", ("run-who-transcribed", "set-options")),
+    # whose pages each count is, and waiting for the reading (2026-10-30)
+    ("difference between total pages and your pages", ("inv-reporters", "batch-job-list", "exc-your-pages")),
+    ("it says please wait when i press generate", ("make-outputs", "batch-generate-all")),
 ]

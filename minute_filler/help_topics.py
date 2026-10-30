@@ -693,7 +693,7 @@ invoiced without them, and the undecided days can be invoiced on their own later
 """),
     T("inv-reporters", INVOICE, "Several reporters on one transcript: whose pages",
       "several reporters shared trial initials my pages your pages whose pages other reporter invoices for billed "
-      "line whole transcript",
+      "line whole transcript total pages difference count every reporter's",
       """
 <p>When reporters take turns on a trial, the initials at the foot of the pages change, and your invoice bills
 <b>your own pages</b> only: of a 150-page transcript where 65 pages carry your initials, the invoice is for 65. The
