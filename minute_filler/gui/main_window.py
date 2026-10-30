@@ -4915,11 +4915,7 @@ class MainWindow(QMainWindow):
             self._unwatch_sheet()  # (another sheet was picked while the last read missed it)
             return
         self._sheet_watched = (path, now)
-        self._drop_undo()  # (from here as _read_sheets_again, from the read above)
-        self._fill_sheet_box()
-        self._fill_invoice_speeds()
-        self._apply_speed_rule()
-        self._remerge_others()
+        self._read_sheets_again(read=False)  # (priced from the read above)
         sheet = self.s.sheet()
         gaps, cheaper = missing_prices(sheet), cheaper_faster(sheet)
         self._sheets_warned.add(sheet_fingerprint(sheet))  # (told below: no box about it again this session)
@@ -5096,11 +5092,13 @@ class MainWindow(QMainWindow):
         self._check_rate_sheet(again=True)  # (edited in Excel: still incomplete, or newly so)
         self._check_old_days()
 
-    def _read_sheets_again(self) -> None:
+    def _read_sheets_again(self, read: bool = True) -> None:
         """The rate sheet files are read again (⟳, or the one opened to be filled in was saved: _sheet_saved), and
-        every job priced again from the sheet in use."""
+        every job priced again from the sheet in use. read=False: the folder was just read (_sheet_saved, which
+        checks that read before anything is priced from it), and isn't read a second time."""
         self._drop_undo()  # (the jobs New job cleared were priced from the sheets as they were)
-        self.s.reload_rates()
+        if read:
+            self.s.reload_rates()
         self._fill_sheet_box()
         self._fill_invoice_speeds()  # the sheet's speeds may have changed
         self._apply_speed_rule()
