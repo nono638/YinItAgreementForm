@@ -153,8 +153,7 @@ def lock_pdf(path: Path) -> Path:
             for xref in buttons:
                 page.delete_widget(page.load_widget(xref))
         doc.bake()
-        out = unique_path(path.with_name(f"{path.stem} (locked){path.suffix}"))
-        doc.save(out, garbage=3, deflate=True)
+        out = _save_new(doc, path.with_name(f"{path.stem} (locked){path.suffix}"))
     return out
 
 
@@ -379,25 +378,78 @@ def mark(doc: pymupdf.Document, kind: str) -> None:
 
 def save_output(doc: pymupdf.Document, kind: str, path: Path, flatten: bool = False) -> Path:
     """Saves a PDF this app made: labels it (see mark), optionally flattens the fields, never overwrites
-    (adds " (2)" etc.), closes it and returns where it went. When the save fails, the error is raised and the file
-    half written is deleted; when even that fails, the error says where it was left (`left_behind`)."""
+    (adds " (2)" etc.), closes it and returns where it went. When the save fails, the error is raised and the files
+    this call made are deleted; when even that fails, the error says where one was left (`left_behind`).
+    Safe beside another copy of the app (or the batch's thread) saving to the same name (_save_new)."""
     mark(doc, kind)
     if flatten:
         doc.bake()
     path.parent.mkdir(parents=True, exist_ok=True)
-    out = unique_path(path)
-    try:
-        doc.save(out, garbage=3, deflate=True)
-    except Exception as e:
-        # the disk full, or the file taken meanwhile: a file half written is no PDF, and an invoice's number
-        # would stay with it (invoice.make_invoice gives the number back only when nothing is left on disk)
-        try:
-            out.unlink(missing_ok=True)
-        except OSError:
-            e.left_behind = out  # (held by an antivirus scan, say: make_invoice tries once more, then keeps the number)
-        raise
+    out = _save_new(doc, path)
     doc.close()
     return out
+
+
+def _save_new(doc: pymupdf.Document, path: Path) -> Path:
+    """Saves `doc` as `path`, or a name beside it ('name (2).pdf'), never over a file there, and returns where.
+    The name is taken at once (claim_path), so two copies of the app saving under one name never both take it;
+    the PDF is written to a file of its own in the same folder and only then put in its place, so a save cut off
+    (the app killed) never leaves a PDF half written under the name. When the save fails, the error is raised
+    and only this call's own files are deleted (the name it took, empty yet, and its file being written), never
+    one another copy made; one that can't be is named on the error (`left_behind`)."""
+    import os
+    import tempfile
+    import time
+    out = claim_path(path)
+    tmp: Path | None = None
+    try:
+        fd, name = tempfile.mkstemp(prefix="~YinIt ", suffix=".saving", dir=path.parent)  # (not .pdf: no input)
+        os.close(fd)
+        tmp = Path(name)
+        doc.save(str(tmp), garbage=3, deflate=True)
+        for attempt in range(3):  # (Dropbox, OneDrive or an antivirus may hold the name taken for a moment)
+            try:
+                os.replace(tmp, out)
+                break
+            except PermissionError:
+                if attempt == 2:
+                    raise
+                time.sleep(0.3)
+    except Exception as e:
+        # the disk full, or the file held: a file half written is no PDF, and an invoice's number would stay
+        # with it (invoice.make_invoice gives the number back only when nothing is left on disk)
+        left = [p for p in (out, tmp) if p is not None and not _gone(p)]
+        if left:
+            e.left_behind = left[0]  # (held by an antivirus scan, say: make_invoice tries once more, then keeps the number)
+        raise
+    return out
+
+
+def _gone(p: Path) -> bool:
+    """Deletes `p` (fine when it isn't there); False when it can't be (held open, a read-only folder)."""
+    try:
+        p.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def claim_path(p: Path) -> Path:
+    """Takes `p`, or 'name (2).pdf', 'name (3).pdf'... when it is there already, by making it (empty) in one step
+    that fails when the file exists (open "xb"), so two copies of the app saving under one name at once never
+    both take it (unique_path only looks: both would). The caller writes the file over it, or deletes it."""
+    candidates = [p] + [p.with_name(f"{p.stem} ({i}){p.suffix}") for i in range(2, 1000)]
+    for q in candidates:
+        try:
+            with open(q, "xb"):
+                return q
+        except FileExistsError:
+            continue
+        except PermissionError:  # (Windows: a file being deleted, or a folder of that name, is taken too)
+            if q.exists():
+                continue
+            raise
+    raise FileExistsError(f"no free name for {p.name}")
 
 
 def is_generated(path: Path) -> bool:
@@ -412,7 +464,8 @@ def is_generated(path: Path) -> bool:
 
 
 def unique_path(p: Path) -> Path:
-    """`p`, or 'name (2).pdf', 'name (3).pdf'... when it already exists, so nothing is overwritten."""
+    """`p`, or 'name (2).pdf', 'name (3).pdf'... when it already exists, so nothing is overwritten. It only looks:
+    another copy of the app can take the name before it is written (save_output takes it at once: claim_path)."""
     if not p.exists():
         return p
     for i in range(2, 1000):

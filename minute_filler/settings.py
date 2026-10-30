@@ -895,13 +895,34 @@ class Settings:
         read) nothing is written: the app runs on the defaults, and a save made on its own (a file opened, an
         option ticked, the look for a newer version) would write them over the user's settings. force: the user
         pressed Save in Settings (Start in Welcome, Import settings), which is their choice to replace the file;
-        it is written, and the flag cleared."""
+        it is written, and the flag cleared.
+        The .tmp file is this process's and thread's own (settings.<pid>-<thread>.tmp): two copies of the app, or
+        two of its threads, saving at once would otherwise write into one file together. The replace is tried
+        again a few times while the file is held (Dropbox, OneDrive or an antivirus reading it: PermissionError,
+        as in runsheet._save), and the .tmp file is deleted when it fails."""
+        import threading
+        import time
         if self.unreadable and not force:
             return
         self.unreadable = False
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
-        tmp.replace(self.path)
+        path = self.path
+        tmp = path.with_name(f"{path.stem}.{os.getpid()}-{threading.get_ident()}.tmp")
+        try:
+            tmp.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
+            for attempt in range(3):
+                try:
+                    os.replace(tmp, path)
+                    break
+                except PermissionError:
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.3)
+        except BaseException:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     def export_to(self, path: Path | str, personal: bool = True) -> Path:
         """Saves the settings as one file to carry to another computer or give to a colleague: everything but

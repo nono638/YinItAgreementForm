@@ -685,10 +685,11 @@ class SettingsDialog(QDialog):
         self._sig_new = ""
         self._show_signature("")
 
-    def _store_signature(self):
+    def _store_signature(self, later: list[tuple[str, str]] | None = None):
         """Applies a pick or removal made in this dialog: moves the prepared picture to signature.png (or
         deletes it) and records it in the settings. Does nothing if the signature was not touched, and leaves
-        the settings as they were (saying so) if the file cannot be moved or deleted.
+        the settings as they were (saying so) if the file cannot be moved or deleted. later: the warning goes
+        there as (title, text), to be shown once every setting is in (accept), instead of at once.
         """
         from pathlib import Path
         from ..signature import signature_path
@@ -701,8 +702,12 @@ class SettingsDialog(QDialog):
             else:
                 final.unlink(missing_ok=True)
         except OSError as e:
-            QMessageBox.warning(self, "Signature", "The signature picture couldn't be "
-                                f"{'stored' if self._sig_new else 'removed'}, so the one you had stays.\n\n{e}")
+            warning = ("Signature", "The signature picture couldn't be "
+                       f"{'stored' if self._sig_new else 'removed'}, so the one you had stays.\n\n{e}")
+            if later is None:
+                QMessageBox.warning(self, *warning)
+            else:
+                later.append(warning)
             return
         self.s.signature_image = str(final) if self._sig_new else ""
 
@@ -1201,7 +1206,8 @@ class SettingsDialog(QDialog):
         with a warning that lists them. An index number pattern that can't be used keeps the window open, saying
         why (it would be lost). The file is written even over a settings file that couldn't be read
         (Settings.save(force=True)); when it can't be written the user is told, and the dialog closes all the
-        same."""
+        same. The warnings (those lines, a signature that couldn't be stored) are shown once every setting is in
+        and saved, never halfway; only the index number patterns' stops the Save, before anything is changed."""
         from ..extract_regex import index_pattern_problem
         bad = [f"Line {i}: {why}" for i, x in enumerate(self._index_lines(), 1) if (why := index_pattern_problem(x))]
         if bad:
@@ -1226,7 +1232,10 @@ class SettingsDialog(QDialog):
             setattr(s, attr, spin.value())
         s.fill_delivery_date = self.o_deldate.isChecked()
         s.per_email, s.sign_reporter = self.o_per_email.isChecked(), self.p_sign.isChecked()
-        self._store_signature()
+        # warnings wait until every setting is in and saved: a box opened halfway lets the window's work go on
+        # (a document read, the AI answering) with the settings half changed, and maybe saved so
+        warnings: list[tuple[str, str]] = []
+        self._store_signature(warnings)
         s.agreement_today, s.flatten = self.o_today.isChecked(), self.o_flat.isChecked()
         s.business_day_dating, s.turnaround_business_days = self.t_dating.isChecked(), self.t_business.isChecked()
         s.turnaround_from = self.t_from.currentData() or s.turnaround_from
@@ -1295,8 +1304,8 @@ class SettingsDialog(QDialog):
             if k not in s.reporters and d.has_details():
                 s.reporters[k] = replace(d, name="")
         if bad:
-            QMessageBox.warning(self, "Reporters", "These lines under Run sheet → Reporters were left out (write "
-                                "them as initials = name, e.g. ds = Dana):\n\n" + "\n".join(bad[:10]))
+            warnings.append(("Reporters", "These lines under Run sheet → Reporters were left out (write them as "
+                             "initials = name, e.g. ds = Dana):\n\n" + "\n".join(bad[:10])))
         s.show_yin = self.o_yin.isChecked()
         s.use_ai, s.ai_for_text = self.a_use.isChecked(), self.a_text.isChecked()
         s.ai_ticks = self.a_ticks.currentData() or s.ai_ticks
@@ -1309,6 +1318,8 @@ class SettingsDialog(QDialog):
             # it closes): the dialog closes rather than keeping them half applied behind a Cancel
             show_save_error(self, e, "Could not save the settings",
                             "\n\nYour changes are kept for now and saved again when the app closes.")
+        for title, text in warnings:
+            QMessageBox.warning(self, title, text)
         super().accept()
 
 
@@ -2148,7 +2159,7 @@ class _PullThread(QThread):
 class OllamaHelpDialog(QDialog):
     """Step-by-step help for installing Ollama, with a button that downloads the model.
 
-    The download keeps going if the dialog is closed (see accept).
+    The download keeps going if the dialog is closed (see _BACKGROUND).
     """
     def __init__(self, model: str, host: str, parent=None):
         """model: the model the guide and download button refer to; host: the Ollama URL."""
@@ -2191,6 +2202,9 @@ class OllamaHelpDialog(QDialog):
         self.thread = _PullThread(self.model, self.host)
         self.thread.progress.connect(self._progress)
         self.thread.finished_ok.connect(self._done)
+        # kept from the start, not only when the dialog closes: the app can quit with the dialog still open
+        # (Windows logging off), and the dialog's own reference goes with it (finished downloads let go here)
+        _BACKGROUND[:] = [t for t in _BACKGROUND if not t.isFinished()] + [self.thread]
         self.thread.start()
 
     def _progress(self, status: str, pct: int):
@@ -2210,18 +2224,13 @@ class OllamaHelpDialog(QDialog):
         self.pull_btn.setEnabled(True)
 
     def reject(self):
-        """Escape or the window's close button behaves like Close."""
+        """Escape or the window's close button behaves like Close (a download still running goes on)."""
         self.accept()
 
-    def accept(self):
-        """Closes the dialog. A download still running is handed to _BACKGROUND so it is not cut off."""
-        if self.thread and self.thread.isRunning():
-            _BACKGROUND.append(self.thread)  # keep the download alive after the dialog closes
-        super().accept()
 
-
-# Downloads that outlive their dialog. Qt aborts the program if a QThread is destroyed while it still runs,
-# so a reference is kept here for as long as the app is open.
+# Downloads, from the moment each starts (OllamaHelpDialog._pull), so they outlive their dialog. Qt aborts the
+# program if a QThread is destroyed while it still runs, so a reference is kept here until it is finished (let
+# go at the next download); main() doesn't wait at exit for one still running (os._exit).
 _BACKGROUND: list[QThread] = []
 
 

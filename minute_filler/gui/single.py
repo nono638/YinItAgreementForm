@@ -9,10 +9,17 @@ The first copy takes a named mutex (Windows: one name per user, made or found in
 at the same moment can't both be first; it goes with the process, so a crash leaves nothing behind), then
 listens on a local socket of the same name (a named pipe). A later launch finds the mutex, connects (the
 first copy may still be starting and not listen yet), sends the files it was given ([] = just "show
-yourself"), waits for "ok" and exits. The running copy answers from its event loop, which waits while it
-builds its window or makes files on the window's thread, so a launch waits up to WAIT_MS for it. When it
-still doesn't answer (hung), the new copy opens its own window rather than refuse to start. The headless
---batch and --selftest runs never take part.
+yourself"), waits for "ok", says "go" and exits. The running copy answers from its event loop, which waits
+while it builds its window or makes files on the window's thread, so a launch waits up to WAIT_MS for it.
+When it still doesn't answer (hung), the new copy opens its own window rather than refuse to start. The
+headless --batch and --selftest runs never take part.
+
+The files are taken only on "go", which the launch says once it has read the "ok", so a launch is either
+handed over or opens its own window, never both: a launch that gave up waiting has left its line in the pipe,
+and a copy that comes back to life answers it "ok" to nobody (no "go": dropped; before, it opened the files
+in a second window). Both ends are always the same version (the one installed app), so the steps need no
+fallback for an older copy. While the running copy is closing (hold, then close), a launch is not answered:
+it opens its own window rather than hand its files to a window about to go.
 
 Windows pipes move data only while the event loop runs, so the running copy reads each launch's line as it
 arrives (readyRead) and the launch runs the event loop while it waits (_wait); that also lets a test play
@@ -30,6 +37,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 TIMEOUT_MS = 1500  # without a mutex (not Windows): how long to look for a copy that may not be there
 WAIT_MS = 15000    # a copy runs (its mutex says so): to reach it, and again for its answer, while it starts or works
+GO_MS = 5000       # the running copy, after its "ok": how long it waits for the launch's "go" (said at once)
 ERROR_ALREADY_EXISTS = 183  # GetLastError after CreateMutexW: the mutex was there already (another copy runs)
 
 
@@ -72,6 +80,8 @@ class SingleInstance(QObject):
         self._mutex = None                      # this copy's mutex handle, kept while it runs
         self._found_mutex = False               # claim() found another copy's mutex
         self._pending: list[list[str]] | None = []  # files that came before deliver(); None once delivering
+        self._launches: list[_Launch] = []      # launches connected and not yet done with (answered, or held)
+        self._holding = False                   # hold(): launches are read but not answered (the window closing)
 
     def claim(self) -> bool:
         """True when this copy is the first, and now listens; False when another copy runs (or is starting)."""
@@ -118,8 +128,9 @@ class SingleInstance(QObject):
             self.server = None
 
     def send(self, files: list[str]) -> bool:
-        """Hands `files` to the copy running and waits for its "ok"; False when it doesn't answer (then this
-        launch runs as usual). A copy found by its mutex is given WAIT_MS to listen and again to answer."""
+        """Hands `files` to the copy running, waits for its "ok" and says "go" (the copy takes the files only
+        then); False when it doesn't answer, or "go" couldn't be said (then this launch runs as usual, and the
+        copy drops them). A copy found by its mutex is given WAIT_MS to listen and again to answer."""
         wait = WAIT_MS if self._found_mutex else TIMEOUT_MS
         clock = QElapsedTimer()
         clock.start()
@@ -145,6 +156,12 @@ class SingleInstance(QObject):
                 and sock.state() == QLocalSocket.LocalSocketState.ConnectedState:
             _wait(min(250, max(1, wait - clock.elapsed())), sock)
         ok = sock.canReadLine() and bytes(sock.readLine()).strip() == b"ok"
+        if ok and sock.state() == QLocalSocket.LocalSocketState.ConnectedState:
+            # (written before this launch quits: a "go" still in this process's buffer would be lost with it)
+            sock.write(b"go\n")
+            ok = sock.waitForBytesWritten(min(WAIT_MS, 2000)) or not sock.bytesToWrite()
+        else:
+            ok = False
         sock.disconnectFromServer()
         return bool(ok)
 
@@ -157,41 +174,47 @@ class SingleInstance(QObject):
             slot(files)
 
     def _take(self) -> None:
-        """A launch connected: its line is read as it arrives, then answered (a connection that says
-        nothing, such as a probe that gave up, is ignored)."""
+        """A launch connected: its line is read as it arrives, then answered, and its files taken on its "go"
+        (_Launch; a connection that says nothing, such as a probe that gave up, is dropped once it goes)."""
         while self.server and self.server.hasPendingConnections():
-            conn = self.server.nextPendingConnection()
-            buf = bytearray()
+            _Launch(self, self.server.nextPendingConnection())  # (it adds itself to _launches)
 
-            def read(conn=conn, buf=buf) -> None:
-                buf += bytes(conn.readAll())
-                if b"\n" in buf:
-                    self._answer(conn, bytes(buf).split(b"\n", 1)[0])
-            conn.readyRead.connect(read)
-            if conn.bytesAvailable():
-                read()
-
-    def _answer(self, conn: QLocalSocket, line: bytes) -> None:
-        """Says "ok", lets the launch go, and passes its files on (kept for deliver() until the window is ready)."""
+    def _done(self, launch: "_Launch", line: bytes | None) -> None:
+        """A launch is over: with its line (it said "go"), its files are passed on (kept for deliver() until the
+        window is ready); None, dropped. A line that isn't the app's (no "files" list) passes nothing on."""
+        if launch in self._launches:
+            self._launches.remove(launch)
+        if line is None:
+            return
         try:
             files = json.loads(line.decode("utf-8")).get("files", [])
         except (ValueError, AttributeError):
-            files = None
-        conn.readyRead.disconnect()
-        conn.write(b"ok\n")
-        conn.flush()
-        conn.disconnectFromServer()  # closes once the answer is written
-        conn.disconnected.connect(conn.deleteLater)
-        if files is None:
+            return
+        if not isinstance(files, list):
             return
         files = [f for f in files if isinstance(f, str)]
         if self._pending is not None:
             self._pending.append(files)
         self.files_received.emit(files)
 
+    def hold(self, on: bool = True) -> None:
+        """While on, launches are read but not answered: the window is closing (its "Close anyway?" on screen)
+        and files handed to it now would be lost with it. Off (the close called off) answers those waiting, as
+        usual; close() leaves them unanswered, and each opens a window of its own."""
+        self._holding = on
+        if not on:
+            for launch in list(self._launches):
+                if launch.line is not None and not launch.answered:
+                    launch.answer()
+
     def close(self) -> None:
         """Stops listening and lets the mutex go, so that a launch while this copy is shutting down opens a
-        window of its own instead of waiting for this one (both would go with the process anyway)."""
+        window of its own instead of waiting for this one (both would go with the process anyway). The launches
+        connected and not done with are cut off (unanswered, they open their own windows at once rather than
+        wait WAIT_MS for an answer that won't come)."""
+        self._holding = True
+        for launch in list(self._launches):
+            launch.finish(False)
         if self.server:
             self.server.close()
             self.server = None
@@ -199,6 +222,89 @@ class SingleInstance(QObject):
             k32, handle = self._mutex
             k32.CloseHandle(handle)
             self._mutex = None
+
+
+class _Launch:
+    """One launch connected to the running copy, step by step: its line is read, answered "ok" (unless the copy
+    holds: then once it lets go), and its files passed on when it says "go" (SingleInstance._done). One that goes
+    before its "go" (it gave up waiting, and opens its own window), says something else, or says nothing within
+    GO_MS of the "ok" is dropped. A plain object, not a QObject: it may be let go of from its own timer's signal,
+    which a QObject must not be deleted in (the timer is the socket's, deleted later with it)."""
+
+    def __init__(self, owner: SingleInstance, conn: QLocalSocket):
+        self.owner, self.conn = owner, conn
+        self.buf = bytearray()
+        self.line: bytes | None = None  # the launch's line of files, once read
+        self.answered = False           # "ok" said: its "go" is waited for
+        self.timer = QTimer(conn)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self._expire)
+        conn.readyRead.connect(self._read)
+        conn.disconnected.connect(self._gone)
+        owner._launches.append(self)  # (before the first read: one gone already is done with at once)
+        if conn.bytesAvailable():
+            self._read()
+        if self.conn is not None and conn.state() == QLocalSocket.LocalSocketState.UnconnectedState:
+            self.finish(False)  # (it hung up before it was taken: no disconnected signal to come)
+
+    def _read(self) -> None:
+        """Takes the lines that came: the first is the files (answered at once, unless the copy holds), the next
+        must be "go"."""
+        if self.conn is None:
+            return
+        self.buf += bytes(self.conn.readAll())
+        while self.conn is not None and b"\n" in self.buf:
+            line, _, rest = bytes(self.buf).partition(b"\n")
+            self.buf[:] = rest
+            if self.line is None:
+                self.line = line
+                if not self.owner._holding:
+                    self.answer()
+            else:
+                self.finish(self.answered and line.strip() == b"go")
+
+    def answer(self) -> None:
+        """Says "ok" and waits GO_MS for the "go"; a launch gone meanwhile is dropped."""
+        if self.conn is None or self.answered:
+            return
+        if self.conn.state() != QLocalSocket.LocalSocketState.ConnectedState:
+            self.finish(False)
+            return
+        self.answered = True
+        self.conn.write(b"ok\n")
+        self.conn.flush()
+        self.timer.start(GO_MS)
+
+    def _expire(self) -> None:
+        """No "go" in GO_MS: one that came while this copy was busy is read first (its readyRead may be behind
+        the timer), else the launch is dropped."""
+        if self.conn is not None and self.conn.waitForReadyRead(100):
+            self._read()
+        if self.conn is not None:
+            self.finish(False)
+
+    def _gone(self) -> None:
+        """The launch hung up: after its "go" (they can come together) it is done, else dropped."""
+        self._read()
+        if self.conn is not None:
+            self.finish(False)
+
+    def finish(self, deliver: bool) -> None:
+        """Done with the launch: hangs up (after the "ok", if it is still being written) and tells the owner,
+        with its line when it said "go" (deliver)."""
+        conn, self.conn = self.conn, None
+        if conn is None:
+            return
+        self.timer.stop()
+        conn.readyRead.disconnect(self._read)
+        conn.disconnected.disconnect(self._gone)
+        if deliver and conn.state() != QLocalSocket.LocalSocketState.UnconnectedState:
+            conn.disconnected.connect(conn.deleteLater)
+            conn.disconnectFromServer()
+        else:
+            conn.abort()  # (unanswered, or no "go": at once, so a launch still waiting opens its window now)
+            conn.deleteLater()
+        self.owner._done(self, self.line if deliver else None)
 
 
 def hand_over(single: SingleInstance, files: list[str]) -> bool:

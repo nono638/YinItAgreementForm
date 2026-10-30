@@ -229,7 +229,7 @@ def test_crashes_are_hooked_without_a_log_file(monkeypatch):
     def no_file(*a, **k):
         raise OSError("read-only profile")
     log.shutdown()
-    monkeypatch.setattr(log, "RotatingFileHandler", no_file)
+    monkeypatch.setattr(log, "_SharedFile", no_file)  # (the log's RotatingFileHandler)
     try:
         log.setup()
         assert sys.excepthook is log._excepthook and threading.excepthook is not threading.__excepthook__

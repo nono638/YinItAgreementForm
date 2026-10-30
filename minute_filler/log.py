@@ -3,15 +3,18 @@
 It records what the program did and what went wrong (versions, file types, crashes with their
 tracebacks), never what the documents said. Anything that could come from a document - file
 names, e-mail addresses, index numbers, long digit strings - is removed by `scrub` before it is
-written, and nothing is sent anywhere. The file stays under about 3 MB (1 MB, plus two older copies).
+written, and nothing is sent anywhere. The file stays under about 3 MB (1 MB, plus two older copies; it can
+grow past 1 MB for a while when two copies of the app write it at once: _SharedFile).
 """
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import re
 import sys
 import threading
+import time
 import traceback
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -23,6 +26,7 @@ from .settings import settings_dir
 NAME = "yin"
 log = logging.getLogger(NAME)
 _handler: RotatingFileHandler | None = None
+_hooked = False  # setup() has set the crash hooks (shutdown() puts them back)
 on_crash: Callable[[str], None] | None = None  # the window sets this to tell the user
 
 _FILES = r"pdf|docx?|txt|eml|msg|html?|jpe?g|png|gif|bmp|tiff?|webp|heic|heif|csv|md|xlsx|xlsm|xls"
@@ -83,18 +87,70 @@ def windows_version() -> str:
         return platform.platform()
 
 
-def setup() -> None:
-    """Starts the log file (once) and records crashes that nothing else catches."""
-    global _handler
-    if _handler is not None:
-        return
+class _SharedFile(RotatingFileHandler):
+    """The log file, which another copy of the app may have open: a launch that couldn't reach the copy open
+    (hung) runs on its own, and Windows can't rename a file open elsewhere. RotatingFileHandler's rollover would
+    then fail after moving app.log.1 over app.log.2 (the oldest copy lost), and drop the record, and every record
+    after it, as long as both run. Here app.log is moved aside first, before anything else is touched: when that
+    fails nothing has moved, the file is opened again and the record appended (it grows past maxBytes for a
+    while), and the rollover is tried again RETRY_S later."""
+    RETRY_S = 60.0
+    _retry_at = 0.0  # (time.monotonic(): no rollover tried before then)
+
+    def shouldRollover(self, record) -> bool:
+        if time.monotonic() < self._retry_at:
+            return False
+        return bool(super().shouldRollover(record))
+
+    def doRollover(self) -> None:
+        """app.log -> app.log.1 -> app.log.2 (the oldest goes), or, when app.log can't be moved, on as it is."""
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+        base = self.baseFilename
+        aside = base + ".rotating"
+        try:
+            os.replace(base, aside)  # (the one step another copy's open file stops: first, so it loses nothing)
+        except FileNotFoundError:
+            aside = ""
+        except OSError:
+            self._retry_at = time.monotonic() + self.RETRY_S
+            self.stream = self._open()
+            return
+        for i in range(self.backupCount - 1, 0, -1):
+            try:
+                if os.path.exists(f"{base}.{i}"):
+                    os.replace(f"{base}.{i}", f"{base}.{i + 1}")
+            except OSError:  # (an older copy held open: it stays, and so does the one it would have made way for)
+                pass
+        if aside:
+            try:
+                if os.path.exists(f"{base}.1"):  # (it couldn't make way: app.log goes back, rather than over it)
+                    os.replace(aside, base)
+                    self._retry_at = time.monotonic() + self.RETRY_S
+                else:
+                    os.replace(aside, f"{base}.1")
+            except OSError:
+                pass
+        self.stream = self._open()
+
+
+def setup(file: bool = True) -> None:
+    """Records crashes that nothing else catches and, with `file`, starts the log file (each once). main() catches
+    crashes from the start but opens the file only once it knows this launch runs (one that hands its files to
+    the copy open never opens it)."""
+    global _handler, _hooked
     log.setLevel(logging.INFO)
     log.propagate = False
-    # the hooks first: a crash is told to the user (on_crash) even when there is no log file to write it to
-    sys.excepthook = _excepthook
-    threading.excepthook = lambda a: _excepthook(a.exc_type, a.exc_value, a.exc_traceback)
+    if not _hooked:
+        # the hooks first: a crash is told to the user (on_crash) even when there is no log file to write it to
+        sys.excepthook = _excepthook
+        threading.excepthook = lambda a: _excepthook(a.exc_type, a.exc_value, a.exc_traceback)
+        _hooked = True
+    if not file or _handler is not None:
+        return
     try:
-        _handler = RotatingFileHandler(log_path(), maxBytes=1_000_000, backupCount=2, encoding="utf-8")
+        _handler = _SharedFile(log_path(), maxBytes=1_000_000, backupCount=2, encoding="utf-8")
     except OSError:  # a read-only profile: run without a log rather than not at all
         _handler = None
         log.addHandler(logging.NullHandler())
@@ -108,11 +164,12 @@ def setup() -> None:
 
 def shutdown() -> None:
     """Closes the file and puts things back (tests use this)."""
-    global _handler
+    global _handler, _hooked
     if _handler is not None:
         log.removeHandler(_handler)
         _handler.close()
         _handler = None
+    _hooked = False
     sys.excepthook = sys.__excepthook__
     threading.excepthook = threading.__excepthook__
 

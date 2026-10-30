@@ -73,6 +73,7 @@ def selftest(out_dir: str, files: list[str]) -> int:
     except Exception as e:
         report["math_pdf"] = f"{type(e).__name__}: {e}"
     try:  # one window at a time needs Qt's local sockets (QtNetwork) in the build
+        import time
         import uuid
         from PySide6.QtCore import QCoreApplication
         from minute_filler.gui.single import SingleInstance
@@ -82,8 +83,11 @@ def selftest(out_dir: str, files: list[str]) -> int:
         got: list = []
         one.files_received.connect(got.extend)
         other = SingleInstance(name)
-        report["single_instance"] = one.claim() and not other.claim() and other.send(["a.pdf"]) \
-            and (app.processEvents() or got == ["a.pdf"])
+        sent = one.claim() and not other.claim() and other.send(["a.pdf"])
+        clock = time.monotonic()
+        while sent and not got and time.monotonic() - clock < 3:  # (the files are taken once its "go" is read)
+            app.processEvents()
+        report["single_instance"] = bool(sent) and got == ["a.pdf"]
         one.close()
     except Exception as e:
         report["single_instance"] = f"{type(e).__name__}: {e}"
@@ -293,17 +297,50 @@ def _take_launches(app, win, single, files: list[str]) -> None:
     drops. Launches close together are gathered into one drop: "Open with" on two transcripts starts two
     launches, and one drop of both makes a job per case and date, where two drops of one would put the second
     day into the first day's job. Files that come while a question is on screen (a modal dialog) wait until it
-    is answered: dropped then, they could be lost by its answer (New job's "Clear all jobs?")."""
-    from PySide6.QtCore import Qt, QTimer
+    is answered: dropped then, they could be lost by its answer (New job's "Clear all jobs?").
+    While the window is closing (from its close event until its question, "Still working... Close anyway?", is
+    answered) launches are held unanswered (SingleInstance.hold): taken then, their files would go with the
+    window. The close called off, they are answered and taken as usual; the window gone, the copy stops listening
+    (single.close()) and each opens a window of its own. So does a launch while the app quits any other way
+    (aboutToQuit: Windows logging off)."""
+    from PySide6.QtCore import QEvent, QObject, Qt, QTimer
     from PySide6.QtWidgets import QApplication
 
     gathered: list[str] = list(files)
     timer = QTimer(win)
     timer.setSingleShot(True)
     timer.setInterval(GATHER_MS)
+    closing = QTimer(win)  # (while the window closes: has its question been answered?)
+    closing.setInterval(100)
+
+    class CloseWatch(QObject):
+        """Sees the window's close event before the window does (an event filter), so launches are held from
+        the moment the close begins, its question included."""
+        def eventFilter(self, obj, event) -> bool:
+            if obj is win and event.type() == QEvent.Close:
+                single.hold(True)
+                closing.start()
+            return False
+
+    def decided() -> None:
+        """No question on screen any more: the window still shown means the close was called off."""
+        if QApplication.activeModalWidget() is not None:
+            return
+        closing.stop()
+        if win.isVisible():
+            single.hold(False)
+        else:
+            single.close()
+
+    closing.timeout.connect(decided)
+    watch = CloseWatch(win)
+    win.installEventFilter(watch)
+    app.aboutToQuit.connect(single.close)
 
     def arrived(paths: list[str]) -> None:
         """Another launch: bring this window forward, and take its files with the others coming now."""
+        from minute_filler import log
+        log.log.info("another launch handed over %d file(s)", len(paths))  # (that launch writes no log of its own)
         win.setWindowState((win.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive)
         win.show()
         win.raise_()
@@ -330,10 +367,15 @@ def main() -> int:
     """Runs --selftest or --batch, else the window (or, when a window is open already, hands it the files and
     returns 0); returns the exit code."""
     from minute_filler import log
-    log.setup()
+    # crashes are caught from the start, but the log file is opened only by a launch that runs: one that hands
+    # its files to the copy open would only get in the way of that copy's log (Windows can't rename a file open
+    # elsewhere, so its rotation would fail)
+    log.setup(file=False)
     if len(sys.argv) > 2 and sys.argv[1] == "--selftest":
+        log.setup()
         return selftest(sys.argv[2], sys.argv[3:])
     if len(sys.argv) > 1 and sys.argv[1] == "--batch":
+        log.setup()
         rest, outputs, math = sys.argv[3:], None, False
         while rest[:1] in (["--outputs"], ["--math"]):  # (either order)
             if rest[0] == "--math":
@@ -367,11 +409,12 @@ def main() -> int:
         from minute_filler.gui.single import SingleInstance, hand_over
         single = SingleInstance(parent=app)
         if hand_over(single, [str(Path(f).resolve()) for f in files]):
-            log.log.info("another copy is open: handed it the files and quit")
-            return 0
+            return 0  # (the copy open logs it: "another launch handed over")
     except Exception as e:  # (a build without Qt's local sockets: run, as a copy on its own)
+        log.setup()
         log.error("could not check for another copy", e)
         single = None
+    log.setup()
 
     from minute_filler.gui.main_window import MainWindow
     from minute_filler.gui.theme import apply_theme

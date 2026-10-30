@@ -127,7 +127,7 @@ def test_files_that_come_before_the_window_is_ready_are_kept(qt):
     try:
         one.claim()
         assert hand_over(two, ["C:/orders/roe.pdf"]) is True
-        qt.QApplication.processEvents()
+        wait_for(qt, one._pending)  # (until its "go" is read)
         got: list = []
         one.deliver(got.append)
         assert got == [["C:/orders/roe.pdf"]]
