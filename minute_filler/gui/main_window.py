@@ -2509,12 +2509,16 @@ class MainWindow(QMainWindow):
             self._recent_jobs = list(found or [])
             self._show_start()
 
+        def values_read(values) -> None:
+            if n == self._reading_recent:  # (an older read ending last would put back what the records held before)
+                self._fill_completions(values)
+
         if self.s.recent_jobs_show:  # (as many and as lately made as Settings -> Options say)
             self.runner.start(recent_jobs, self.s.recent_jobs_count, days=self.s.recent_jobs_days, on_done=jobs_read,
                               on_error=lambda _m: None)
         else:
             jobs_read([])  # (the card says how to begin, without the list)
-        self.runner.start(past_values, on_done=self._fill_completions, on_error=lambda _m: None)
+        self.runner.start(past_values, on_done=values_read, on_error=lambda _m: None)
         self._count_records()
 
     def _fill_completions(self, values: dict) -> None:
@@ -3685,13 +3689,20 @@ class MainWindow(QMainWindow):
     def _spread(self, job: Job) -> None:
         """A firm a document of `job` ticks orders the whole of its trial, as a tick in Who ordered does
         (batch.spread_orders, Settings.trial_orders): the trial's other days follow, and Who ordered's table when
-        the day shown is one of them (the job itself shows its own case afterwards)."""
+        the day shown is one of them (the job itself shows its own case afterwards). As in _remerge, the edits in
+        the editor are taken into the day shown first (the ticks spread onto them, not the table's older ones over
+        the ticks), and a cell of the attorney table being typed in is opened again (_resume_edit: an AI answer for
+        another day of the trial arrives while the user types)."""
         from ..batch import spread_orders, trial_days
         if job not in self.jobs:
             return
         days = trial_days(job, self.jobs)
-        if spread_orders(days, self.s) and job is not self.cur and any(j is self.cur for j in days):
+        shown = job is not self.cur and any(j is self.cur for j in days)
+        # (with Settings.trial_orders "day" nothing spreads: the editor is left as it is)
+        typing = self._sync_from_ui() if shown and self.s.trial_orders == "trial" else None
+        if spread_orders(days, self.s) and shown:
             self._show_attorneys()
+        self._resume_edit(typing)
 
     def _show_case(self):
         """Shows the current job's case in the editor: fields, speed, proceeding boxes, attorneys, invoice line.
@@ -5700,7 +5711,12 @@ class MainWindow(QMainWindow):
         opts, origin = job.invoice_sets(), job_origin(job)  # (the user's invoices, and other reporters' ticked)
         ordered = job.ordered_pages()  # each attorney's agreement: the pages it ordered, whoever wrote them
         speeds = job.ordered_speeds()  # and the speed(s) it ordered them at, where set
-        docs = list(job.docs)
+        # what the files bill, as _billing_changed compares it once they are made (Generate all's copies alike): an
+        # AI answer or a read that ends while the preview is up may tick another firm, change the speed, the
+        # parties or the pages, which the files just made don't bill
+        shown = replace(job, case=deepcopy(job.case), docs=list(job.docs), speeds=dict(job.speeds),
+                        portions=deepcopy(job.portions), page_basis=deepcopy(job.page_basis),
+                        front_owner=dict(job.front_owner))
         previewed = False  # the preview showed the math
         # the day every file is dated (today, or the next business day: Settings -> Dates), the preview's too: one
         # made at 4:59 PM is saved as it was shown, though the evening hour came while it was open
@@ -5728,6 +5744,7 @@ class MainWindow(QMainWindow):
             moved_origin(origin, src, dst)
             if sheet is not None and sheet.target:
                 sheet.target = moved_path(sheet.target, src, dst)
+        follow_moves([shown], moved)  # (its Whose pages... by the documents' new paths, as the job's: no change)
         out_dir = out_dir_for(job, self.s)
         # billed this way now, and so again (Job.split_rule; the invoices' record keeps it, the other files' not,
         # should the invoice fail): the rule the invoices (and the preview, by Settings') are priced by; put back when
@@ -5764,12 +5781,18 @@ class MainWindow(QMainWindow):
         copy_inputs(job, self.s, out_dir)  # (the documents read, beside the files, when Settings say so)
         if not keys:  # (no invoice made: no transcript, say)
             job.split_rule = rule_was
-        # Generate all won't bill this day again, nor make it (Job.made), unless a document was added while the
-        # preview was open: its pages are not on the invoice just made
-        if job.docs == docs:
+        # Generate all won't bill this day again, nor make it (Job.made), unless what it bills changed while the
+        # preview was open (_billing_changed: a document added, another firm ticked, the speed, the parties): the
+        # files just made don't bill that. When only who orders changed (or the speed, the parties), those just
+        # invoiced aren't billed again by Generate all, but a firm ticked meanwhile is (as Generate all's own run)
+        changed = _billing_changed(job, shown)
+        if not changed:
             job.made = True
             if "invoice" in outputs:
                 job.invoiced, job.invoice_set = True, new_invoice_set()
+        elif keys and not _pages_changed(job, shown):
+            job.invoiced_keys = list(dict.fromkeys(job.billed_keys() + keys))
+            job.invoiced = False
         # the detailed copies and the math PDFs are kept for when they're asked for: not opened or printed now
         from ..invoice_math import is_math_file
         kept = [p for p in paths if p in detailed or is_math_file(p)]
@@ -5788,6 +5811,11 @@ class MainWindow(QMainWindow):
         if sheet and sheet.path:
             text += ("\n\n" if text else "") + run_sheet_summary(sheet)
             folders += saved_folders([sheet.path], self.s)
+        if changed:  # (in Generate all's words for its days)
+            text += ("\n\n" if text else "") + (
+                "This day changed while the files were made (a document was added, the pages, Who ordered which "
+                "pages…, the attorneys ticked, the parties or the speed changed), so Generate all "
+                f"{'bills' if 'invoice' in outputs else 'makes'} it again as it is now.")
         if folder_problems:  # (a case's folder not renamed: said here, where it is read, not in a passing toast)
             text += ("\n\n" if text else "") + "\n\n".join(folder_problems)
         # (Print...: the PDFs but those kept; the run sheet is a workbook, printed from Excel)
@@ -6612,7 +6640,8 @@ class MainWindow(QMainWindow):
         documents it was read from are read again when they are still where they were, their takes as the user
         corrected them (batch.origin_fixes, given to add_files). An invoice of several
         days is read from its documents, a job per day, each with who ordered it as the record kept it
-        (batch.put_back_orders; a record made before 2.13 keeps none). Asks first when there is work on screen; False
+        (batch.put_back_orders; a record made before 2.13 keeps none). Asks first when there is work on screen or
+        documents are still being read (self.work: they would be dropped without a word); False
         when nothing was opened (during Generate all a box says so, over the Records window the click came from:
         this window's status bar is behind it)."""
         if self.filling:
@@ -6626,8 +6655,14 @@ class MainWindow(QMainWindow):
         if not isinstance(data, dict):
             QMessageBox.information(self, "Open this job again", "This record doesn't say what it was made from.")
             return False
-        if any(not j.is_empty() for j in self.jobs) and QMessageBox.question(
-                self, "Open this job again", "Clear what is in the window now and open this job instead?"
+        # (asked too while a document is still being read into an empty window: clearing it drops that document)
+        on_screen = any(not j.is_empty() for j in self.jobs)
+        if (on_screen or self.work) and QMessageBox.question(
+                self, "Open this job again",
+                "Clear what is in the window now and open this job instead?" if not self.work else
+                "Clear what is in the window now, and the documents still being read, and open this job instead?"
+                if on_screen else "Documents are still being read into the window. Stop reading them and open this "
+                "job instead?"
         ) != QMessageBox.Yes:
             return False
         if self._batch_running():
@@ -7217,8 +7252,9 @@ class MainWindow(QMainWindow):
 
     def _whose_pages(self, job: Job, reason: str = "") -> bool:
         """Whose pages…: which pages of the job's transcripts of several reporters (or of the one held, see
-        Job.ownership_problem) are billed. Returns True when OK was clicked and the job is still there. The job
-        is merged again, so the Pages field shows the pages billed."""
+        Job.ownership_problem) are billed. Returns True when OK was clicked and the job is still there (or the
+        day a read that ended meanwhile put its transcripts with, which the answer goes to: _job_now; a note says
+        when there is none). The job is merged again, so the Pages field shows the pages billed."""
         from .dialogs import PagesOwnerDialog
         docs = [d for d in job.transcripts() if len(d.reporters()) > 1 or (
             d.reporters() and "*" not in job.basis_of(d) and not job.billed_pages_of(d))]
@@ -7228,7 +7264,10 @@ class MainWindow(QMainWindow):
             return False
         dlg = PagesOwnerDialog([(d.key(), d.ing.name, d.owners()) for d in docs], set(job.own), job.page_basis,
                                job.front_owner, reason, self, self.s)
-        if not dlg.exec() or not any(job is j for j in self.jobs):
+        if not dlg.exec():
+            return False
+        job = self._job_now(job)  # (its answers are by the transcripts' Doc.key(): the same on the day they went to)
+        if job is None:
             return False
         basis, front = dlg.values()
         job.page_basis = {**job.page_basis, **basis}
@@ -7515,6 +7554,18 @@ class MainWindow(QMainWindow):
         it was removed."""
         return next((j for j in self.jobs if any(d is doc for d in j.docs)), None)
 
+    def _job_now(self, job: Job) -> Job | None:
+        """The job as it is now, after a box that was open while a read could end: the job itself while it is
+        still in the list, else the one its documents were put with (batch.group merged it into another day: as
+        _run_batch's done finds it), or None when it is gone (removed, New job): the answer then has no day to go
+        to, and a note at the bottom of the window says so."""
+        if any(job is j for j in self.jobs):
+            return job
+        now = next((x for x in self.jobs if any(d is e for d in job.docs for e in x.docs)), None)
+        if now is None:
+            self._toast("The job was removed while the box was open: nothing was changed.")
+        return now
+
     def _fix_take(self, row) -> None:
         """Correct where this take ends… (Who transcribed what, a take double-clicked or right-clicked: row, its
         runsheet.Row): a page's initials misread or missing put pages in the wrong take. Asks for the printed page
@@ -7563,6 +7614,9 @@ class MainWindow(QMainWindow):
                          f"page {now}.\n\nOn which page does it really end?", now, first_no, numbers[-1])
         if not ok or end_no == now:
             return
+        # (a read that ended while the question was open may have put the transcript with another day: the "Are you
+        # sure?" box says that day's pages and whether its files are made)
+        job = self._holder(doc) or job
         end = next((i for i in range(take.at, len(marks)) if numbers[i] == end_no), None)
         if end is None:
             QMessageBox.information(self, title, f"There is no page {end_no} after the take's first page.")
@@ -7768,6 +7822,9 @@ class MainWindow(QMainWindow):
             on_typed=answers.pop() if len(answers) == 1 else None)
         if dlg.exec():
             email, index = dlg.values()
+            job = self._job_now(job)  # (a read that ended meanwhile may have put its documents with another day)
+            if job is None:
+                return
             group = self._invoice_group(job)  # as it is now: a read may have ended meanwhile
             for day in group:
                 day.invoice_email, day.invoice_index = email, index
@@ -7784,6 +7841,9 @@ class MainWindow(QMainWindow):
         dlg = InvoiceShowDialog(joint_invoice(self._invoice_group(job))[1].show, self.s, self)
         if dlg.exec():
             items = dlg.values()
+            job = self._job_now(job)  # (a read that ended meanwhile may have put its documents with another day)
+            if job is None:
+                return
             for day in self._invoice_group(job):  # as it is now: a read may have ended meanwhile
                 day.invoice_show = items
 
