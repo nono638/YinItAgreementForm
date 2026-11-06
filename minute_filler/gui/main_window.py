@@ -59,10 +59,10 @@ many reporters wrote a case's transcripts until the user clicks it (_auto_runshe
 there is nothing to clear. File -> Lock finished PDFs saves copies whose fields can no longer be changed.
 Generate and Generate all show the files as pictures first (preview.PreviewDialog), with "The math" of the
 invoices, unless that is turned off (then the math comes after saving, preview.MathDialog, unless
-Settings.show_math is off), and the math is saved as PDFs as Settings.save_math says (Settings.folder_for "math"; its
-"Save the math" list is under the math too: _math_saves_kept); the box that says what was saved can print the
-files. File -> Open recent lists the documents opened lately, and Export / Import settings carry the settings
-to another computer. A job once made can be opened again from the Records window, its takes as the user corrected
+Settings.show_math is off), and the math is saved as PDFs in a Math folder as Settings.save_math says
+(Settings.folder_for "math"; its "Save the math" list is under the math too: _math_saves_kept); the box that says what
+was saved says so too when the math wasn't (_math_note), and can print the files. File -> Open recent lists the
+documents opened lately, and Export / Import settings carry the settings to another computer. A job once made can be opened again from the Records window, its takes as the user corrected
 them (open_past_job, batch.origin_fixes). When the window opens it makes the day's backup of the records and, once
 a day, asks whether there is a newer version (update.py: an Update button at the top until it is installed); a
 new user is asked a few questions first
@@ -5833,6 +5833,7 @@ class MainWindow(QMainWindow):
             for old, new in since:
                 shown.rename_in_portions(old, new)
             return since
+        save_math = self.s.save_math  # (as the files are made: the math's window below can change it)
         try:
             paths = generate(case, self.s, out_dir, outputs, opts, runsheet=sheet, folders=input_folders(job),
                              invoiced=keys, origin=origin, math=math, detailed=detailed, ordered=ordered,
@@ -5850,7 +5851,8 @@ class MainWindow(QMainWindow):
                 job.invoiced = False
             show_save_error(self, e, "Could not make the files", ("\n\nSaved before the problem:\n"
                             + "\n".join(p.name for p in made) if made else "")
-                            + "".join("\n\n" + p for p in folder_problems))
+                            + "".join("\n\n" + p for p in [self._math_note(save_math, math, made), *folder_problems]
+                                      if p))
             self._update_status()
             self._records_changed()
             return
@@ -5891,6 +5893,9 @@ class MainWindow(QMainWindow):
         if sheet and sheet.path:
             text += ("\n\n" if text else "") + run_sheet_summary(sheet)
             folders += saved_folders([sheet.path], self.s)
+        note = self._math_note(save_math, math, paths)  # (nothing else says the math wasn't saved)
+        if note:
+            text += ("\n\n" if text else "") + note
         if changed:  # (in Generate all's words for its days)
             text += ("\n\n" if text else "") + (
                 "This day changed while the files were made (a document was added, the pages, Who ordered which "
@@ -5925,6 +5930,14 @@ class MainWindow(QMainWindow):
         if self.s.save_math != before:
             self._show_counts()
             self._refresh_job_labels()
+
+    def _math_note(self, save: str, made: list, paths: list) -> str:
+        """What the box at the end of Generate or Generate all says about the math (invoice_math.math_note; save:
+        Settings.save_math as the files were made, made: generate's `math`, paths: the files saved). It doesn't say
+        the list says Don't save it once the list says otherwise: the math's window just said "not saved", and
+        the list there was changed."""
+        from ..invoice_math import math_note
+        return "" if save == "off" and self.s.save_math != "off" else math_note(save, made, paths)
 
     def _preview(self, case: CaseInfo, outputs: list[str], opts, ordered: dict | None = None,
                  speeds: dict | None = None, day: date | None = None) -> bool:
@@ -6674,6 +6687,9 @@ class MainWindow(QMainWindow):
                 where = Path(saved[0]).parent if saved else self.s.folder_for(
                     "math", out_dir_for(billed, settings) if billed is not None else None)
                 self._show_math(math, where, saved)
+            note = self._math_note(settings.save_math, math, paths)  # (nothing else says the math wasn't saved)
+            if note:
+                text += "\n\n" + note
             self._saved_box("Batch finished", text, folders, "\n".join(str(p) for p in paths),
                             warn=bool(failed or held))
             self._set_status(f"✓  Saved {len(paths)} file(s)", "warn" if failed or held else "ok")
