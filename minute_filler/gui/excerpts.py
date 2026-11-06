@@ -48,6 +48,7 @@ from ..invoice import default_speed, own_words, shared_words
 from ..invoice_calc import fmt
 from ..invoice_math import money_exact
 from ..rates import speed_key
+from ..takes import run_numbers
 from .widgets import QuietCombo
 from .zoom import z
 
@@ -64,8 +65,9 @@ COUNTS = (
     ("total_transcribed", "Total pages\ntranscribed", "Every reporter's pages of the run"),
     ("total_billed", "Total pages\nbilled", "Every reporter's pages of the run, when a firm ordered it; else 0"),
 )
-PAGES_TIP = ("The page numbers printed on the transcript (where they aren't known: the run's place in the day). "
-             "Type a run here, e.g. 141-170. How many of the pages are yours: the count columns")
+PAGES_TIP = ("The page numbers printed on the transcript, as read from it (where they aren't known: the run's place in "
+             "the day, place 1–20). Type a run here, e.g. 141-170, or by its place, place 40-44. How many of the pages "
+             "are yours: the count columns")
 PLACE_TIP = "The run's place among the day's pages: 1–20 of 85 total pages (every reporter's)"
 UNKNOWN = ("Which of these pages are yours can't be told: set your initials in Settings → My info, or say whose "
            "the first pages are under Whose pages… (a day whose Est. number of pages was typed in isn't counted by page)")
@@ -84,7 +86,8 @@ HOW_TO = """<p>Use it when a firm ordered <b>only some pages</b> of a day (an ex
 <ol>
 <li>Each row is a <b>run of pages</b> of a day. At first a day is one run: every ticked firm ordered all of it.</li>
 <li>To make a run, type its pages in the transcript's printed page numbers (<i>141-170</i>) in the Page numbers cell. The
-rows around it make room.</li>
+rows around it make room. Where a page has no number, or the numbers start again, type its place in the day
+(<i>place 40-44</i>).</li>
 <li><b>Tick the firms that ordered</b> each run, and untick the ones that didn't. A run nobody ticks is billed to
 nobody.</li>
 <li>Set each firm's <b>speed</b> in the boxes above the table. A run at another speed: right-click the firm's box
@@ -263,6 +266,11 @@ class ExcerptsWindow(QDialog):
         self.problem.setWordWrap(True)
         row.addWidget(self.problem, 1)
         lay.addLayout(row)
+        self.falling = QLabel("")  # (a line of its own: self.problem is cleared by the next change, this stays)
+        self.falling.setObjectName("problem")
+        self.falling.setWordWrap(True)
+        self.falling.setVisible(False)
+        lay.addWidget(self.falling)
         self.summary = QLabel("")
         self.summary.setTextFormat(Qt.RichText)
         self.summary.setWordWrap(True)
@@ -383,7 +391,7 @@ class ExcerptsWindow(QDialog):
                     it.setFont(font)
                     it.setToolTip("The same day as the run above")
             pages = self._cell(r, PAGES, day.span(run.start, run.end), day.splittable)
-            pages.setToolTip(f"Type a run of {day.label}'s pages, e.g. {day.span(1, min(day.pages, 20))}"
+            pages.setToolTip(f"Type a run of {day.label}'s pages, e.g. {day.example()}"
                              if day.splittable else "This job covers several days: it is ordered whole. These are "
                              "the page numbers printed on its transcripts")
             self._cell(r, PLACE, day.place(run.start, run.end), False)
@@ -448,6 +456,17 @@ class ExcerptsWindow(QDialog):
             self.problem.setText(self._speeds_warning)
         elif warned and self.problem.text() == warned:  # (fixed since, by the strip or a right-click)
             self.problem.setText("")
+        self._warn_falling()
+
+    def _warn_falling(self) -> None:
+        """The warning that stays while a day's printed page numbers start again ("1–39, 10–29"): a number can be
+        on two of its pages, so such a run is refused (Day.parse) unless it is typed by its place."""
+        days = [d for d in self.days if d.splittable and d.falls()]
+        self.falling.setText("; ".join(f"⚠ {d.label}'s printed page numbers start again ({run_numbers(d.printed).text})"
+                                       for d in days)
+                             + (": a number can be on two pages, so type such a run by its place in the day, e.g. "
+                                "place 40-44." if days else ""))
+        self.falling.setVisible(bool(days))
 
     def _cell(self, r: int, c: int, text: str, editable: bool) -> QTableWidgetItem:
         """Puts a text cell in the table (only a run's Pages can be typed in) and returns it."""

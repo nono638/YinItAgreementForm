@@ -3,8 +3,8 @@
 Each day of the case (a job, see batch.invoice_groups) is cut into runs of pages, and each run says which firms
 ordered it: the whole day by everyone ticked (the default), or excerpts - firm A the whole trial, firm B a
 stretch of day 1, firm C part of B's stretch and another of day 2. A run is typed in the page numbers printed
-on the transcript ("141-170"; its place in the day when they aren't known) and the runs around it make room
-(carve). A run removed gives its pages to the run above it (remove), and a day can be one run again
+on the transcript ("141-170"; by its place in the day, "place 40-44", when they aren't known or can't say which
+page) and the runs around it make room (carve). A run removed gives its pages to the run above it (remove), and a day can be one run again
 (whole_day). A run nobody ordered is billed to nobody. What is set is kept on each day as Job.portions (rows of
 (last page, firms), and a run's own speeds, see store) and the attorneys ticked on it, so the invoices
 (invoice.firm_invoices) bill it as before: pages ordered by several firms share the original and the judge's
@@ -36,36 +36,61 @@ from .invoice import ORDERED_BY_NOBODY, default_speed, firm_invoices, index_mode
 from .invoice_calc import Share, index_days, offered, quote_ordered, quote_shares
 from .models import Attorney
 from .settings import Settings
+from .takes import numbers_known, place_words, run_numbers
+
+_BY_PLACE = re.compile(r"(?i)^\s*place\b")  # a run typed by its place in the day, whatever the day's numbers: "place 40-44"
 
 
 @dataclass
 class Day:
     """One day of the case: its job, its date, the pages Excerpts splits (Job.portion_pages; a job of several
-    days: all its billed pages, Job.invoice_pages) and the number printed on each of them (Job.printed_pages:
-    [] when not known, None for a page whose number isn't; a job of several days: every page of its
-    transcripts, Job.page_numbers, which only show)."""
+    days: all its billed pages, Job.invoice_pages) and the number printed on each of them, as read (Job.printed_pages:
+    [] when the Pages field is typed in, None for a page whose number wasn't read; a job of several days: every
+    page of its transcripts, Job.page_numbers, which only show). read: the numbers on its transcripts' pages, typed
+    in or not (Job.page_numbers), which a day typed in shows for its whole run."""
     job: Job
     label: str
     pages: int
     printed: list = field(default_factory=list)
     splittable: bool = True  # one day of pages (a job of several days is ordered whole)
+    read: list = field(default_factory=list)
 
     @property
     def numbered(self) -> bool:
-        """The printed page numbers are known for every page and run upward, so runs are typed in them."""
-        p = self.printed
-        return len(p) == self.pages and None not in p and all(a < b for a, b in zip(p, p[1:]))
+        """The printed page numbers can stand for the day's pages (takes.numbers_known), so runs are typed in them.
+        They needn't run upward: two transcripts of a day can number apart, or a reporter's number repeat (falls)."""
+        return numbers_known(self.printed, self.pages)
+
+    def falls(self) -> bool:
+        """The day's numbers fall somewhere ("1–39, 10–29"): a number can be on two pages, and the window says so."""
+        return self.numbered and run_numbers(self.printed).falls
 
     def span(self, a: int, b: int) -> str:
-        """Pages a..b of the day (places, from 1) as the table shows them: '358–377' in the printed numbers when
-        they are known, else '1–20'. A job of several days, ordered whole: the numbers printed on its
-        transcripts, as read ('236–461, 654–848'), not a count of its billed pages ('1–268' read as page
-        numbers: the user, 2026-10-30)."""
+        """Pages a..b of the day (places, from 1) as the table shows them: the numbers read on them, '358–377' (or
+        '1–39, 10–29' over a place where they start again), else their place, 'place 1–20' (bare, it read as page
+        numbers). A day whose Pages field is typed in has its places counted in that number, not in the pages read:
+        its whole run shows the numbers read, a run cut out of it its place. A job of several days, ordered
+        whole: the numbers printed on its transcripts, as read ('236–461, 654–848'), not a count of its billed
+        pages ('1–268' read as page numbers: the user, 2026-10-30)."""
         if not self.splittable:
             return number_spans(self.printed) or "(not printed)"
         if self.numbered:
-            a, b = self.printed[a - 1], self.printed[b - 1]
-        return f"{a}–{b}" if a != b else str(a)
+            nums = self.printed[a - 1:b]
+            if numbers_known(nums):
+                return run_numbers(nums).text
+        elif not self.printed and (a, b) == (1, self.pages) and numbers_known(self.read):
+            return run_numbers(self.read).text
+        return place_words(a, b)
+
+    def example(self) -> str:
+        """A run this day takes as typed, for the Page numbers cell's tooltip: its first 20 pages as shown, or, on
+        a day whose numbers repeat, where those would be refused (parse), by place."""
+        text = self.span(1, min(self.pages, 20))
+        try:
+            self.parse(text)
+        except ValueError:
+            return place_words(1, min(self.pages, 20))
+        return text
 
     def place(self, a: int, b: int) -> str:
         """Pages a..b by their place in the day: '1–20 of 85 total pages' (every reporter's: the pages split are
@@ -78,26 +103,47 @@ class Day:
 
     def parse(self, text: str) -> tuple[int, int]:
         """A run as typed ('141-170', '141 – 170', '141'), in the printed numbers when they are known, as
-        (first, last) places in the day. ValueError, saying why, when it isn't one of its pages."""
+        (first, last) places in the day; 'place 40-44' is by place on any day (the way out where a number can't say
+        which page: _by_number). ValueError, saying why, when it isn't one of its pages."""
         nums = [int(x) for x in re.findall(r"\d+", text or "")]
         if not nums or len(nums) > 2:
             raise ValueError("type the run as first-last page, e.g. 141-170")
-        a, b = nums[0], nums[-1]
-        if a > b:
-            a, b = b, a
-        if self.numbered:
-            lo, hi = self.printed[0], self.printed[-1]
-            if a < lo or b > hi:
-                raise ValueError(f"{self.label}'s pages are {lo}–{hi}")
-            first = self.printed.index(a) + 1 if a in self.printed else _after(self.printed, a)
-            last = self.printed.index(b) + 1 if b in self.printed else _before(self.printed, b)
-            if first > last:  # (every number typed falls among numbers the transcript skips)
-                raise ValueError(f"no page of {self.label} is numbered {a}–{b}" if a != b
-                                 else f"no page of {self.label} is numbered {a}")
-            return first, last
+        a, b = sorted((nums[0], nums[-1]))
+        if self.numbered and not _BY_PLACE.match(text):
+            return self._by_number(a, b)
         if a < 1 or b > self.pages:
-            raise ValueError(f"{self.label} has pages 1–{self.pages}")
+            raise ValueError(f"{self.label} goes from place 1 to place {self.pages}")
         return a, b
+
+    def _by_number(self, a: int, b: int) -> tuple[int, int]:
+        """Page numbers a..b as (first, last) places: the first page numbered a or more to the last numbered b or
+        less, passing over pages whose number wasn't read (a number printed twice, where a reporter changes, takes
+        both its pages). On a day whose numbers fall the same number can be on two pages, and the first found would
+        bill the wrong ones, so of the stretches between falls only one may have any of a..b, and all of a..b must
+        lie within it."""
+        read = [(i, n) for i, n in enumerate(self.printed, 1) if n is not None]
+        stretches: list[list[tuple[int, int]]] = []
+        for place, n in read:
+            if not stretches or n < stretches[-1][-1][1]:
+                stretches.append([])
+            stretches[-1].append((place, n))
+        if len(stretches) == 1 and (a < read[0][1] or b > read[-1][1]):
+            raise ValueError(f"{self.label}'s printed page numbers are {read[0][1]}–{read[-1][1]}")
+        found = [s for s in stretches if any(a <= n <= b for _, n in s)]
+        if not found:  # (every number typed falls among numbers the transcript skips)
+            unread = next((i for i, n in enumerate(self.printed, 1) if n is None), None)
+            raise ValueError((f"no page of {self.label} has a printed page number in {a}–{b}" if a != b else
+                              f"no page of {self.label} has the printed page number {a}")
+                             + (f" (a page whose number wasn't read goes by its place: place {unread})"
+                                if unread else ""))
+        first, last = (next(place for place, n in found[0] if n >= a),
+                       max(place for place, n in found[0] if n <= b))
+        if len(found) == 1 and found[0][0][1] <= a and b <= found[0][-1][1]:
+            return first, last
+        typed = f"{a}–{b}" if a != b else str(a)
+        raise ValueError(f"{self.label}'s printed page numbers start again ({run_numbers(self.printed).text}), and "
+                         f"{typed} is {'on more than one stretch' if len(found) > 1 else 'not all on one stretch'} of "
+                         f"them: type the run by its place in the day instead, e.g. place {first}-{last}")
 
 
 def number_spans(printed: list) -> str:
@@ -112,16 +158,6 @@ def number_spans(printed: list) -> str:
             spans.append([n, n])
         prev = n
     return ", ".join(f"{a}–{b}" if a != b else str(a) for a, b in spans)
-
-
-def _after(printed: list[int], n: int) -> int:
-    """The place of the first page numbered n or more (a number skipped in the transcript)."""
-    return next(i for i, p in enumerate(printed, 1) if p >= n)
-
-
-def _before(printed: list[int], n: int) -> int:
-    """The place of the last page numbered n or less."""
-    return max(i for i, p in enumerate(printed, 1) if p <= n)
 
 
 @dataclass
@@ -149,7 +185,8 @@ def case_days(group: list[Job]) -> list[Day]:
         days = job.invoice_days()
         label = days[0][0] if len(days) == 1 else job.case.get("dates") or job.title()
         out.append(Day(job, label or "(no date)", job.portion_pages() if len(days) == 1 else job.invoice_pages(),
-                       job.printed_pages() if len(days) == 1 else job.page_numbers(), len(days) == 1))
+                       job.printed_pages() if len(days) == 1 else job.page_numbers(), len(days) == 1,
+                       job.page_numbers()))
     return out
 
 
@@ -201,7 +238,7 @@ def carve(runs: list[Run], i: int, a: int, b: int) -> list[Run]:
     within the day."""
     day = runs[i].day
     if a < 1 or b > day.pages or a > b:
-        raise ValueError(f"{day.label} has pages {day.span(1, day.pages)}")
+        raise ValueError(f"{day.label} goes from place 1 to place {day.pages}")
     keys, speeds = list(runs[i].keys), dict(runs[i].speeds)
     out: list[Run] = []
     for k, r in enumerate(runs):  # the other runs, less the pages a..b

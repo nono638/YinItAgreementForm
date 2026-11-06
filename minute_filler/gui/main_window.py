@@ -105,8 +105,8 @@ from ..batch import (BATCH_EXT, HELD, MISMATCH_LEAD, NOT_INVOICED, Doc, Job, cas
                      expand_paths,
                      fill_jobs, firm_questions, group, ident, index_number_text, input_folders, saved_folders,
                      billed_split_rule, job_from_origin, job_origin, join_entries, new_invoice_set, origin_fixes,
-                     copy_inputs, follow_moves, move_case_folders, moved_path, out_dir_for,
-                     read_loaders, remerge, same_case, split_forgotten)
+                     copy_inputs, counts_covers, cover_note, fixes_without_cover, follow_moves, move_case_folders,
+                     moved_path, out_dir_for, read_loaders, remerge, same_case, split_forgotten)
 from ..extract_llm import OllamaExtractor
 from ..extract_regex import find_dates, use_firm_answers
 from ..dates import us_date
@@ -116,8 +116,9 @@ from ..merge import apply_defaults, apply_speed_rule, refresh_dates, refresh_del
 from ..workdays import date_warning, delivery_day, document_day, quick_day
 from ..models import (Attorney, CaseInfo, FIELD_LABELS, FieldState, PROC_TYPES, REQUIRED_KEYS, SRC_AI,
                       SRC_DEFAULT, SRC_DERIVED, SRC_PDF, SRC_RECORDS, SRC_USER)
-from ..runsheet import (SheetUnreadable, find_sheets, run_sheet_summary, runsheets_folder, sheet_folders,
+from ..runsheet import (SheetUnreadable, cover_pages, find_sheets, run_sheet_summary, runsheets_folder, sheet_folders,
                         transcript_pages)
+from ..takes import run_numbers
 from .. import courthouses
 from ..courthouses.base import resolve
 from ..settings import LOCAL, OUTPUTS, Settings, reporter_key
@@ -175,9 +176,8 @@ def take_cells(row) -> list[str]:
     and annoying more often")."""
     day = f"{row.day.month}/{row.day.day}/{row.day.year}" if row.day else ""
     day = f"{row.case} · {day}" if getattr(row, "case", "") else day
-    pages = (f"pp. {row.start}–{row.end()}" if row.end() is not None and row.end() != row.start else
-             f"p. {row.start}" if row.start is not None else "")
-    return [day, row.reporter or NO_INITIALS, pages, str(row.pages or 0), row.heads]
+    # (as read from the PDF, Row.numbers: Row.end() is a count, and wrong where the numbers skip or repeat)
+    return [day, row.reporter or NO_INITIALS, run_numbers(row.numbers).pp(), str(row.pages or 0), row.heads]
 
 
 def reporter_totals(rows, own: set[str] = frozenset()) -> str:
@@ -358,7 +358,8 @@ SPEEDS_TIP = ("The speeds a firm ordering alone may choose from on its invoice, 
               "ticked: the invoice bills that speed alone. They are kept for the next job too.\n"
               "The minute agreement form names one of them (Speed), so they can be ticked while Invoice is\n"
               "unticked too. A firm whose speed is chosen in the table below is billed that speed alone.")
-EST_PAGES_TIP = ("Counted from the transcript PDF: every page, whoever wrote it (without the word index).\n"
+EST_PAGES_TIP = ("Counted from the transcript PDF: every page, whoever wrote it (without the word index,\n"
+                 "or a Min-U-Script cover before the title page: that isn't a page).\n"
                  "It is read four ways (the pages up to the index, the line numbers, the printed page numbers,\n"
                  "the index from the end); when two of them agree on another count, or the index would take\n"
                  "more than a quarter of the PDF (rounded up; 5 pages of a short one), the field turns amber\n"
@@ -2967,14 +2968,15 @@ class MainWindow(QMainWindow):
         self._ingest([lambda: ingest_pil(pil, "Pasted image")], ["Pasted image"])
 
     def add_files(self, paths: list[str], batch: bool = False, same_job: bool = False, split_rule: str = "",
-                  fixes: dict | None = None, orders: dict | None = None):
+                  fixes: dict | None = None, orders: dict | None = None, old_places: bool = False):
         """Reads files, and the documents in folders. Files already loaded or still being read are skipped.
         Several documents about different cases (or batch=True) start a batch; same_job: they all go to the job
         on screen whatever they say (a past job opened again: that is how it was put together). split_rule: the
         jobs made of them were billed by that split rule (an invoice of several days opened again: Job.split_rule).
         fixes: the takes corrected in them, by Doc.key() (a past job opened again: batch.origin_fixes; Doc.fixes).
         orders: the record of a trial opened again (its origin): who ordered each day comes back as it kept it
-        (batch.put_back_orders). What was opened is kept for File -> Open recent."""
+        (batch.put_back_orders). old_places: that record counted Min-U-Script covers among the pages, fixes too
+        (batch.counts_covers). What was opened is kept for File -> Open recent."""
         gen = self.gen
         for p in reversed(paths):
             self.s.remember_file(p)
@@ -2994,7 +2996,7 @@ class MainWindow(QMainWindow):
             if fresh:
                 files = [p for p, _ in fresh]
                 self._ingest([(lambda p=p: ingest_file(p)) for p in files], [Path(p).name for p in files],
-                             files, batch, {key for _, key in fresh}, same_job, split_rule, fixes, orders)
+                             files, batch, {key for _, key in fresh}, same_job, split_rule, fixes, orders, old_places)
             else:
                 self._update_status()
                 if not everything:
@@ -3022,7 +3024,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _ingest(self, loaders, names, paths=None, batch=False, keys=frozenset(), same_job=False, split_rule="",
-                fixes=None, orders=None):
+                fixes=None, orders=None, old_places=False):
         """Reads inputs in the background and adds them to the jobs.
 
         loaders: one function per input that returns the Ingested document; names: what to call each in
@@ -3033,7 +3035,9 @@ class MainWindow(QMainWindow):
         invoice opened again: Job.split_rule). fixes: the takes corrected in the documents, by Doc.key() (a past
         job opened again: batch.origin_fixes); each document read whose key is there gets them (Doc.fixes).
         orders: a trial's record opened again (its origin, add_files): the days made of these documents get who
-        ordered them as it kept it (batch.put_back_orders). A cell of the attorney table being typed in when the
+        ordered them as it kept it (batch.put_back_orders). old_places: that record counted Min-U-Script covers among
+        the pages: the corrected takes are moved to places without them, and a toast says the count changed (the
+        rows are the jobs': batch.settle_old_places). A cell of the attorney table being typed in when the
         read ends is taken as typed, and opened again afterwards while the same job is on screen (_resume_edit).
         """
         # the reading thread gets its own copy of the settings: Settings may change them meanwhile
@@ -3061,7 +3065,7 @@ class MainWindow(QMainWindow):
                 for w in d.ing.warnings:
                     self._toast(w)
                 if fixes and fixes.get(d.key()):  # (a past job opened again: its takes as they were corrected)
-                    d.fixes = dict(fixes[d.key()])
+                    d.fixes = fixes_without_cover(fixes[d.key()], cover_pages(d.ing) if old_places else 0)
             if docs:
                 typing = self._sync_from_ui()
                 shown = self.cur
@@ -3096,6 +3100,8 @@ class MainWindow(QMainWindow):
                                 f"{len(self.jobs)} in total.")
                 if self.cur is shown:  # (still the job the user was typing in)
                     self._resume_edit(typing)
+                if old_places and cover_note(docs):  # (last: a toast replaces the one before it)
+                    self._toast(cover_note(docs))
             else:
                 self._update_status()
             log.info("read %d of %d document(s)%s", len(docs), len(loaders), " (batch)" if batch else "")
@@ -6826,7 +6832,9 @@ class MainWindow(QMainWindow):
         documents it was read from are read again when they are still where they were, their takes as the user
         corrected them (batch.origin_fixes, given to add_files). An invoice of several
         days is read from its documents, a job per day, each with who ordered it as the record kept it
-        (batch.put_back_orders; a record made before 2.13 keeps none). Asks first when there is work on screen or
+        (batch.put_back_orders; a record made before 2.13 keeps none). What an older record kept by a page's place
+        counts a Min-U-Script cover among the pages, and is moved as its documents are read (batch.counts_covers). Asks
+        first when there is work on screen or
         documents are still being read (self.work: they would be dropped without a word); False
         when nothing was opened (during Generate all a box says so, over the Records window the click came from:
         this window's status bar is behind it)."""
@@ -6891,7 +6899,7 @@ class MainWindow(QMainWindow):
         if there:
             self.add_files(there, batch=bool(several_days), same_job=not several_days,
                            split_rule=rule if several_days else "", fixes=origin_fixes(data),
-                           orders=data if several_days else None)
+                           orders=data if several_days else None, old_places=counts_covers(data))
         gone = len(sources) - len(there)
         if gone:
             self._toast(f"{plural(gone, 'document')} of this job {'is' if gone == 1 else 'are'} no longer where "
@@ -7772,7 +7780,7 @@ class MainWindow(QMainWindow):
         with a box that says why, for the transcript's last take, a take whose initials aren't known yet (Whose
         pages… says) and pages without printed numbers; nothing is done while Generate all runs."""
         from ..runsheet import title_page_total
-        from ..takes import find_takes, fix_marks, moved_end, page_numbers, page_owners
+        from ..takes import counted_words, find_takes, fix_marks, moved_end, page_owners
         if self._batch_running():  # (Generate all reads the same pages)
             return
         found = self._take_doc(row)
@@ -7785,7 +7793,7 @@ class MainWindow(QMainWindow):
         marks, front, titles = doc.marks(), doc.front(job.front_owner.get(doc.key(), "")), title_page_total(doc.ing)
         takes = find_takes(marks, titles, front)
         take = next((t for t in takes if t.at == row.at), None)
-        numbers = page_numbers(marks)
+        numbers = [m.number for m in marks]  # (as read: None on a page without one, and they may fall or repeat)
         if take is None:
             return  # (the card is behind: it is shown again with the next change)
         last = take.at + take.pages - 1
@@ -7797,16 +7805,18 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, title, "Whose these pages are isn't known yet: Whose pages… (on the "
                                     "Invoice card) says.")
             return
-        # (a cover page without a printed number: the take's first numbered page)
-        first_no = next((numbers[i] for i in range(take.at, last + 1) if numbers[i] is not None), None)
-        if None in (first_no, numbers[-1]):
+        # (a plain cover page without a printed number: the take's first numbered page, and likewise its last)
+        read = [n for n in take.numbers if n is not None]
+        ahead = [n for n in numbers[take.at:] if n is not None]
+        if not read:
             QMessageBox.information(self, title, "These pages have no printed page numbers to go by.")
             return
         who, day = row.reporter or take.initials.upper(), take_cells(row)[0]
-        now = numbers[last]
+        first_no, now = read[0], read[-1]
+        # (the lowest and highest ahead, not the first and the last: on a day whose numbers fall these run backward)
         end_no, ok = QInputDialog.getInt(
             self, title, f"{who}'s take{' on ' + day if day else ''} starts on page {first_no} and ends on "
-                         f"page {now}.\n\nOn which page does it really end?", now, first_no, numbers[-1])
+                         f"page {now}.\n\nOn which page does it really end?", now, min(ahead), max(ahead))
         if not ok or end_no == now:
             return
         # (a read that ended while the question was open may have put the transcript with another day: the "Are you
@@ -7826,12 +7836,14 @@ class MainWindow(QMainWindow):
         owners = page_owners(marks)
         # (leaving out a page moved_end only pins to whose it is already: it doesn't move)
         pages = sorted(i for i in fixes if owners[i] != fixes[i])
-        span = (f"page {numbers[pages[0]]}" if len(pages) == 1 else
-                f"pages {numbers[pages[0]]}–{numbers[pages[-1]]}")
+        # (as read; pages without a number by their place among the transcript's)
+        printed = run_numbers(numbers, pages[0] + 1, pages[-1] + 1).text
+        span = (f"page{'s' if '–' in printed or ',' in printed else ''} {printed}" if printed
+                else counted_words(pages[0] + 1, pages[-1] + 1))
         was = sorted({name(owners[i]) for i in pages if owners[i]})
         # where it ends then: the same reporter's next take, when the pages reach it, joins it
         after = next((t for t in find_takes(fix_marks(marks, fixes), titles, front) if t.at == take.at), take)
-        ends = numbers[after.at + after.pages - 1]
+        ends = next((n for n in reversed(after.numbers) if n is not None), end_no)
         what = (f"{who}'s take{' on ' + day if day else ''} will end on page {ends} instead of {now}: {span} "
                 f"{'becomes' if len(pages) == 1 else 'become'} {name(fixes[pages[0]])}'s"
                 + (f" (now {' and '.join(was)}'s)" if was else "")

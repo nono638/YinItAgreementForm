@@ -19,6 +19,8 @@ gets no invoice until the user says whose pages to bill (Job.ownership_problem).
 initials put pages in the wrong take, the user corrects where a take ends (Doc.fixes, Doc.correct): the
 corrections count wherever the initials do (the takes, the run sheet, Yours, the pages billed) and are kept with
 the records of the files made (job_origin, joint_origin: "page_fixes"), for the job opened again (origin_fixes).
+A Min-U-Script cover isn't one of a transcript's pages (takes.without_cover); what a record made before that keeps by
+a page's place counts it, and is moved over when the job is opened again (counts_covers, settle_old_places).
 
 A minute agreement, though, counts every page its attorney ordered, whoever wrote it (Job.ordered_pages: the
 whole day, or the attorney's runs of an excerpt): firm A ordering a day of 150 pages and firm B 80 of them get
@@ -77,9 +79,9 @@ from .pdfout import (case_folder_index, case_folder_name, days_in_name, free_fol
                      short_caption)
 from .rates import speed_key
 from .records import recorded_cases
-from .runsheet import (NO_RUNSHEET, RunSheetOpts, matches, name_rows, read_info, refresh_orders, rows_from,
-                       transcript_pages)
-from .takes import fix_marks, my_initials, page_owners
+from .runsheet import (NO_RUNSHEET, RunSheetOpts, cover_pages, matches, name_rows, read_info, refresh_orders, rows_from,
+                       title_page_texts, transcript_pages)
+from .takes import counted_words, fix_marks, my_initials, numbers_known, page_owners, run_numbers
 from .settings import OUTPUT_FOLDERS, OUTPUTS, SUBFOLDERS, Settings
 
 BATCH_EXT = {".pdf", ".eml", ".docx", ".txt", ".htm", ".html"} | IMAGE_EXT  # taken from a dropped folder
@@ -247,12 +249,10 @@ class Doc:
     def title_names(self) -> list[str]:
         """The reporters its title page names ("DANA SMITH"; see takes.title_reporters); [] for a document
         without text."""
-        from .extract_regex import strip_line_numbers, title_page_count
         from .takes import title_reporters
         if not self.ing.text:
             return []
-        title_text, _ = strip_line_numbers(self.ing.text)
-        return title_reporters("\n".join(title_text.split("\f")[:title_page_count(title_text)]))
+        return title_reporters("\n".join(title_page_texts(self.ing)))
 
     def front_pages(self) -> int:
         """How many pages this transcript begins with before the first initials (whose they are isn't known
@@ -355,6 +355,9 @@ class Job:
     # copies, and the attorneys the copy invoiced follow them when the batch ends, or a firm renamed meanwhile
     # would be billed again under its new name (MainWindow._run_batch). Not kept with the records.
     renamed: list = field(default_factory=list, repr=False)
+    # Opened again from a record whose Excerpts... rows still count a Min-U-Script cover among their pages (no
+    # "cover_out" in it, counts_covers): settled once its transcripts are read (settle_old_places). Not kept as such.
+    old_places: bool = False
 
     def is_empty(self) -> bool:
         """Nothing dropped and nothing typed."""
@@ -493,8 +496,9 @@ class Job:
     def pages_help(self) -> tuple[str, str]:
         """What Est. number of pages counts, for the line under it in the window, and the warnings of the
         transcripts whose readings of their pages disagree (takes.count_pages): ("Transcript pages 378–460 ·
-        excludes the 13 word-index pages after them", ""). A count taken from another reading than the scan says
-        so on a second line. ("", "") without a transcript PDF."""
+        excludes the 13 word-index pages after them", ""). A Min-U-Script cover left out says so ("· without the
+        Min-U-Script cover"). A count taken from another reading than the scan says so on a second line. ("", "")
+        without a transcript PDF."""
         docs = self.transcripts()
         if not docs:
             return "", ""
@@ -505,12 +509,14 @@ class Job:
         name = (lambda d: f"{d.ing.name}: " if many else "")
         warns = [name(d) + c.warning.removeprefix("⚠ ") for d, _, c in reads if c and c.warning]
         warning = "⚠ " + "\n".join(warns) if warns else ""
+        covers = sum(cover_pages(d.ing) for d in docs)
+        left_out = f" · without the Min-U-Script cover{'s' if covers > 1 else ''}" if covers else ""
         # (the user, 2026-10-30: every count says whose pages): the transcripts' counts are "total pages"
         if all(c and c.how == "pdf" for _, _, c in reads):  # no reading could tell: every page is counted
             if self.pages_typed():
-                return f"Typed by you · the PDF{'s have' if many else ' has'} {total} total pages", warning
+                return f"Typed by you · the PDF{'s have' if many else ' has'} {total} total pages{left_out}", warning
             why = "" if warns else " (no text to find a word index in)"
-            return f"{total} total pages: every page of the PDF{'s' if many else ''}{why}", warning
+            return f"{total} total pages: every page of the PDF{'s' if many else ''}{why}{left_out}", warning
         if index:
             gone = (f"excludes the {index} word-index page{'s' if index > 1 else ''} "
                     f"after {'them' if index > 1 else 'it'}")
@@ -526,7 +532,7 @@ class Job:
             span = f"Transcript pages {c.first}–{c.last}" if c and c.first is not None else f"{total} total pages"
             line = f"{span} · {gone}" if index else f"{span} ({gone})"
         notes = [name(d) + c.note for d, _, c in reads if c and c.note and not c.warning]
-        return "\n".join([line] + notes), warning
+        return "\n".join([line + left_out] + notes), warning
 
     def runsheet_opts(self, s: Settings) -> RunSheetOpts:
         """The takes of every transcript of the job, for the run sheet, as the user corrected them (Doc.fixes),
@@ -800,13 +806,12 @@ class Job:
         return len(mask) if mask is not None else self.invoice_pages()
 
     def printed_pages(self) -> list[int | None]:
-        """The number printed on each page Excerpts... counts ([358, 359, ...]; None where none is known, a page
-        after a known one counting on from it); [] when the Pages field was typed in or the count doesn't come to
-        portion_pages."""
+        """The number printed on each page Excerpts... counts ([358, 359, ...]; None where none was read: as read,
+        page_numbers); [] when the Pages field was typed in (a number typed is the user's count, not a choice of
+        pages: nothing ties its places to the pages read) or the count doesn't come to portion_pages."""
         if self.pages_typed():
             return []
-        # (counted on where a number wasn't read: a run typed "141-170" still finds its pages on the one day)
-        out = self._numbers(count_on=True)
+        out = self.page_numbers()
         return out if len(out) == self.portion_pages() else []
 
     def page_numbers(self) -> list[int | None]:
@@ -815,11 +820,6 @@ class Job:
         read, never worked out from the page before). The Who ordered window shows a job of several days by
         them (the user, 2026-10-30: "extracted as is from the PDFs"; excerpts.number_spans leaves a page
         without a number out)."""
-        return self._numbers(count_on=False)
-
-    def _numbers(self, count_on: bool) -> list[int | None]:
-        """page_numbers; count_on: a page whose number wasn't read is numbered on from the one before (and a
-        transcript whose pages weren't read at all from its first page's number), as printed_pages does."""
         out: list[int | None] = []
         for d in self.transcripts():
             n = transcript_pages(d.ing)
@@ -827,10 +827,7 @@ class Job:
             nums += [None] * (n - len(nums))
             if not d.ing.marks and d.ing.first_page_no is not None and nums:
                 nums[0] = d.ing.first_page_no  # (no page read: the number printed on its first page)
-            prev = None
-            for x in nums:
-                prev = x if x is not None else (prev + 1 if prev is not None and count_on else None)
-                out.append(prev)
+            out += nums
         return out
 
     def invoice_days(self) -> list[tuple[str, int]]:
@@ -1133,13 +1130,8 @@ class Job:
             out, start = [], 0
             mask, printed = self.day_mask(), self.printed_pages()
             for i, (last, keys, *_) in enumerate(rows):
-                # the printed numbers when they are known and run in order through the stretch; else (Pages
-                # typed in, volumes that start their numbering again) its place in the day: "pages 1-20"
-                nums = printed[start:last]
-                ok = bool(nums) and None not in nums and all(a <= b for a, b in zip(nums, nums[1:]))
-                span = f"pp. {nums[0]}–{nums[-1]}" if ok else f"pages {start + 1}–{last}"
                 out.append(Portion(sum(mask[start:last]) if mask is not None else last - start, list(keys),
-                                   span=span, speeds=self.portion_speeds(keys, i)))
+                                   span=_run_words(printed, start + 1, last), speeds=self.portion_speeds(keys, i)))
                 start = last
             return [DayOrder(days[0][0], days[0][1], out, totals[0] if totals else 0, counts[0] if counts else {},
                              yours[0])]
@@ -1164,8 +1156,8 @@ class Job:
     def ordered_speeds(self) -> dict[str, list[tuple[str, str]]]:
         """The speeds each firm ordered this day's pages at, where they are set, for its minute agreement
         (fill.agreement_case) and the MOFR: by Attorney.key(), [(speed, where)], where being the day ("6/3/2026"),
-        or the pages of it at that speed when the firm ordered two ("6/3/2026 pp. 1–60"). A firm without a speed
-        isn't in it (its forms name the case's)."""
+        or the pages of it at that speed when the firm ordered two ("6/3/2026 pp. 101–160": _run_words). A firm
+        without a speed isn't in it (its forms name the case's)."""
         days = self.invoice_days()
         if not days:
             return {}
@@ -1181,7 +1173,7 @@ class Job:
                     per.setdefault(k, {}).setdefault(self.speed_of(k, i), []).append((start + 1, last))
             start = last
         return {k: [(next(iter(by)), day)] if len(by) == 1 else
-                [(sp, f"{day} " + ", ".join(_printed_span(printed, a, b) or f"pages {a}–{b}" for a, b in _join(s)))
+                [(sp, f"{day} " + ", ".join(_run_words(printed, a, b) for a, b in _join(s)))
                  for sp, s in by.items()] for k, by in per.items()}
 
     def portion_speeds(self, keys, row: int | None = None) -> tuple[tuple[str, str], ...]:
@@ -1207,8 +1199,7 @@ class Job:
         for i, (last, keys, *_) in enumerate(rows):
             ks = [k for k in dict.fromkeys(keys) if k != ORDERED_BY_NOBODY]
             if ks:
-                out.append((f"{day} {_printed_span(printed, start + 1, last) or f'pages {start + 1}–{last}'}",
-                            ks, [self.speed_of(k, i) for k in ks]))
+                out.append((f"{day} {_run_words(printed, start + 1, last)}", ks, [self.speed_of(k, i) for k in ks]))
             start = last
         return out
 
@@ -1516,11 +1507,16 @@ def _join(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
 
 
 def _printed_span(printed: list, first: int, last: int) -> str:
-    """'pp. 120-140': the printed numbers of pages first to last of the day, when known and in order; ""."""
+    """'pp. 120–140': the numbers read on pages first to last of the day ('pp. 106–107, 1–3' where they start
+    again), when they can stand for the day and for these pages (takes.numbers_known); ""."""
     nums = printed[first - 1:last] if printed else []
-    if not nums or None in nums or any(a > b for a, b in zip(nums, nums[1:])):
-        return ""
-    return f"p. {nums[0]}" if len(nums) == 1 else f"pp. {nums[0]}–{nums[-1]}"
+    return run_numbers(nums).pp() if numbers_known(printed) and numbers_known(nums) else ""
+
+
+def _run_words(printed: list, first: int, last: int) -> str:
+    """Pages first to last of the day as the outward text says them, wherever they are named: 'pp. 120–140', else
+    their place, 'counted pages 1–20'. A bare 'pages 1–20' read as page numbers."""
+    return _printed_span(printed, first, last) or counted_words(first, last)
 
 
 def portion_row(last, keys: list, speeds: dict | None = None) -> tuple:
@@ -1557,13 +1553,15 @@ _ORIGIN_SKIP = ("agreement_date", "delivery_date")
 def job_origin(job: Job) -> dict:
     """Where a job came from, kept with the record of each file made from it (deliver.generate adds the case):
     the documents read (their paths; pasted text has none) and the invoice's own choices (Peripherals, Excerpts...,
-    the speed each firm ordered, Whose pages..., the takes corrected: page_fixes)."""
+    the speed each firm ordered, Whose pages..., the takes corrected: page_fixes), and whether its places are counted
+    without a Min-U-Script cover ("cover_out": see counts_covers)."""
     fixes = page_fixes(job.docs)
     return {"sources": [d.path for d in job.docs if d.path],
             "job": {**{k: getattr(job, k) for k in _ORIGIN_CHOICES},
                     "proc_touched": job.proc_touched, "att_touched": job.att_touched,
                     **({"not_ordered": sorted(job.not_ordered)} if job.not_ordered else {}),
-                    **({"page_fixes": fixes} if fixes else {})}}
+                    **({"page_fixes": fixes} if fixes else {}),
+                    **({"cover_out": True} if _places_without_cover([job]) else {})}}
 
 
 def page_fixes(docs: list[Doc]) -> dict:
@@ -1576,11 +1574,84 @@ def page_fixes(docs: list[Doc]) -> dict:
 def joint_origin(days: list[Job], **more) -> dict:
     """The record of a file made for several days at once (their run sheet, the trial's forms, a joint invoice):
     their documents (opened again, they are read a job per day: MainWindow.open_past_job), `more`, the takes
-    corrected in them (page_fixes; left out when none was) and who ordered each day (trial_orders: opened again,
-    the days come back with it, put_back_orders)."""
+    corrected in them (page_fixes; left out when none was), whether its places are counted without a Min-U-Script
+    cover (see counts_covers) and who ordered each day (trial_orders: opened again, the days come back with it,
+    put_back_orders)."""
     fixes = page_fixes([d for j in days for d in j.docs])
     return {"sources": [d.path for j in days for d in j.docs if d.path], "joint": True, **more,
-            **({"page_fixes": fixes} if fixes else {}), "orders": trial_orders(days)}
+            **({"page_fixes": fixes} if fixes else {}),
+            **({"cover_out": True} if _places_without_cover(days) else {}), "orders": trial_orders(days)}
+
+
+def _places_without_cover(days: list[Job]) -> bool:
+    """A record of these days says "cover_out": a document has a Min-U-Script cover and the rows and corrections kept
+    are counted without it. Only when there is a cover, as with page_fixes: every other record stays as it always was
+    (earlier records are compared by their text, see billed_split_rule). A job still in old places (old_places: its
+    documents gone) writes none: its rows are still counted with the cover."""
+    return all(not j.old_places for j in days) and any(cover_pages(d.ing) for j in days for d in j.docs)
+
+
+def counts_covers(origin: dict) -> bool:
+    """A record's places (its Excerpts... rows and its corrected takes) count a Min-U-Script cover among a document's
+    pages: it has no "cover_out" (job_origin, joint_origin). True also of a record of documents without a cover,
+    where it changes nothing."""
+    choices = origin.get("job") if isinstance(origin.get("job"), dict) else {}
+    return choices.get("cover_out", origin.get("cover_out")) is not True
+
+
+def cover_note(docs: list[Doc]) -> str:
+    """What a job opened again from a record that counted Min-U-Script covers says, when these documents have one; ""
+    when they don't. Its past invoices and records keep what they say."""
+    transcripts = [d for d in docs if d.regex.doc_kind == "transcript" and d.ing.kind == "pdf"]
+    covers = sum(cover_pages(d.ing) for d in transcripts)
+    if not covers:
+        return ""
+    now = sum(transcript_pages(d.ing) for d in transcripts)
+    return (f"A Min-U-Script cover no longer counts as a page: {now} total pages now, {now + covers} when this job was "
+            "made. What was made then keeps what it says.")
+
+
+def fixes_without_cover(fixes: dict[int, str], covers: int) -> dict[int, str]:
+    """The takes corrected in a document (Doc.fixes), kept by a record that counted its cover among its pages, as
+    places without it: {5: "ds"} -> {4: "ds"}. A correction of the cover itself goes with it. Not done, the wrong page
+    would change reporter, and the wrong pages be billed without a word."""
+    return {i - covers: v for i, v in fixes.items() if i >= covers}
+
+
+def settle_old_places(job: Job) -> None:
+    """A job opened again from a record that counted Min-U-Script covers among its pages (Job.old_places), now that its
+    transcripts are read, moved over to places without them, once. Each Excerpts... row's last place loses the covers
+    at or before it, and a row left with no pages goes. Always moved, not first checked for fitting: rows that
+    didn't fit before can't start fitting by accident. A Pages field holding the old count (a record whose document had
+    moved keeps it as typed, see MainWindow.open_past_job) goes back to the count, or it would bill the cover as a
+    number the user typed. A number the user really typed stays, and so do the rows counted in it: nothing ties those
+    to the pages read. (The takes corrected are the documents': fixes_without_cover.)"""
+    docs = job.transcripts()
+    if not job.old_places or not docs:
+        return
+    job.old_places = False
+    covers, place = [], 1  # where each cover was, counted as the record counted the day's pages
+    for d in docs:
+        if cover_pages(d.ing):
+            covers.append(place)
+        place += transcript_pages(d.ing) + cover_pages(d.ing)
+    if not covers:
+        return
+    fs = job.case.fields["est_pages"]
+    typed = to_int(fs.value, -1) if fs.source == SRC_USER else -1
+    if typed == job.transcript_pages() + len(covers):
+        job.case.fields["est_pages"] = FieldState()
+    elif typed >= 0:
+        return  # (the user's number: the rows count pages of it)
+    if not job.portions:
+        return
+    rows, kept = [], 0
+    for last, keys, *more in job.portions:
+        now = int(last) - sum(1 for at in covers if at <= int(last))
+        if now > kept:
+            rows.append((now, keys, *more))
+            kept = now
+    job.portions = rows
 
 
 def trial_orders(days: list[Job]) -> list[dict]:
@@ -1597,8 +1668,9 @@ def trial_orders(days: list[Job]) -> list[dict]:
 def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
     """Who ordered each day of a trial opened again, as its record kept it (trial_orders, in origin["orders"]):
     each of `jobs` (read again from the record's documents, a job per day) whose dates a day of it has gets that
-    day's attorneys and ticks (the user's, Job.att_touched), the firms it doesn't order and the speeds; No. of copies
-    follows. An invoiced day is left as it is. Returns the jobs changed; anything not as expected is left out."""
+    day's attorneys and ticks (the user's, Job.att_touched), the firms it doesn't order, the speeds and the Excerpts...
+    rows (as places without a Min-U-Script cover, when the record counted it: settle_old_places); No. of copies follows.
+    An invoiced day is left as it is. Returns the jobs changed; anything not as expected is left out."""
     rows = origin.get("orders")
     if not isinstance(rows, list):
         return []
@@ -1626,6 +1698,8 @@ def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
             job.portions = [portion_row(r[0], [k for k in r[1] if isinstance(k, str)],
                                         {k: v for k, v in r[2].items() if isinstance(k, str) and isinstance(v, str)
                                          and v} if len(r) > 2 and isinstance(r[2], dict) else None) for r in runs]
+            job.old_places = counts_covers(origin)
+            settle_old_places(job)
         job.refresh_copies(s)
         changed.append(job)
     return changed
@@ -1730,8 +1804,9 @@ def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
     read again; the attorneys and proceeding types come back as the user left them (ticks included), the day's
     invoice choices too, and split_rule, the rule it was billed by (billed_split_rule, which needs the records).
     The agreement and delivery dates are today's again. The takes the user corrected are not here: they belong to
-    the documents, and are given to them as they are read again (origin_fixes). Anything in `origin` that isn't as
-    expected is left out."""
+    the documents, and are given to them as they are read again (origin_fixes). Rows kept by a record that counted a
+    Min-U-Script cover among its pages are moved once its documents are read (Job.old_places, settle_old_places).
+    Anything in `origin` that isn't as expected is left out."""
     job = Job()
     snap = origin.get("case") if isinstance(origin.get("case"), dict) else {}
     choices = origin.get("job") if isinstance(origin.get("job"), dict) else {}
@@ -1787,6 +1862,7 @@ def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
                 and all(isinstance(x, str) for x in v))})
     one_row_per_firm(job)
     job.own = tuple(sorted(my_initials(s.profile.name, s.profile.initials)))
+    job.old_places = counts_covers(origin)
     return job
 
 
@@ -1896,7 +1972,9 @@ def joint_invoice_sets(group: list[Job]) -> list[tuple[CaseInfo, InvoiceOpts]]:
 def remerge(job: Job, s: Settings) -> None:
     """Rebuilds job.case from its documents, keeping what the user entered: typed fields, and the proceeding
     types and attorneys (with their ticks) once the user has changed them (Job.proc_touched, Job.att_touched).
-    The dates of a batch job, its pages, copies, rate and delivery date are then worked out again."""
+    The dates of a batch job, its pages, copies, rate and delivery date are then worked out again. A job opened again
+    from an older record has its rows moved first, as soon as its transcripts are here (settle_old_places)."""
+    settle_old_places(job)
     prev = job.case
     new = merge([e for d in job.docs for e in d.extractions()], s, previous=prev)
     if job.proc_touched:
@@ -2044,6 +2122,8 @@ def group(docs: list[Doc], s: Settings, jobs: list[Job] | None = None) -> list[J
                 # the user's invoice and run sheet choices of either job are kept
                 job.parties = job.parties or other.parties
                 job.invoice_detail |= other.invoice_detail
+                # (rows taken from a job still in old places, its transcripts not read: they are still to be moved)
+                job.old_places = job.old_places or (other.old_places and job.portions is None)
                 for name in ("invoice_email", "invoice_index", "index_on_typed", "invoice_show", "portions",
                              "runsheet_to"):
                     if getattr(job, name) is None:
