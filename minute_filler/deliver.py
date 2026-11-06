@@ -215,9 +215,9 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
     Settings.invoice_detailed_copy each invoice that doesn't show the granular detail gets a copy that does
     ("... (detailed).pdf", the same number and date; it is among the files returned, and in `detailed` when given,
     but not recorded again). A copy that can't be made is logged and left out: it doesn't stop the run. The
-    math of the invoices is saved in Settings.folder_for "math" (the case's Math folder) as Settings.save_math
-    says (invoice_math.save_math: among the files returned, not recorded; one that can't be saved is logged, as a
-    copy is).
+    math of the invoices is saved in Settings.folder_for "math" (a Math folder of its own) as Settings.save_math
+    says (invoice_math.save_math: among the files returned, also when a later invoice fails, not recorded; one that
+    can't be saved is logged, as a copy is, and the caller's box says so: invoice_math.math_note).
     `cases`: the case of each invoice set, in the same order (a joint invoice's sets each name their own days,
     see batch.joint_invoice_sets); default: `case` for every set.
     `ordered`: the pages each attorney ordered, whoever wrote them (batch.Job.ordered_pages: by Attorney.key(),

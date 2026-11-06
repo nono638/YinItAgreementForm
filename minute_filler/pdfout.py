@@ -397,13 +397,37 @@ def _save_new(doc: pymupdf.Document, path: Path) -> Path:
     (the app killed) never leaves a PDF half written under the name. When the save fails, the error is raised
     and only this call's own files are deleted (the name it took, empty yet, and its file being written), never
     one another copy made; one that can't be is named on the error (`left_behind`)."""
+    out = claim_path(path)
+    try:
+        _write_over(doc, out)
+    except Exception as e:
+        # the disk full, or the file held: a file half written is no PDF, and an invoice's number would stay
+        # with it (invoice.make_invoice gives the number back only when nothing is left on disk)
+        if not _gone(out):
+            e.left_behind = out  # (held by an antivirus scan, say: make_invoice tries once more, then keeps the number)
+        raise
+    return out
+
+
+def save_over(doc: pymupdf.Document, path: Path) -> Path:
+    """Saves `doc` as `path`, replacing a file there (for a Save box that asked, so the name is the one chosen), and
+    closes it; returns the path. As _save_new, it is written to a file of its own first: a save that fails or is cut
+    off leaves the file there as it was."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_over(doc, path)
+    doc.close()
+    return path
+
+
+def _write_over(doc: pymupdf.Document, out: Path) -> None:
+    """Writes `doc` to a file of its own in out's folder, and only then puts it in out's place. When that fails, the
+    error is raised and the file being written is deleted; one that can't be is named on the error (`left_behind`)."""
     import os
     import tempfile
     import time
-    out = claim_path(path)
     tmp: Path | None = None
     try:
-        fd, name = tempfile.mkstemp(prefix="~YinIt ", suffix=".saving", dir=path.parent)  # (not .pdf: no input)
+        fd, name = tempfile.mkstemp(prefix="~YinIt ", suffix=".saving", dir=out.parent)  # (not .pdf: no input)
         os.close(fd)
         tmp = Path(name)
         doc.save(str(tmp), garbage=3, deflate=True)
@@ -416,13 +440,9 @@ def _save_new(doc: pymupdf.Document, path: Path) -> Path:
                     raise
                 time.sleep(0.3)
     except Exception as e:
-        # the disk full, or the file held: a file half written is no PDF, and an invoice's number would stay
-        # with it (invoice.make_invoice gives the number back only when nothing is left on disk)
-        left = [p for p in (out, tmp) if p is not None and not _gone(p)]
-        if left:
-            e.left_behind = left[0]  # (held by an antivirus scan, say: make_invoice tries once more, then keeps the number)
+        if tmp is not None and not _gone(tmp):
+            e.left_behind = tmp
         raise
-    return out
 
 
 def _gone(p: Path) -> bool:

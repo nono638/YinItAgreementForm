@@ -220,15 +220,15 @@ def test_one_math_pdf_that_cant_be_saved_doesnt_lose_the_others(s, tmp_path, mon
     case, opts = joint_invoice([job])
     firms = firm_invoices(case, s, opts)
     made = [(f, f"2026-000{i}", tmp_path / f"Invoice 2026-000{i}.pdf") for i, f in enumerate(firms, 1)]
-    real, calls = invoice_math.to_pdf, []
+    real, calls = invoice_math.new_pdf, []
 
-    def to_pdf(html, path):
+    def new_pdf(html, path):
         calls.append(path)
         if len(calls) == 2:
             raise PermissionError("the folder went away")
         return real(html, path)
 
-    monkeypatch.setattr(invoice_math, "to_pdf", to_pdf)
+    monkeypatch.setattr(invoice_math, "new_pdf", new_pdf)
     saved = invoice_math.save_math(made, "both")
     assert len(calls) == 3 and [p.name for p in saved] == [
         "Invoice 2026-0001 - the math.pdf",

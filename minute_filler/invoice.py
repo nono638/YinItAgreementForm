@@ -942,7 +942,9 @@ class Invoices:
     def make(m: Making) -> None:
         """One invoice per attorney, for the pages it ordered, for each reporter billed (firm_invoices of each
         invoice set), each recorded; with Settings.invoice_detailed_copy, its detailed copy too; then the math
-        of them, as Settings.save_math says (invoice_math.save_math: not recorded, as the copies aren't). All
+        of them, as Settings.save_math says (invoice_math.save_math: not recorded, as the copies aren't), also of
+        those made before an invoice that failed: trying again leaves them out (InvoiceOpts.skip), so their math
+        is saved now or never. (The "everyone's" PDF of that later run covers only the invoices it makes.) All
         dated the run's day (Making.day)."""
         made = []  # (FirmInvoice, number, file) of each invoice: their math
         # one day for every invoice and its detailed copy: the run's (deliver.generate's), worked out here only for
@@ -952,29 +954,31 @@ class Invoices:
             from .workdays import document_day
             m.day = document_day(m.s).day
         day = m.day
-        for f in [f for opts, c in m.pairs if opts.pages > 0 for f in firm_invoices(c, m.s, opts)]:
-            path, number = make_invoice(f.case, f.atty, m.s, m.folder("invoice"), f.opts, m.ledger,
-                                        m.dated, f.quotes, today=day)
-            if m.invoiced is not None:
-                m.invoiced.append(f.opts.skip_key(f.atty))
-            if m.math is not None:
-                m.math.append((f, number))
-            made.append((f, number, path))
-            m.record("invoice", path, f.atty, number, f.opts.pages, f.case, f.opts.my_pages or f.opts.pages,
-                     f.opts.total_pages or f.opts.my_pages or f.opts.pages)
-            if m.s.invoice_detailed_copy and not f.opts.detail:
-                try:  # only an aside: the invoice is made and recorded, and the others must still be made
-                    copy = render(f.case, f.atty, settings_for(m.s, f.opts), f.quotes, number,
-                                  path.with_name(f"{path.stem} (detailed).pdf"), replace(f.opts, detail=True),
-                                  when=day)
-                except Exception as e:
-                    log_error("could not make the detailed copy of an invoice", e)
-                else:
-                    m.made.append(copy)
-                    if m.detailed is not None:
-                        m.detailed.append(copy)
-        try:  # an aside too: the invoices are made and recorded
-            from .invoice_math import save_math  # (it imports this module)
-            m.made += save_math(made, m.s.save_math, m.s.math_layout, m.folder("math"))
-        except Exception as e:
-            log_error("could not save the math of the invoices", e)
+        try:
+            for f in [f for opts, c in m.pairs if opts.pages > 0 for f in firm_invoices(c, m.s, opts)]:
+                path, number = make_invoice(f.case, f.atty, m.s, m.folder("invoice"), f.opts, m.ledger,
+                                            m.dated, f.quotes, today=day)
+                if m.invoiced is not None:
+                    m.invoiced.append(f.opts.skip_key(f.atty))
+                if m.math is not None:
+                    m.math.append((f, number))
+                made.append((f, number, path))
+                m.record("invoice", path, f.atty, number, f.opts.pages, f.case, f.opts.my_pages or f.opts.pages,
+                         f.opts.total_pages or f.opts.my_pages or f.opts.pages)
+                if m.s.invoice_detailed_copy and not f.opts.detail:
+                    try:  # only an aside: the invoice is made and recorded, and the others must still be made
+                        copy = render(f.case, f.atty, settings_for(m.s, f.opts), f.quotes, number,
+                                      path.with_name(f"{path.stem} (detailed).pdf"), replace(f.opts, detail=True),
+                                      when=day)
+                    except Exception as e:
+                        log_error("could not make the detailed copy of an invoice", e)
+                    else:
+                        m.made.append(copy)
+                        if m.detailed is not None:
+                            m.detailed.append(copy)
+        finally:
+            try:  # an aside too: the invoices are made and recorded (an error on its way up goes on: the same list)
+                from .invoice_math import save_math  # (it imports this module)
+                m.made += save_math(made, m.s.save_math, m.s.math_layout, m.folder("math"))
+            except Exception as e:
+                log_error("could not save the math of the invoices", e)

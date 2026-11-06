@@ -8,9 +8,10 @@ for each charge (its pages, the rate, what it costs, how it is paid, what this f
 for each set of firms billed for the same work and each speed, with a column per firm. It also gives the same as
 plain text, a line per charge, for the clipboard and an e-mail. The tables come from rows() and _foot() of each
 quote, the plain text from _line() and _sum(): the same charges worded twice, so a change of wording goes in both.
-Generate saves it as PDFs in the case's Math folder, or next to the invoices (save_math, as Settings.save_math
-says: each firm's own, to send the firm that asks, which shows only what that firm owes (explain's one_firm), and
-one of everyone's, to look back at the job), so the answer is still there when the question comes months later.
+Generate saves it as PDFs in a Math folder of their own (save_math, as Settings.save_math says: each firm's own, to
+send the firm that asks, which shows only what that firm owes (explain's one_firm), and one of everyone's, to look
+back at the job), so the answer is still there when the question comes months later; the box at the end of Generate
+says so when it wasn't saved (math_note).
 
 How a charge is paid is said in three plain phrases: "Each firm splits this cost" (the original and the judge's
 index of pages ordered together, divided between the firms that ordered each page), "Each firm pays for its
@@ -886,9 +887,8 @@ def explain(made: list[tuple[FirmInvoice, str]], layout: str = "invoice",
     return "\n".join(parts), "\n".join(plain).rstrip() + "\n"
 
 
-def to_pdf(html_text: str, out: Path) -> Path:
-    """Saves the math as a PDF of letter pages (as many as it takes) at out, replacing a file there (the Save
-    box asked); returns the path."""
+def _math_doc(html_text: str):
+    """The math as a PDF of letter pages (as many as it takes), marked as the math, not saved yet."""
     import io
 
     import pymupdf
@@ -906,12 +906,24 @@ def to_pdf(html_text: str, out: Path) -> Path:
         story.draw(dev)
         writer.end_page()
     writer.close()
-    with pymupdf.open("pdf", data.getvalue()) as doc:
-        mark(doc, "math")
-        doc.set_metadata({**doc.metadata, "title": "The math"})
-        Path(out).parent.mkdir(parents=True, exist_ok=True)
-        doc.save(out, garbage=3, deflate=True)
-    return Path(out)
+    doc = pymupdf.open("pdf", data.getvalue())
+    mark(doc, "math")
+    doc.set_metadata({**doc.metadata, "title": "The math"})
+    return doc
+
+
+def to_pdf(html_text: str, out: Path) -> Path:
+    """Saves the math as a PDF at out, replacing a file there (the Save box asked; pdfout.save_over); returns the
+    path."""
+    from .pdfout import save_over
+    return save_over(_math_doc(html_text), Path(out))
+
+
+def new_pdf(html_text: str, out: Path) -> Path:
+    """Saves the math as a PDF at out, or a name beside it ('... - the math (2).pdf'), never over a file there, the
+    way invoices are saved (pdfout.save_output); returns where it went."""
+    from .pdfout import save_output
+    return save_output(_math_doc(html_text), "math", Path(out))
 
 
 MATH_SUFFIX = " - the math.pdf"  # the end of every math PDF's name Generate saves (save_math)
@@ -922,11 +934,46 @@ def is_math_file(path: Path) -> bool:
     return bool(re.search(r" - the math(?: \(\d+\))?\.pdf$", Path(path).name, re.I))
 
 
+def math_pdfs(save: str, invoices: int) -> int:
+    """How many PDFs save_math makes of a reporter's invoices of one Generate, as Settings.save_math says: one per
+    invoice with "each" and "both", and one for all of them with "all", and with "both" when there are two or more."""
+    if not invoices:
+        return 0
+    return (invoices if save in ("each", "both") else 0) + (1 if save == "all" or (save == "both" and invoices > 1)
+                                                            else 0)
+
+
+def math_note(save: str, made: list, paths: list) -> str:
+    """What the box at the end of Generate or Generate all says about the math of the invoices it made, "" when it
+    is all saved: nothing else tells the user there is none. save: Settings.save_math as they were made; made: the
+    (FirmInvoice, number) of each invoice (generate's `math`); paths: the files saved. The PDFs due are counted by
+    FirmInvoice.group, as save_math goes by reporter within a Generate: firm_invoices makes one group for each
+    reporter's set. A number is said only when it is known: with "each" every missing PDF is one invoice's, and when
+    none was saved it is all of them; otherwise one PDF may be of one invoice or of all of them."""
+    from collections import Counter
+
+    from .settings import MATH_SAVES
+    n = len(made)
+    if not n:
+        return ""
+    if save == "off":
+        return (f"The math of {'this invoice' if n == 1 else 'these invoices'} was not saved (Settings → Invoice → "
+                f"Save the math says {MATH_SAVES['off']}).")
+    due = sum(math_pdfs(save, k) for k in Counter(f.group for f, _ in made).values())
+    saved = len({str(p) for p in paths if is_math_file(p)})
+    if saved >= due:
+        return ""
+    missing = n if not saved else due - saved if save == "each" else 0
+    if not missing:
+        return "Some of the math of these invoices could not be saved (the log says why)."
+    return f"The math of {missing} invoice{'' if missing == 1 else 's'} could not be saved (the log says why)."
+
+
 def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", layout: str = "invoice",
               folder: Path | None = None) -> list[Path]:
     """Saves the math of the invoices one Generate just made ((FirmInvoice, number, its file) each), as
     Settings.save_math says (settings.MATH_SAVES), in Settings.math_layout, in `folder` (Settings.folder_for
-    "math": the case folder's Math folder, or the invoices' own; None = next to the invoices): "each", a PDF for
+    "math", a Math folder, never the invoices' own; None: beside each invoice): "each", a PDF for
     each invoice, named after it ("Invoice 2026-0012 - Jane Roe v. X.Y. Holding Corporation - Alex B. Counsel -
     the math.pdf"), to send the firm that asks, showing only what that firm owes (explain's one_firm); "all", one
     for all of them (everyone's amounts), named after the first ("Invoices 2026-0012 to 2026-0013 - Jane Roe v.
@@ -935,11 +982,11 @@ def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", lay
     together at different speeds);
     "off", none. Invoices made in another reporter's name
     (Whose pages...) get "all of them" apart from the user's ("Invoices DS-2026-0001 to DS-2026-0002 - ..."):
-    their math is theirs. Never over a file already there (pdfout.unique_path). Each is saved on its own: one
-    that can't be (a full disk, a folder that went away) is logged, and the others are still saved. Returns the
-    files saved."""
+    their math is theirs. Never over a file already there (new_pdf). Each is saved on its own: one
+    that can't be (a full disk, a folder that went away) is logged, and the others are still saved, and the box at
+    the end of Generate says so (math_note). Returns the files saved."""
     from .log import error as log_error
-    from .pdfout import safe_filename, short_caption, unique_path
+    from .pdfout import safe_filename, short_caption
     if save == "off" or not made:
         return []
     out = []
@@ -947,7 +994,7 @@ def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", lay
     def keep(of: list, path: Path, one_firm: bool = False) -> None:
         """Saves the math of these (FirmInvoice, number) as `path`, or a name beside it (one_firm: explain's)."""
         try:
-            out.append(to_pdf(explain(of, layout, one_firm)[0], unique_path(path)))
+            out.append(new_pdf(explain(of, layout, one_firm)[0], path))
         except Exception as e:
             log_error("could not save the math of an invoice", e)
 

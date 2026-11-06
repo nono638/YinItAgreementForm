@@ -243,7 +243,7 @@ def test_generate_saves_each_firms_own_math_and_everyones(s, tmp_path, monkeypat
     all the invoices ("Invoices ...") shows everyone's, with what they pay together."""
     from minute_filler import invoice_math
     saved = {}
-    monkeypatch.setattr(invoice_math, "to_pdf", lambda html, out: saved.setdefault(out.name, html) and out)
+    monkeypatch.setattr(invoice_math, "new_pdf", lambda html, out: saved.setdefault(out.name, html) and out)
     made = [(f, f"2026-000{i}", tmp_path / f"Invoice 2026-000{i}.pdf")
             for i, (f, _) in enumerate(made_of(s, excerpt_example()), 1)]
     invoice_math.save_math(made, "both")
