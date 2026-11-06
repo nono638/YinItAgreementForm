@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
 from ..courthouses import by_mark
 from ..log import error as log_error
 from ..settings import Settings
+from .widgets import QuietCombo
 from .zoom import z
 
 PREVIEW_DPI = 110  # the pages' pictures at 100 % zoom: a letter page is about 935 px wide
@@ -448,7 +449,7 @@ class MathSaves(QWidget):
         label = QLabel("Generate saves the math:")
         label.setObjectName("muted")
         label.setToolTip(SAVES_TIP)
-        self.choice = QComboBox()
+        self.choice = QuietCombo()  # (a wheel going by must not change it: "Don't save it" is at the end of its list)
         for key, text in MATH_SAVES.items():
             self.choice.addItem(text, key)
         self.choice.setCurrentIndex(max(0, self.choice.findData(s.save_math)))

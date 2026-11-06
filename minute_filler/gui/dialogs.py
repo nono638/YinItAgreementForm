@@ -29,7 +29,7 @@ from ..settings import (AGREEMENT_FALLBACKS, AI_TICKS, CASE_FOLDER_EXISTING, CAS
                         TEXT_PLACEHOLDERS, TEXT_PLACES, TEXT_WHEN, Settings, clean_folder_pattern,
                         default_invoice_texts, reporter_key)
 from ..tracking import box_rows, rule_rows
-from .widgets import check_row, open_path, open_url, refill_combo, rounded, show_save_error
+from .widgets import QuietCombo, check_row, open_path, open_url, refill_combo, rounded, show_save_error
 from .zoom import z
 
 
@@ -372,7 +372,7 @@ class SettingsDialog(QDialog):
                                         "reached. A job whose invoice already shows the detail gets none.")
         self.i_detailed_copy.setChecked(settings.invoice_detailed_copy)
         f.addRow("", self.i_detailed_copy)
-        self.i_save_math = QComboBox()
+        self.i_save_math = QuietCombo()  # (a wheel going by must not change it: "Don't save it" is last)
         for key, label in MATH_SAVES.items():
             self.i_save_math.addItem(label, key)
         self.i_save_math.setCurrentIndex(max(0, self.i_save_math.findData(settings.save_math)))
