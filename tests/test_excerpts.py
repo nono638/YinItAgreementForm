@@ -60,7 +60,7 @@ def test_the_runs_of_a_day_typed_in_its_printed_numbers(tmp_path, s):
     d1, d2 = case_days(jobs)
     assert d1.pages == 40 and d1.numbered and d1.printed[:2] == [101, 102]
     assert d1.parse("110-119") == (10, 19) and d1.parse("120") == (20, 20)
-    with pytest.raises(ValueError, match="pages are 101–140"):
+    with pytest.raises(ValueError, match="printed page numbers are 101–140"):
         d1.parse("90-95")
     runs = runs_of(d1)
     assert [(r.start, r.end, r.keys) for r in runs] == [(1, 40, [A.key(), B.key(), C.key()])]
@@ -124,7 +124,7 @@ def test_a_run_among_numbers_the_transcript_skips_is_refused():
     from minute_filler.excerpts import Day
     d = Day(None, "6/3/2026", 4, [1, 2, 10, 11])
     assert d.numbered and d.parse("2-10") == (2, 3)
-    with pytest.raises(ValueError, match="no page of 6/3/2026 is numbered 5–8"):
+    with pytest.raises(ValueError, match="no page of 6/3/2026 has a printed page number in 5–8"):
         d.parse("5-8")
 
 

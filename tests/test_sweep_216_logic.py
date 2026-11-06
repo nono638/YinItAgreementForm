@@ -212,7 +212,7 @@ def test_a_job_of_several_days_shows_no_number_for_a_page_without_one(tmp_path, 
     span = day.span(1, day.pages)
     assert span.startswith("101–130, ") and span != "101–130, 101–120"
     assert jobs[0].page_numbers().count(None) >= 1
-    assert None not in jobs[0]._numbers(count_on=True)  # (a single day's runs still count on: printed_pages)
+    assert jobs[0].printed_pages().count(None) >= 1  # (as read for a day's runs too: nothing is counted on)
 
 
 # 9 ---------------------------------------------------------------------------------------------------------------

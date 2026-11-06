@@ -99,21 +99,33 @@ CAPTION_DPM = """ 1  SUPREME COURT OF THE STATE OF NEW YORK
 INDEX_HEADING = "JANE ROE v.\nSAM POE, DPM\nJune 3, 2026"
 
 
+# What an unnumbered Min-U-Script cover says (fictional)
+MIN_U_SCRIPT_COVER = ("In The Matter Of:\nJane Roe v. Sam Poe\n\nProceedings\nJune 3, 2026\n\n"
+                      "Queens Supreme Court\nMin-U-Script® with Word Index")
+
+
 def page_numbered_transcript(path: Path, pages: int = 20, first: int = 378, initials: list[str] | None = None,
                              index_pages: int = 0, heading: str = INDEX_HEADING, lined: bool = True,
-                             numbered: bool = True, index_like: tuple[int, ...] = (), caption: str = CAPTION_DPM
-                             ) -> Path:
+                             numbered: bool = True, index_like: tuple[int, ...] = (), caption: str = CAPTION_DPM,
+                             cover: str = "", zero_at: tuple[int, ...] = ()) -> Path:
     """A fictional transcript as a reporter's software prints it: the caption on its first page, each page's
     number at the top (from `first`), 25 numbered lines (lined) and the initials at the foot ("pr" on every page
     unless `initials` says), then `index_pages` pages of word index under `heading`. index_like: the places
     (0-based) of transcript pages printed without line numbers or initials and full of page:line references
-    (an exhibit list, say), which look like the index to the first reading of the pages."""
+    (an exhibit list, say), which look like the index to the first reading of the pages. cover: the text of a page
+    before all these, unnumbered and unsigned (MIN_U_SCRIPT_COVER); zero_at: the places (0-based) of pages printing
+    0 where the number goes, their real number in the running head instead ("Proceedings 151")."""
     doc = pymupdf.open()
+    if cover:
+        doc.new_page().insert_text((72, 200), cover, fontsize=12)
     refs = "\n".join(f"word{k} ({k % 3 + 1})\n    {first + k % max(1, pages)}:{k % 25 + 1};"
                      f"{first + (k * 7) % max(1, pages)}:{(k * 3) % 25 + 1}" for k in range(18))
     for i in range(pages):
         page = doc.new_page()
-        if numbered:
+        if i in zero_at:
+            page.insert_text((300, 40), "0", fontsize=10)
+            page.insert_text((60, 28), f"Proceedings {first + i}", fontsize=10)
+        elif numbered:
             page.insert_text((300, 40), str(first + i), fontsize=10)
         if i in index_like:
             page.insert_text((72, 80), "EXHIBITS\n" + refs, fontsize=9)

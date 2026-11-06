@@ -254,6 +254,10 @@ job list shows the same with a ⚠ on the job (<a href="topic:batch-job-list">mo
 <p><i>Est. number of pages</i> is counted from the transcript PDF when there is one: every page, whoever wrote it,
 without the word index printed after the transcript. The line under the field says which pages
 ("Transcript pages 378–460 · excludes the 13 word-index pages after them").</p>
+<p>A <b>Min-U-Script cover</b> before the title page (no page number, no initials, no line numbers) isn't a page: it
+isn't counted or billed, and the line under the field says it was left out. A plain typed cover is a page, and
+counts. A past job opened again counts the same way, and a note says when that changed its total pages; the invoices
+already made keep what they say.</p>
 <p>The count is read four ways: the pages up to the word index, the pages with line numbers, the printed page
 numbers, and the index found from the end. When two of them agree on another count, or the index would take more
 than a quarter of the PDF, the field turns amber and a warning under it says so: check the count (the other count
@@ -784,7 +788,9 @@ pages…</b> (the button under the firms in Who ordered, or
 <i>Some days or pages…</i> in a firm's <i>What</i>). It is one table for every day of the case on that invoice (every day ticked, as a rule):</p>
 <ul>
 <li>each row is a <b>run of pages</b> of a day, typed in its <b>Page numbers</b> cell in the transcript's own
-printed page numbers (<i>141-170</i>); the rows around a run you type make room for it. A job of several days is
+printed page numbers (<i>141-170</i>); the rows around a run you type make room for it. The cell shows the numbers as
+read from the PDF. Where a page has none, or the page numbers start over partway through and a number is on two pages,
+a run goes by its place in the day (<i>place 40-44</i>). A job of several days is
 ordered whole: its cell shows the page numbers printed on its transcripts;</li>
 <li>each firm has a box: <b>tick the firms that ordered the run</b>. At first every ticked firm ordered every
 page;</li>

@@ -152,5 +152,8 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("stop shading my rows", ("run-who-transcribed", "set-options")),
     # whose pages each count is, and waiting for the reading (2026-10-30)
     ("difference between total pages and your pages", ("inv-reporters", "batch-job-list", "exc-your-pages")),
+    # the cover and the page numbers as read (2026-11-06)
+    ("does the min-u-script cover count as a page", ("check-pages",)),
+    ("the page numbers start over partway through the transcript", ("exc-table",)),
     ("it says please wait when i press generate", ("make-outputs", "batch-generate-all")),
 ]

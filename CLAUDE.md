@@ -19,3 +19,5 @@ pages)". Page **numbers** (the numbers printed on the pages, "236–328") are no
 numbers, and show them as read from the PDFs, never worked out from a count.
 
 What the court's own forms print (the agreement form's "Est. number of pages") keeps the form's wording.
+
+An unnumbered Min-U-Script cover isn't a page: no count counts it, and nothing bills it (the user, 2026-11-06).

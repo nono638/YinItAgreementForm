@@ -174,12 +174,12 @@ def test_an_excerpt_span_without_printed_numbers_in_order(tmp_path, s):
     # known, so the stretch is named by its place in the day
     job.case.fields["est_pages"] = FieldState("12", SRC_USER, 1.0, [])
     assert job.printed_pages() == []
-    assert [p.span for p in job.invoice_orders()[0].portions] == ["pages 1–5", "pages 6–12"]
-    # a second volume that numbers its pages from 1 again: the stretch over the join runs backwards
+    assert [p.span for p in job.invoice_orders()[0].portions] == ["counted pages 1–5", "counted pages 6–12"]
+    # a second volume that numbers its pages from 1 again: the stretch over the join shows both, as read
     job.portions = [(5, [A, B]), (10, [A])]
     job.case.fields["est_pages"] = FieldState("", "", 0.0, [])
     job.printed_pages = lambda: [101, 102, 103, 104, 105, 106, 107, 1, 2, 3]
-    assert [p.span for p in job.invoice_orders()[0].portions] == ["pp. 101–105", "pages 6–10"]
+    assert [p.span for p in job.invoice_orders()[0].portions] == ["pp. 101–105", "pp. 106–107, 1–3"]
 
 
 def test_an_excerpt_is_cut_out_of_the_day():
@@ -195,7 +195,7 @@ def test_an_excerpt_is_cut_out_of_the_day():
     with pytest.raises(ValueError):
         carve(runs, 1, 90, 120)
     plain = Day(None, "6/4/2026", 30, [None] * 30)  # printed numbers not known: places in the day
-    assert not plain.numbered and plain.parse("5-9") == (5, 9) and plain.span(5, 9) == "5–9"
+    assert not plain.numbered and plain.parse("5-9") == (5, 9) and plain.span(5, 9) == "place 5–9"
 
 
 # ------------------------------------------------------------------ the window

@@ -304,7 +304,8 @@ def test_a_two_speed_agreement_says_see_below_on_the_form(s, tmp_path):
 def test_a_day_s_runs_at_two_speeds_say_which_pages(s):
     job = excerpt_example()
     job.set_speed(B, "Daily", row=1)  # Smith Law's pages 61-120 at Daily
-    assert job.ordered_speeds()[B] == [("Immediate", "6/3/2026 pages 1–60"), ("Daily", "6/3/2026 pages 61–120")]
+    assert job.ordered_speeds()[B] == [("Immediate", "6/3/2026 counted pages 1–60"),
+                                       ("Daily", "6/3/2026 counted pages 61–120")]
     assert job.ordered_speeds()[A] == [("Daily", "6/3/2026")]
 
 

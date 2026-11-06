@@ -290,4 +290,4 @@ def test_excerpts_of_pages_typed_bill_by_place():
     assert job.portions_unavailable() == ""
     job.portions = [(10, [a.key()]), (40, [a.key(), d.key()])]
     assert job.ordered_pages() == {a.key(): 40, d.key(): 30, "": 40}
-    assert [p.span for p in job.invoice_orders()[0].portions] == ["pages 1–10", "pages 11–40"]
+    assert [p.span for p in job.invoice_orders()[0].portions] == ["counted pages 1–10", "counted pages 11–40"]
