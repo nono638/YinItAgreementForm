@@ -224,8 +224,9 @@ class Courthouse:
     that falls on a weekend does (Settings.holiday_weekend: "nearest", closed the Friday before or the Monday
     after, or "none").
 
-    math_subfolder: the folder the math of the invoices (invoice_math.save_math) goes in inside the case's own
-    folder, as an output's subfolder does ("" = next to the invoices)."""
+    math_subfolder: the name of the folder the math of the invoices (invoice_math.save_math) always goes in, never
+    among the invoices: inside the case's own folder, as an output's subfolder does, or inside Save to or the
+    invoices' own folder (Settings.folder_for)."""
     key: str
     name: str
     outputs: tuple[OutputSpec, ...]
@@ -236,7 +237,7 @@ class Courthouse:
     speed_upfront: bool = False
     holidays: tuple[tuple[str, str], ...] = ()
     holiday_weekend: str = "nearest"
-    math_subfolder: str = ""
+    math_subfolder: str = "Math"
 
     def modules(self) -> list[str]:
         """Every module its outputs and rules name (maker, policy, panel, split_rules), each once: imported only

@@ -176,7 +176,8 @@ def batch(out_dir: str, paths: list[str], outputs: list[str] | None = None, math
     were asked for; a run sheet still goes to the run sheets' folder when Settings give them one, and a case's run
     sheet found elsewhere, next to the transcripts, where the records say or in Documents\\YinIt Run Sheets, is
     added to where it is). Without --outputs, the outputs ticked in the window are made. The math of the invoices
-    is saved only with --math (then as Settings.save_math says): the command line is for looking over what is
+    is saved only with --math (then as Settings.save_math says, in a Math folder inside OUTDIR, as it always has a
+    folder of its own: Settings.folder_for): the command line is for looking over what is
     made, not for the user's files (the user, 2026-10-10). Returns 0, 1 when a file or job had a problem, or 2 for
     an unknown output (main also returns 2 when OUTDIR or the files are missing)."""
     import json

@@ -1,7 +1,7 @@
 """Show the math: the window that spells out how the amounts of the invoices just made were reached, in tables
 (by invoice, or the firms side by side, the layout switched and kept; copied as text, saved as a PDF, turned
 off), the note under each invoice (the pages the user wrote, the index and why), the detailed copy of each
-invoice, and the math Generate saves as PDFs in the case's Math folder, or next to the invoices without one
+invoice, and the math Generate saves as PDFs in a Math folder, apart from the invoices
 (Settings.save_math: each invoice's and one for all of them by default; not recorded, opened or printed; none
 made for the preview, whose tab shows the math; the choice under the math itself, and in Settings). Also the
 recap's jokes (April Fools, "But who's counting?"), the New Year yin-yang on the first day of the year the app
@@ -715,9 +715,12 @@ def test_a_math_pdf_that_cant_be_saved_stops_nothing(s, tmp_path, monkeypatch):
 
     def broken(*a, **k):
         raise OSError("disk full")
-    monkeypatch.setattr(invoice_math, "to_pdf", broken)
-    paths = generate(case, s, tmp_path, ["invoice"], opts)
+    monkeypatch.setattr(invoice_math, "new_pdf", broken)
+    math = []
+    paths = generate(case, s, tmp_path, ["invoice"], opts, math=math)
     assert len(paths) == 2 and len(ledger_for(s).invoices()) == 2 and not math_pdfs(paths)
+    # ... but it is said, in the box at the end, where it was only logged
+    assert invoice_math.math_note("both", math, paths) == "The math of 2 invoices could not be saved (the log says why)."
 
 
 def test_the_math_files_are_known_by_their_name():
@@ -742,7 +745,7 @@ def test_generate_says_what_it_saved_and_neither_opens_nor_prints_it(tmp_path, m
     win.fill()
     saved = math_pdfs(win.cur.saved)
     assert len(saved) == 1 and saved[0].parent == tmp_path / "out" / win.cur.folder / "Math"  # (the case's)
-    assert shown == [("This time: 1 PDF in the case's Math folder.", "both")]
+    assert shown == [("This time: 1 PDF in the Math folder.", "both")]
     assert opened and printed and not [n for n in opened + printed if "the math" in n]
     win.s.save_math = "off"
     win.fill()

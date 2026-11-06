@@ -282,7 +282,7 @@ class SettingsDialog(QDialog):
         self.o_math.setToolTip("How each amount is reached (pages × rate, the copies, the split between parties):\n"
                                "the preview's first tab, The math, or, with previews off, a window after saving\n"
                                "that can copy it or save it as a PDF. For Generate and Generate all.\n"
-                               "(Generate also saves it as PDFs: Invoice tab → Save the math.)")
+                               "(Generate also saves it as PDFs, in a Math folder: Invoice tab → Save the math.)")
         self.o_math.setChecked(settings.show_math)
         f.addRow("Invoice math", self.o_math)
         self.o_updates = QCheckBox("Look for a newer version once a day")
@@ -379,9 +379,10 @@ class SettingsDialog(QDialog):
         self.i_save_math.setToolTip("How each amount was reached, saved as PDFs when Generate makes the invoices:\n"
                                     "each firm's own (\"... - the math.pdf\", only what that firm owes, to send it) "
                                     "and everyone's in one\n(every firm's amounts, to look back at the job). They go "
-                                    "in the case's Math folder (next to the invoices\nwithout a folder for each case, "
-                                    "or when the invoices have a folder of their own).\nThe same choice is under the "
-                                    "math itself, in the preview and its window.")
+                                    "in a Math folder, apart from the invoices\n(in the case's folder; in Save to "
+                                    "without a folder for each case; inside the invoices' folder when they have one\n"
+                                    "of their own). With Don't save it, the box at the end of Generate says none was "
+                                    "saved.\nThe same choice is under the math itself, in the preview and its window.")
         f.addRow("Save the math", self.i_save_math)
         self.i_email = QCheckBox("Each party also gets an e-mailed copy (Email column of the rate sheet)")
         self.i_email.setChecked(settings.invoice_include_email)
@@ -850,7 +851,8 @@ class SettingsDialog(QDialog):
                                  "the case's") + ".")
             self.o_dirs[key] = e
             f.addRow(f"{label}s", self._folder_row(e, f"Folder for {label.lower()}s", key))
-        hint = QLabel("Give an output a folder of its own, or leave it blank to save it with the case's other files.")
+        hint = QLabel("Give an output a folder of its own, or leave it blank to save it with the case's other files. "
+                      "The invoices' math goes in a Math folder inside theirs.")
         hint.setObjectName("muted")
         hint.setWordWrap(True)
         f.addRow("", hint)
@@ -871,7 +873,8 @@ class SettingsDialog(QDialog):
                                        "into a folder of its own inside Save to, named as below,\neach kind in a "
                                        "folder inside it: Minute Agreements, MOFR, Invoices, Math, Trial Runs\n"
                                        "(\"D:\\Transcripts\\712345-2021 6-3,4-2026 Roe v Poe\\Invoices\"). An output "
-                                       "with a folder of its own below keeps it."
+                                       "with a folder of its own below keeps it. Unticked, they all go in Save to, "
+                                       "the math in a Math folder there."
                                        "\nWhen your documents already sit in the case's folder (its name starts with "
                                        "the index number), it is used as it is.\nWhen more days of a trial are made "
                                        "later, the case's folder is renamed to name them too.")

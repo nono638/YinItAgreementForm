@@ -22,7 +22,8 @@ a glance and OK. It can also copy it or save it as a PDF (everyone's, or only wh
 what" and its Invoice card open it too (live=True), on the invoices as they would be made now, with no numbers
 yet. Wherever the math is shown it is a MathView: tables in either layout, "By invoice" or "Firms side by
 side", with a switch between them that is remembered (Settings.math_layout), and under it MathSaves: which of
-the math Generate saves as PDFs when it makes the invoices (Settings.save_math), changed there at once.
+the math Generate saves as PDFs, in a Math folder, when it makes the invoices (Settings.save_math), changed there at
+once.
 
 WelcomeDialog asks a new user the few things the forms can't do without.
 """
@@ -426,10 +427,10 @@ class PreviewDialog(QDialog):
 
 
 COPY_TIP = "Put all of it on the clipboard as text, a line for each charge, to paste into an e-mail"
-SAVES_TIP = ("Generate saves the math as PDFs in the case's Math folder (next to the invoices without a folder\n"
-             "for each case, or when the invoices have a folder of their own), so it is there when someone asks later:\n"
-             "each firm's own (only what that firm owes, to send it) and one of everyone's (every firm's\n"
-             "amounts, to look back at the job). Also in Settings → Invoice.")
+SAVES_TIP = ("Generate saves the math as PDFs in a Math folder, apart from the invoices (in the case's folder; in Save to\n"
+             "without a folder for each case; inside the invoices' folder when they have one of their own), so it is\n"
+             "there when someone asks later: each firm's own (only what that firm owes, to send it) and one of\n"
+             "everyone's (every firm's amounts, to look back at the job). Also in Settings → Invoice.")
 
 
 class MathSaves(QWidget):
@@ -466,15 +467,12 @@ class MathSaves(QWidget):
 
 
 def _saved_math_text(saved: list) -> str:
-    """What MathDialog says Generate saved of the math this time: "This time: 3 PDFs in the case's Math folder."
-    (Settings.folder_for "math"), or "... next to the invoices." (no folder for each case, or the invoices' own)."""
+    """What MathDialog says Generate saved of the math this time: "This time: 3 PDFs in the Math folder."
+    (Settings.folder_for "math": the case's, or the one in Save to or in the invoices' own folder)."""
     from ..settings import SUBFOLDERS
     if not saved:
         return "This time: not saved."
-    math = SUBFOLDERS.get("math", "")
-    where = (f"in the case's {math} folder" if math and Path(saved[0]).parent.name.casefold() == math.casefold()
-             else "next to the invoices")
-    return f"This time: {'1 PDF' if len(saved) == 1 else f'{len(saved)} PDFs'} {where}."
+    return f"This time: {'1 PDF' if len(saved) == 1 else f'{len(saved)} PDFs'} in the {SUBFOLDERS['math']} folder."
 
 
 class MathView(QWidget):
@@ -705,9 +703,11 @@ class MathDialog(QDialog):
         invoice's place in made) only what that firm owes, in the layout shown."""
         from ..invoice_math import explain, to_pdf
         from ..pdfout import safe_filename
-        folder = self.folder or self.s.records_folder()
+        folder = Path(self.folder or self.s.records_folder())
+        while not folder.is_dir() and folder.parent != folder:  # (a Math folder none was saved in isn't made yet)
+            folder = folder.parent
         p, _ = QFileDialog.getSaveFileName(self, "Save the math",
-                                           str(Path(folder) / safe_filename(self.default_name(firm))), "PDF (*.pdf)")
+                                           str(folder / safe_filename(self.default_name(firm))), "PDF (*.pdf)")
         if not p:
             return
         try:

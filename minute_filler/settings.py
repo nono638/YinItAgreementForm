@@ -372,9 +372,10 @@ MATH_LAYOUTS = {
     "invoice": "By invoice",
     "firms": "Firms side by side",
 }
-# Which PDFs of the math Generate saves with the invoices (invoice_math.save_math): key -> label. "Each firm's
-# own" shows only what that firm owes, to send it when it asks; "everyone's" is the reporter's own, every firm's
-# amounts, to look back at the whole job (the user, 2026-10-21)
+# Which PDFs of the math Generate saves when it makes the invoices, in their Math folder (invoice_math.save_math;
+# folder_for): key -> label. "Each firm's own" shows only what that firm owes, to send it when it asks; "everyone's"
+# is the reporter's own, every firm's amounts, to look back at the whole job (the user, 2026-10-21). The box at the
+# end of Generate quotes the label of "off" when none was saved (invoice_math.math_note)
 MATH_SAVES = {
     "both": "Each firm's own, and everyone's in one",
     "each": "Each firm's own (only what it owes)",
@@ -854,14 +855,14 @@ class Settings:
         in Queens), else `general` (where the job's files go: its case's own folder or its "Save to" folder, see
         batch.out_dir_for; Documents\\Minute Agreements without one). With a folder for each case (case_folders),
         `general` is the case's, and each kind of file goes in its folder inside it (SUBFOLDERS: "Invoices",
-        "Math", "Trial Runs"...; the user, 2026-10-26). The math goes with the invoices when they have a folder of
-        their own, or the courthouse gives it no folder (Courthouse.math_subfolder "": next to the invoices).
-        "inputs" (the documents read, Settings.save_inputs) is always the "Inputs" folder inside `general`."""
-        if kind == "inputs":  # (the documents read, Settings.save_inputs: beside the outputs, in their own folder)
-            return Path(general or Path.home() / "Documents" / "Minute Agreements") / SUBFOLDERS["inputs"]
-        if kind == "math" and (self.output_dirs.get("invoice") or "invoice" in OUTPUT_FOLDERS
-                               or not SUBFOLDERS.get("math")):
-            return self.folder_for("invoice", general)
+        "Trial Runs"...; the user, 2026-10-26). The math always has a folder of its own, never among the invoices
+        (SUBFOLDERS["math"], "Math"; the user, 2026-11-06): inside the invoices' own folder when they have one,
+        else inside `general`, with or without a folder for each case. "inputs" (the documents read,
+        Settings.save_inputs) is always the "Inputs" folder inside `general`."""
+        if kind == "math" and self.own_folder("invoice"):
+            return self.folder_for("invoice", general) / SUBFOLDERS["math"]
+        if kind in ("inputs", "math"):  # (beside the outputs, in a folder of their own)
+            return Path(general or Path.home() / "Documents" / "Minute Agreements") / SUBFOLDERS[kind]
         own = self.output_dirs.get(kind, "")
         if own:
             return Path(own)
@@ -873,7 +874,7 @@ class Settings:
 
     def own_folder(self, kind: str) -> bool:
         """The output (or "math") goes to a folder of its own (folder_for: set under Settings -> Options ->
-        Folders, or built in, OUTPUT_FOLDERS; the math with the invoices'), not into its case's folder."""
+        Folders, or built in, OUTPUT_FOLDERS; the math inside the invoices'), not into its case's folder."""
         if kind == "math" and self.own_folder("invoice"):
             return True
         return bool(self.output_dirs.get(kind)) or kind in OUTPUT_FOLDERS

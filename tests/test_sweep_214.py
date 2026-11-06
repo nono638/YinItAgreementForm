@@ -261,11 +261,12 @@ def test_a_folder_of_an_outputs_own_named_invoices_is_named_as_it_is(tmp_path):
     own = tmp_path / "Billing" / "Invoices"
     s.output_dirs["invoice"] = str(own)
     case = tmp_path / "out" / "712345-2021"
-    assert saved_folders([own / "Invoice 2026-0001.pdf", own / "Invoice 2026-0001 - the math.pdf"], s) == [own]
+    assert saved_folders([own / "Invoice 2026-0001.pdf", own / "Math" / "Invoice 2026-0001 - the math.pdf"], s) == [own]
     assert saved_folders([case / "MOFR" / "MOFR.pdf", case / "Trial Runs" / "Run Sheet.xlsx"], s) == [case]
 
 
-def test_without_a_math_folder_the_math_goes_next_to_the_invoices(tmp_path):
+def test_the_math_has_a_folder_whatever_the_courthouse_says(tmp_path):
+    """A courthouse naming another folder for the math has it; naming none doesn't put it among the invoices."""
     from dataclasses import replace
     from minute_filler import courthouses
     s = pat_settings()
@@ -273,7 +274,9 @@ def test_without_a_math_folder_the_math_goes_next_to_the_invoices(tmp_path):
     was = courthouses.current()
     try:
         courthouses.use(replace(was, math_subfolder=""))
-        assert s.folder_for("math", tmp_path / "712345-2021") == tmp_path / "712345-2021" / "Invoices"
+        assert s.folder_for("math", tmp_path / "712345-2021") == tmp_path / "712345-2021" / "Math"
+        courthouses.use(replace(was, math_subfolder="Worksheets"))
+        assert s.folder_for("math", tmp_path / "712345-2021") == tmp_path / "712345-2021" / "Worksheets"
     finally:
         courthouses.use(was)
     assert s.folder_for("math", tmp_path / "712345-2021") == tmp_path / "712345-2021" / "Math"
@@ -307,6 +310,11 @@ def test_a_document_in_one_of_its_case_folders_own_folders_saves_to_that_case_fo
     assert out_dir_for(job, s) == tmp_path / "712345-2021"
     s.case_folders = False  # (a folder of that name with case folders off: it is just Save to)
     assert save_to_for(job, s) == tmp_path / "712345-2021" / "Invoices"
+    # (the same for one in a Math folder: the math itself is never read back, so it's what is left in there)
+    job.docs = [SimpleNamespace(path=str(tmp_path / "712345-2021" / "Math" / "order.pdf"))]
+    assert save_to_for(job, s) == tmp_path / "712345-2021" / "Math"
+    s.case_folders = True
+    assert save_to_for(job, s) == tmp_path / "712345-2021"
 
 
 def test_generate_all_starts_the_maths_save_in_the_cases_math_folder(tmp_path, monkeypatch, make_window, qt):

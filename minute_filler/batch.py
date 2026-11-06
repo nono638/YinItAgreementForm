@@ -67,6 +67,7 @@ from .deliver import NO_INVOICE, CaseForm, generate, ledger_for, make_forms
 from .fill import agreement_orderers, case_speeds, speeds_case
 from .invoice import (ORDERED_BY_NOBODY, DayOrder, InvoiceOpts, Portion, day_reporters, default_speed,
                       invoice_count, reporters_text)
+from .invoice_math import is_math_file, math_pdfs
 from .ingest import IMAGE_EXT, Ingested, ingest_file
 from .log import error as log_error, log
 from .merge import merge, refresh_copies, refresh_dates, refresh_delivery_date, refresh_rate, same_value
@@ -2563,11 +2564,14 @@ def saved_folders(paths: list, s: Settings) -> list[Path]:
     """The folders the files saved are in, each once, as the window names and opens them. With a folder for each
     case (Settings.case_folders), a file in a folder inside its case's own ("...\\712345-2021\\Invoices":
     settings.SUBFOLDERS) counts as in the case's folder, so the files of one case are one folder. A folder of an
-    output's own (Settings -> Options -> Folders: "D:\\Billing\\Invoices") is named as it is."""
+    output's own (Settings -> Options -> Folders: "D:\\Billing\\Invoices") is named as it is. A math PDF in its Math
+    folder counts as in the folder that one is inside, whichever that is (Settings.folder_for), so the box names,
+    and Open folder opens, the folder of the invoices, never the math's."""
     def folder(p: Path) -> Path:
         case = p.parent.parent
-        inside = s.case_folders and any(p.parent == case / sub for kind, sub in SUBFOLDERS.items()
-                                        if sub and not s.own_folder(kind))
+        math = is_math_file(p) and p.parent.name.casefold() == SUBFOLDERS["math"].casefold()
+        inside = math or (s.case_folders and any(p.parent == case / sub for kind, sub in SUBFOLDERS.items()
+                                                 if sub and not s.own_folder(kind)))
         return case if inside else p.parent
     return list(dict.fromkeys(folder(p) for p in map(Path, paths)))
 
@@ -3741,9 +3745,7 @@ def output_counts(jobs: list[Job], outputs, s: Settings | None = None, again: bo
                     out["invoice"] += n
                     if s.invoice_detailed_copy and not opts.detail:
                         out["detailed"] += n
-                    if n:  # (the math of a reporter's invoices of this group: invoice_math.save_math)
-                        out["math"] += (n if s.save_math in ("each", "both") else 0) + \
-                            (1 if s.save_math == "all" or (s.save_math == "both" and n > 1) else 0)
+                    out["math"] += math_pdfs(s.save_math, n)  # (of a reporter's invoices of this group)
     if "runsheet" in out:
         cases: list[Ident] = []
         for j in fresh:

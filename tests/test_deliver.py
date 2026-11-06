@@ -1,4 +1,4 @@
-"""Generating the chosen outputs: agreements, MOFR and invoices (transcripts only; their math saved beside them),
+"""Generating the chosen outputs: agreements, MOFR and invoices (transcripts only; their math saved in a Math folder),
 and their records; a folder of its own for each output (Settings -> Options -> Folders, also for an output added
 later; the others in the case's own folder; the command line's folder takes them all, and saves the math only with
 --math); also settings files from versions 3, 4 and 7 brought up to date (the invoice speeds, the old "offer every
@@ -57,6 +57,7 @@ def test_batch_makes_every_output_and_records_it(folder, s, tmp_path):
     made = [p.name.split(" - ")[0] for p in roe.saved]
     assert made[:2] == ["Minute Agreement", "MOFR"] and made[2].startswith("Invoice ") and len(made) == 4
     assert roe.saved[3].name == roe.saved[2].stem + " - the math.pdf"  # (its math, saved with it)
+    assert roe.saved[3].parent == roe.saved[2].parent.parent / "Math"  # (in the case's Math folder, beside Invoices)
     assert not roe.error
     # the e-mail job gets its forms but no invoice, and says why
     assert [p.name.split(" - ")[0] for p in smith.saved] == ["Minute Agreement", "MOFR"]
@@ -117,12 +118,14 @@ def test_each_output_can_have_a_folder_of_its_own(folder, s, tmp_path):
         a.checked = "Counsel" in (a.firm or "")
     s.output_dirs = {"invoice": str(tmp_path / "Invoices"), "mofr": str(tmp_path / "MOFRs")}
     fill_jobs([roe], s, outputs=["agreement", "mofr", "invoice"])
-    where = {p.name.split(" - ")[0].split(" ")[0]: p.parent for p in roe.saved}
+    where = {p.name.split(" - ")[0].split(" ")[0]: p.parent for p in roe.saved
+             if not p.name.endswith(" - the math.pdf")}
     # (the agreement in the case's own folder inside Save to, in its Minute Agreements folder; the outputs with
-    # folders of their own there, flat)
+    # folders of their own there, flat; the math in a Math folder inside the invoices')
     assert roe.folder.startswith("712345-2021 ")  # (its days and caption after the index number)
     assert where == {"Minute": tmp_path / "out" / roe.folder / "Minute Agreements", "MOFR": tmp_path / "MOFRs",
                      "Invoice": tmp_path / "Invoices"}
+    assert [p.parent for p in roe.saved if p.name.endswith(" - the math.pdf")] == [tmp_path / "Invoices" / "Math"]
     assert Path(ledger_for(s).invoices()[0].file_path).parent == tmp_path / "Invoices"
 
 
@@ -135,12 +138,13 @@ def test_folder_for_falls_back_and_takes_new_outputs(tmp_path, monkeypatch):
     assert s.folder_for("invoice", tmp_path) == tmp_path / "Invoices"
     assert s.folder_for("math", tmp_path) == tmp_path / "Math"
     assert s.folder_for("runsheet", tmp_path) == tmp_path / "Trial Runs"  # (no built-in folder now)
-    s.case_folders = False  # (no folder for each case: the job's Save to folder, flat)
-    assert s.folder_for("agreement", tmp_path) == s.folder_for("math", tmp_path) == tmp_path
+    s.case_folders = False  # (no folder for each case: the job's Save to folder, flat, but for the math's)
+    assert s.folder_for("agreement", tmp_path) == tmp_path
+    assert s.folder_for("math", tmp_path) == tmp_path / "Math"
     assert s.folder_for("runsheet", tmp_path) == tmp_path
     s.case_folders = True
-    s.output_dirs["invoice"] = str(tmp_path / "I")  # (the math goes with invoices that have a folder of their own)
-    assert s.folder_for("math", tmp_path) == tmp_path / "I"
+    s.output_dirs["invoice"] = str(tmp_path / "I")  # (invoices with a folder of their own: the math inside it)
+    assert s.folder_for("math", tmp_path) == tmp_path / "I" / "Math"
     del s.output_dirs["invoice"]
     s.output_dirs["agreement"] = str(tmp_path / "A")
     assert s.folder_for("agreement", tmp_path / "x") == tmp_path / "A"
@@ -184,8 +188,7 @@ def test_the_command_line_saves_the_math_only_when_asked(folder, tmp_path, monke
 
     def made(out):
         names = [p.name for p in (tmp_path / out).glob("*.pdf")]
-        return [n for n in names if n.startswith("Invoice ") and not n.endswith(" - the math.pdf")], \
-            [n for n in names if n.endswith(" - the math.pdf")]
+        return [n for n in names if n.startswith("Invoice ")], [p.name for p in (tmp_path / out / "Math").glob("*.pdf")]
     assert main.batch(str(tmp_path / "plain"), [str(folder)], ["invoice"]) in (0, 1)
     invoices, maths = made("plain")
     assert len(invoices) == 1 and maths == []

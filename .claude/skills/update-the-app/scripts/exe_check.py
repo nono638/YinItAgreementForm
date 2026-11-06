@@ -8,8 +8,8 @@ touched (the folder is removed again when all is good); its settings say the use
 P.R.). The inputs are two days of one trial (a transcript each, June 3 and June 4, written by Pat and Dana
 Smith: PR and DS at the foot of the pages) and an e-mail about another case. Expected: the built version, no
 errors in the log; for each day a minute agreement, a MOFR, the run sheet and the joint invoice (with its math
-saved next to it, marked "YinIt math", as --math asks; the command line puts the files in OUTDIR, the run sheet
-too, and makes no case folders), the agreement and the MOFR being one each for both days
+saved in a Math folder inside OUTDIR, marked "YinIt math", as --math asks; the command line puts the other files in
+OUTDIR, the run sheet too, and makes no case folders), the agreement and the MOFR being one each for both days
 (Settings.forms_per_case: listed under each day, as the one joint invoice for both days is) and the invoice
 billing Pat's own 10 of the 20 transcript pages, for one party, and has its amounts as fields (and no "Lock
 fields" button, removed in 1.3.1); one run sheet with the 4 takes of each day; and --selftest says the
@@ -91,9 +91,13 @@ if len(days) != 2 or any(j["error"] for j in days) or kinds != [["Invoice", "MOF
                     "with its math")
 maths = sorted({f for j in days for f in j["forms"] if kind(f) == "The math"})
 if len(maths) == 1:  # one invoice: its own math only (Settings.save_math "both")
-    with pymupdf.open(run / "out" / maths[0]) as doc:
-        if doc.metadata.get("creator") != "YinIt math":
-            problems.append("the math PDF should be marked YinIt math (so it is never read as an input)")
+    math_pdf = run / "out" / "Math" / maths[0]
+    if not math_pdf.exists():
+        problems.append(f"the math PDF should be in the output folder's Math folder, not beside the invoice ({maths[0]})")
+    else:
+        with pymupdf.open(math_pdf) as doc:
+            if doc.metadata.get("creator") != "YinIt math":
+                problems.append("the math PDF should be marked YinIt math (so it is never read as an input)")
 else:
     problems.append(f"the joint invoice should have one math PDF, not {maths}")
 for what in ("Minute Agreement", "MOFR"):  # one for the whole trial, listed under both days

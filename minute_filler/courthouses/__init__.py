@@ -113,8 +113,7 @@ def use(courthouse: Courthouse) -> Courthouse | None:
     OUTPUT_FOLDERS.update((o.key, o.folder) for o in courthouse.outputs if o.folder)
     SUBFOLDERS.clear()
     SUBFOLDERS.update((o.key, o.subfolder) for o in courthouse.outputs if o.subfolder)
-    if courthouse.math_subfolder:
-        SUBFOLDERS["math"] = courthouse.math_subfolder
+    SUBFOLDERS["math"] = courthouse.math_subfolder or "Math"  # (a folder always: Settings.folder_for)
     SUBFOLDERS["inputs"] = INPUTS_FOLDER
     return before
 
