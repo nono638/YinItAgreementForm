@@ -120,19 +120,33 @@ class Row:
     at: int | None = None
     corrected: bool = False  # the user moved where it or the take before it ends (batch.Doc.fixes)
     case: str = ""  # the case's short caption, for Who transcribed what when it shows several cases (batch.takes_of)
+    # each page's printed number as read (takes.Take.numbers), which Who transcribed what shows; [] on a row read back
+    # from a run sheet. Not end(): that is the run sheet's own formula, and a count (it can differ where numbers skip)
+    numbers: list = field(default_factory=list)
+    after_cover: bool = False  # the first take of a transcript whose Min-U-Script cover was left out (see same_take)
 
     def end(self) -> int | None:
-        """The take's last page number, or None without a first page or page count."""
+        """The take's last page number by the run sheet's End formula, or None without a first page or page count."""
         return self.start + self.pages - 1 if self.start is not None and self.pages else None
 
     def same_take(self, other: "Row") -> bool:
         """Already on the run sheet: the same day and pages that overlap, or (without page numbers) the
-        same day, reporter and page count."""
+        same day, reporter and page count. A first page of 0 is none: a run sheet written before the 0 printed on a
+        page gave way to its real number has it. Without this, and without the cover's page counted in an earlier
+        run sheet's first take (no first page, one page more: _with_cover), generating a day again adds its first
+        take a second time."""
         if self.day != other.day:
             return False
-        if None not in (self.start, other.start, self.end(), other.end()):
+        if self.start and other.start and None not in (self.end(), other.end()):
             return self.start <= other.end() and other.start <= self.end()
-        return (self.reporter.lower(), self.pages) == (other.reporter.lower(), other.pages)
+        return ((self.reporter.lower(), self.pages) == (other.reporter.lower(), other.pages)
+                or self._with_cover(other) or other._with_cover(self))
+
+    def _with_cover(self, old: "Row") -> bool:
+        """`old`, without a first page, is this first take as a run sheet written before the Min-U-Script cover stopped
+        counting has it: its cover among its pages."""
+        return (self.after_cover and not old.start and bool(self.pages) and old.pages == self.pages + 1
+                and self.reporter.lower() == old.reporter.lower())
 
 
 @dataclass
@@ -189,13 +203,13 @@ def rows_from(ing, day: date | None, s: Settings, front: str = "", fixes: dict[i
     takes.find_takes); fixes: the user's corrections of whose pages are whose (batch.Doc.fixes, see
     takes.fix_marks). The reporters are named as reporter_label says; Witness Start and End are the first and last
     heads printed in the take (Settings.runsheet_witness "headers") or blank. Each row has its take's heads (for
-    the card) and where it starts in the marks (Row.at)."""
+    the card), its page numbers as read (Row.numbers) and where it starts in the marks (Row.at)."""
     if not ing.marks:  # no initials or page numbers to read (a scan): one row for the whole transcript
-        return [Row(day, "", transcript_pages(ing), ing.first_page_no, note=NOT_FOUND)]
-    title_text, _ = strip_line_numbers(ing.text)
-    titles = title_page_count(title_text)
-    names = title_reporters("\n".join(title_text.split("\f")[:titles]))
-    takes = find_takes(fix_marks(ing.marks, fixes), titles, front)
+        first = ing.first_page_no
+        return [Row(day, "", transcript_pages(ing), first, note=NOT_FOUND, numbers=[] if first is None else [first])]
+    titles = title_page_texts(ing)
+    names = title_reporters("\n".join(titles))
+    takes = find_takes(fix_marks(ing.marks, fixes), len(titles), front)
     heads = s.runsheet_witness == "headers"
     p = s.profile
     rows = []
@@ -204,15 +218,29 @@ def rows_from(ing, day: date | None, s: Settings, front: str = "", fixes: dict[i
         note = TITLE_ONLY if t.title_only and len(takes) > 1 else "" if t.initials else NOT_FOUND
         rows.append(Row(day, who, t.pages, t.start, t.heads[0] if heads and t.heads else "",
                         t.last_head if heads else "", note, t.initials, heads=", ".join(t.heads),
-                        head_list=list(t.heads), at=t.at))
+                        head_list=list(t.heads), at=t.at, numbers=list(t.numbers),
+                        after_cover=t.at == 0 and bool(cover_pages(ing))))
     return rows
 
 
-def title_page_total(ing) -> int:
-    """How many title pages a transcript begins with (extract_regex.title_page_count), as rows_from counts its
-    takes."""
+def cover_pages(ing) -> int:
+    """The Min-U-Script cover left out of an ingested transcript's pages (takes.without_cover), 0 or 1."""
+    count = getattr(ing, "count", None)
+    return count.cover if count is not None else 0
+
+
+def title_page_texts(ing) -> list[str]:
+    """The text of a transcript's title pages, its line numbers off and without a Min-U-Script cover before them
+    (extract_regex.title_page_count over the pages after it: the count with it, less one, is wrong on some, which
+    say more on the page after the cover than on the cover). Always one at least."""
     title_text, _ = strip_line_numbers(ing.text)
-    return title_page_count(title_text)
+    pages = title_text.split("\f")[cover_pages(ing):] or [""]
+    return pages[:title_page_count("\f".join(pages))]
+
+
+def title_page_total(ing) -> int:
+    """How many title pages a transcript begins with (title_page_texts), as rows_from counts its takes."""
+    return len(title_page_texts(ing))
 
 
 def name_rows(rows: list[Row], known: dict[str, str] | None = None) -> dict[str, str]:

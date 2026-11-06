@@ -527,8 +527,10 @@ class RegexExtractor:
         self._part(head, text, ex)
         self._judge(head, text, ex)
         count = getattr(ing, "count", None)
-        # a short transcript's word index is among the first pages: its "v." lines are no caption
-        body = "\f".join(text.split("\f")[:count.pages]) if count is not None and count.index_pages else text
+        # a short transcript's word index is among the first pages: its "v." lines are no caption (the text still
+        # has a Min-U-Script cover, which the count doesn't)
+        body = ("\f".join(text.split("\f")[:count.pages + count.cover])
+                if count is not None and count.index_pages else text)
         self._case_name(body, ex, getattr(ing, "index_head", ""))
         self._dates(text, head, ex)
         self._proc_types(head, text, ex)
@@ -1048,9 +1050,9 @@ class RegexExtractor:
 
     # ----- pages
     def _pages(self, ing: Ingested, text: str, ex: Extraction) -> None:
-        """Estimated pages: the page count of a transcript PDF (noting its page numbers, such as
-        'transcript pages 358-380', when it does not start at 1), or 'N pages' written in an e-mail
-        ('about 1,250 pages' -> 1250). A range of pages in an e-mail ('pages 10-25', 'pp. 10 to 25') counts
+        """Estimated pages: the page count of a transcript PDF (noting its page numbers as read, such as
+        'transcript pages 358-380', or only 'starts at page 358' when they don't run on to its last page, never worked
+        out from the count), or 'N pages' written in an e-mail ('about 1,250 pages' -> 1250). A range of pages in an e-mail ('pages 10-25', 'pp. 10 to 25') counts
         them, 16, at a lower confidence; a single page ('p. 10') is not a count. 'expect 30-40 pages' is an
         estimate, the larger number: 40.
         A transcript's count leaves out the word index printed after it, and is read four ways and reconciled
@@ -1062,11 +1064,13 @@ class RegexExtractor:
             count = getattr(ing, "count", None)
             pages = body_pages(ing.marks, ing.page_count, count)  # without the word index printed after it
             note = ""
-            if ing.first_page_no and ing.first_page_no > 1:
-                note = f"transcript pages {ing.first_page_no}-{ing.first_page_no + pages - 1}"
+            if count is not None and count.first is not None:
+                note = f"transcript pages {count.first}-{count.last}" if count.first > 1 else ""
+            elif ing.first_page_no and ing.first_page_no > 1:
+                note = f"starts at page {ing.first_page_no}"
             index = count.index_pages if count is not None else ing.page_count - pages
             if index > 0:
-                note = (note or f"{pages} transcript pages") + \
+                note = (note or f"{pages} total pages") + \
                     f", not counting {index} page(s) after the transcript (word index)"
             if count is not None and (count.warning or count.note):
                 note = count.warning or count.note

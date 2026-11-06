@@ -1,8 +1,8 @@
 """Turns any dropped input into plain text (plus images for the AI model).
 
 - PDF with a text layer: text of the first pages (separated by form feeds, "\\f"), page count,
-  first page number, what each page of a transcript says about itself, and its own pages without the word
-  index, read four ways (takes.read_pages, takes.count_pages).
+  first page number, what each page of a transcript says about itself, and its own pages without a Min-U-Script
+  cover or the word index, read four ways (takes.read_pages, takes.without_cover, takes.count_pages).
 - Scanned PDF / photo: Windows' built-in OCR engine (fast, offline). Line
   positions are used to split the page into blocks, so appearance columns stay
   together.
@@ -23,7 +23,7 @@ import pymupdf
 from PIL import Image, ImageOps
 
 from .log import describe, log
-from .takes import PageCount, count_pages, counted_marks, index_heading, read_pages
+from .takes import PageCount, count_pages, counted_marks, index_heading, read_pages, without_cover
 
 try:  # iPhone photos (.heic/.heif): pillow-heif teaches Pillow to open them (in requirements and the installer)
     from pillow_heif import register_heif_opener
@@ -163,7 +163,9 @@ def ingest_pdf(path: Path) -> Ingested:
 
 def _read_pdf(doc: pymupdf.Document, name: str) -> Ingested:
     """The text of the first PDF_TEXT_PAGES pages (OCR for scanned ones, whose pictures also go to the
-    AI model), the page count, the number printed on the first page, and the page marks."""
+    AI model), the page count, the number printed on the first page, and the page marks. A Min-U-Script cover is
+    left out of the pages here, once (takes.without_cover; count.cover says so): every place in marks, and so every
+    place the app keeps or bills, is counted without it. The text keeps it, for the fields it says."""
     ing = Ingested(name, "pdf", page_count=doc.page_count)
     parts = []
     for i in range(min(PDF_TEXT_PAGES, doc.page_count)):
@@ -183,10 +185,11 @@ def _read_pdf(doc: pymupdf.Document, name: str) -> Ingested:
     # Transcript pages carry their own page number at the top (e.g. "   358").
     m = re.match(r"\s*(\d{1,5})\s*\n", parts[0] if parts else "")
     if m:
-        ing.first_page_no = int(m.group(1))
+        ing.first_page_no = int(m.group(1)) or None  # (a 0 printed where the number goes is no page number)
     try:  # every page: who wrote it, and where the transcript ends (the word index after it isn't counted)
-        facts = read_pages(doc)
-        ing.count = count_pages(facts, doc.page_count)
+        facts, cover = without_cover(read_pages(doc))
+        ing.count = count_pages(facts, doc.page_count - cover)
+        ing.count.cover = cover
         ing.marks = counted_marks(facts, ing.count)
         ing.index_head = index_heading(facts, ing.count)
         if ing.count.warning or ing.count.note:
