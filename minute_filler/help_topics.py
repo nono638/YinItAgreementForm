@@ -470,9 +470,9 @@ folder in the case's folder (in <i>Save to</i> without case folders), to look ba
 wrong. It keeps a second copy of every transcript; a document already in the case's folder isn't copied, and none
 is copied twice.</li>
 <li>Untick <i>A folder for each case, inside Save to</i> to save them all in one folder, with no folders
-inside it.</li>
+inside it but the <b>Math</b> folder.</li>
 <li>Minute agreements, MOFRs, invoices and run sheets can each have <b>a folder of their own</b> (same place). An
-output with its own folder keeps it.</li>
+output with its own folder keeps it; the invoices' math goes in a <b>Math</b> folder inside theirs.</li>
 </ul>
 """),
     T("make-file-names", MAKE, "File names", "file name pattern rename change placeholders today date attorney number",
@@ -742,11 +742,12 @@ $1.25 · $5.75 a page</i>).</p>
 <p>It is the first tab of the preview, and behind the links under Who pays what and in the Invoice card. With
 previews off it comes in a window after saving: <b>Copy all</b>, <b>Save as PDF…</b> (for an attorney who asks) or
 <b>Don't show this anymore</b> (Settings → Options → <i>Show the math of each invoice</i> turns it back on).</p>
-<p><b>Generate saves it</b> as PDFs in the case's <b>Math</b> folder (next to the invoices when you save
-without a folder for each case, or when the invoices have a folder of their own): each firm's own ("… - the
-math.pdf", to send that firm), which shows only what that firm owes, and everyone's in one, every firm's
-amounts, to look back at the job. Which is saved (both, either or none) is chosen under the math itself and in Settings → Invoice → <i>Save the
-math</i>. <b>Save as PDF…</b> in the math's window does the same: everyone's, or only one firm's.</p>
+<p><b>Generate saves it</b> as PDFs in a <b>Math</b> folder, apart from the invoices (in the case's folder; in
+<i>Save to</i> when you save without a folder for each case; inside the invoices' folder when they have one of their
+own): each firm's own ("… - the math.pdf", to send that firm), which shows only what that firm owes, and everyone's
+in one, every firm's amounts, to look back at the job. Which is saved (both, either or none) is chosen under the math itself and in Settings → Invoice → <i>Save the
+math</i>. <b>Save as PDF…</b> in the math's window does the same: everyone's, or only one firm's. When Generate saved
+none (<i>Don't save it</i>), or a PDF could not be saved, the box at its end says so.</p>
 """),
     T("inv-rounding", INVOICE, "Rounding", "rounding round cents fraction of a cent exact price a page by hand calculator",
       """
@@ -1313,7 +1314,8 @@ left (<i>Generate the 1 day left</i>). To make one again, click it and use its o
 <li>it makes the outputs saved as ticked in the window, unless <code>--outputs</code> says otherwise, into the output
 folder, with no preview and no folder for each case (run sheets go to their own folder if Settings give them
 one, and a case's run sheet found elsewhere is added to where it is);</li>
-<li><code>--math</code> also saves the math of the invoices, as Settings → Invoice → <i>Save the math</i> says;</li>
+<li><code>--math</code> also saves the math of the invoices, as Settings → Invoice → <i>Save the math</i> says, in a
+<b>Math</b> folder inside the output folder;</li>
 <li>it writes a <code>batch.json</code> report: each job's <code>warnings</code> name a document without an index
 number, index numbers that don't match, or a firm billed at the form's speed because its speed wasn't given.</li>
 </ul>
@@ -1380,7 +1382,8 @@ it's already there</i>, <i>Copy the documents read into an "Inputs" folder</i>, 
 <li><b>Records search</b>: <i>Fuzzy search matches numbers loosely too</i> (<a href="topic:rec-search">more</a>).</li>
 <li><b>Index numbers</b>: patterns of your own (<a href="topic:check-index">more</a>).</li>
 <li><b>Recaps</b>: <i>Show a recap of last month (and last year) when Records is first opened</i>.</li>
-<li><b>Invoice math</b>: <i>Show the math of each invoice</i> (<a href="topic:inv-math">more</a>).</li>
+<li><b>Invoice math</b>: <i>Show the math of each invoice</i> (<a href="topic:inv-math">more</a>); saving it is under
+Settings → Invoice.</li>
 <li><b>New versions</b>: <i>Look for a newer version once a day</i>.</li>
 </ul>
 """),
@@ -1409,7 +1412,8 @@ at Generate</i> (<a href="topic:inv-who-ordered">more</a>).</li>
 <li><b>Granular detail shows</b>: <i>Your page count</i>, <i>Your pages for each day</i>, <i>Price per page</i>, <i>The charges
 in each amount</i>, <i>The split between parties</i>; and <i>Also save a detailed copy of each invoice</i>
 (<a href="topic:inv-granular">more</a>).</li>
-<li><b>Save the math</b> (<a href="topic:inv-math">more</a>).</li>
+<li><b>Save the math</b>: which PDFs of it Generate saves in a Math folder, or <i>Don't save it</i>
+(<a href="topic:inv-math">more</a>).</li>
 <li><i>Each party also gets an e-mailed copy (Email column of the rate sheet)</i>; <i>Add an index (and one for the
 judge) from</i> 50 total pages; <b>Index on several days</b> and <b>Index on shared pages</b>
 (<a href="topic:inv-index">more</a>).</li>
