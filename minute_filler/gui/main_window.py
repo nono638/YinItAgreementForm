@@ -567,7 +567,7 @@ def _file_mark(path: Path) -> tuple | None:
 
 
 def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str = "", own: str = "copy",
-              firm_speeds: bool = False, marks: dict | None = None, link: bool = True) -> str:
+              firm_speeds: bool = False, marks: dict | None = None, link: bool = True, whose: str = "Your") -> str:
     """The "Who pays what" card as rich text: the minute agreement form's one speed and rate, then a row per
     invoice: the firm, its pages, how it ordered them and what it pays at each speed the invoice offers
     ("$408.50 ($3.40/pg)"; the agreement form's speed marked "(form)" when there are several), what a page of
@@ -577,7 +577,8 @@ def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str =
     rows: invoice_math.who_pays; days: how many days the invoices cover (Generate all); firm_speeds: some firms
     have a speed of their own (Job.speeds), which their agreements name; marks: each firm's mark by its key
     (batch.trial_marks), shown as its square (badges.badge_html) and a stripe of its colour at the row's left edge;
-    link: the link to the math at the end (False: the card puts one under several invoices)."""
+    link: the link to the math at the end (False: the card puts one under several invoices); whose: whose pages these
+    invoices bill ("Your", or "DS's" for invoices in another reporter's name: Whose pages...)."""
     from .badges import badge_html
     import html
     from ..invoice_calc import fmt
@@ -594,8 +595,9 @@ def _pay_html(rows, form_speed: str, form_rate: str, days: int = 1, rates: str =
              "one)" if firm_speeds else
              f"<b>{html.escape(form_speed or '(no speed)')}{rate}</b> (one speed, one rate)")
     out = [f"Minute agreement forms: {forms}. {offer}{span}:"]
-    # (r.pages: the firm's pages billed, the user's own; the user, 2026-10-30: every count says whose pages)
-    heads = ["Firm", "Your pages billed", "How it ordered them"] + (["Speed", "Amount"] if single else [
+    # (r.pages: the firm's pages billed, of the reporter these invoices are of; the user, 2026-10-30: every count says
+    # whose pages)
+    heads = ["Firm", f"{html.escape(whose)} pages billed", "How it ordered them"] + (["Speed", "Amount"] if single else [
         html.escape(sp) + (" (form)" if len(speeds) > 1 and speed_key(sp) == form else "") for sp in speeds])
     table = ["<table cellspacing='0' cellpadding='3'>",
              "<tr><th width='4'></th>" + "".join(f"<th align='left'>{h}&nbsp;&nbsp;</th>" for h in heads) + "</tr>"]
@@ -6879,7 +6881,9 @@ class MainWindow(QMainWindow):
             return False
         if self._batch_running():
             return False
-        sources = [p for p in data.get("sources") or [] if isinstance(p, str)]
+        # (a record made while a document was away names it too: read again if it is back, or the window would say it
+        # is gone while it sits where it was)
+        sources = record_documents(data)
         there = [p for p in sources if Path(p).is_file()]
         several_days = data.get("joint") is True and there
         try:  # (billed one way: that way again)
@@ -6918,7 +6922,7 @@ class MainWindow(QMainWindow):
             self.add_files(there, batch=bool(several_days), same_job=not several_days,
                            split_rule=rule if several_days else "", fixes=origin_fixes(data),
                            orders=data if several_days else None, old_places=counts_covers(data))
-        gone = len(record_documents(data)) - len(there)  # (a record made while one was away still names it)
+        gone = len(sources) - len(there)
         if gone:
             self._toast(f"{plural(gone, 'document')} of this job {'is' if gone == 1 else 'are'} no longer where "
                         f"{'it was' if gone == 1 else 'they were'}: drop {'it' if gone == 1 else 'them'} here to "
@@ -7190,8 +7194,10 @@ class MainWindow(QMainWindow):
         self.inv_info.setToolTip(ask_tip)
         # (the pages billed are the user's own, or the reporter's whose invoices these are: the user, 2026-10-30, every
         # count says whose pages)
-        whose = f"{opts.reporter.upper()}'s" if opts.reporter else "your"
-        yours, alone = f"{opts.pages} of {whose} pages", f"{job.invoice_pages()} of your pages"
+        def pages_of(o) -> str:
+            return f"{o.pages} of {o.reporter.upper()}'s pages" if o.reporter else f"{o.pages} of your pages"
+        yours = pages_of(opts)
+        alone = pages_of(first_invoice_set([day_billed])[1]) if len(group) > 1 else ""  # (the day shown, on its own)
         if len(group) > 1 and job.invoiced:  # (the days one invoice billed already: batch.bill_sets)
             self.inv_info.setText(f"Invoiced already ✓: one invoice for {len(group)} days ({yours})\n"
                                   f"{prices}")
@@ -7284,7 +7290,7 @@ class MainWindow(QMainWindow):
                 blocks.append(head + _pay_html(
                     who_pays(got), case.get("delivery"), case.get("rate"), len(g), page_rates(got),
                     _own_words(got, self.s), any(j.speeds or j.ordered_speeds() for j in g), self._marks(g[0]),
-                    link=False))
+                    link=False, whose=f"{got[0].opts.reporter.upper()}'s" if got[0].opts.reporter else "Your"))
                 self._pay_firms += got
             else:
                 why = why or (self.inv_info.text() if [id(j) for j in g] == own else "") or "Nothing to bill yet."

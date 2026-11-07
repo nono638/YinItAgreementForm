@@ -1988,6 +1988,21 @@ def test_a_generate_while_a_document_is_away_keeps_what_the_record_said(window, 
     assert_moved_over(cur)
 
 
+def test_a_document_back_in_its_place_is_read_when_the_record_made_without_it_is_opened(window, tmp_path, s, monkeypatch):
+    """The record named b.pdf as away. Back where it was by the time the record is opened, it was never read, and the
+    window said it was no longer there."""
+    said = toasts(window, monkeypatch)
+    a, b, origin = old_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    made = record_of(open_with_away(window, origin, b, gone))
+    gone.rename(b)
+    said.clear()
+    assert window.open_past_job(json.dumps(made)) is True
+    wait(window, lambda: len(window.cur.docs) == 2)
+    assert_moved_over(window.cur)
+    assert not any("no longer where" in x for x in said), said
+
+
 def test_a_record_of_a_record_made_while_a_document_was_away_says_the_same(window, tmp_path, s):
     """Made again and again while it stays away, the list and the count stay the first record's."""
     a, b, origin = old_two_volumes(tmp_path, s)

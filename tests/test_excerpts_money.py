@@ -894,6 +894,25 @@ def test_the_card_of_another_reporters_pages_says_whose(qt, themed, tmp_path, ma
     win._show_job()
     card = win.inv_info.text()
     assert card.startswith("20 of DS's pages") and "Regular $126.00" in card and "$31.50" not in card
+    pays = html.unescape(win.pays.text())  # (the table beside it said "Your pages billed" of DS's 20)
+    assert "DS's pages billed" in pays and "Your pages billed" not in pays
+
+
+def test_the_day_shown_alone_says_whose_pages_it_bills(qt, themed, tmp_path, make_window, s):
+    """Two days on one invoice, the day shown billing DS's pages: its tooltip said "20 of your pages"."""
+    jobs = two_reporters(tmp_path, s, pages=(30, 30), bills=("ds", "me"))
+    for j in jobs:
+        j.case.set("index_no", "712345/2024")
+        j.case.set("case_name", "Jane Roe v. Sam Poe")
+    from test_show_the_math import settled
+    s.outputs = ["invoice"]
+    win = settled(make_window(s))
+    win.jobs, win.cur = jobs, jobs[0]
+    win._show_job()
+    assert "alone (20 of DS's pages)" in win.inv_info.toolTip(), win.inv_info.toolTip()
+    win.jobs, win.cur = jobs, jobs[1]
+    win._show_job()
+    assert "alone (10 of your pages)" in win.inv_info.toolTip(), win.inv_info.toolTip()
 
 
 def test_the_excerpts_button_passes_generates_days_not_the_whole_trial(qt, themed, tmp_path, make_window, s):
