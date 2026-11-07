@@ -162,7 +162,7 @@ class Row:
             return False
         if self.doc and other.doc:
             if self.doc != other.doc:
-                return (self.start, self.pages, self.reporter.lower()) == (other.start, other.pages, other.reporter.lower())
+                return (self.start, self.pages) == (other.start, other.pages) and self.reporter.lower() == other.reporter.lower()
             if self.at != other.at:
                 return False
         mine, theirs = self._span(), other._span()
@@ -173,7 +173,7 @@ class Row:
                 return True
             if self.start != other.start and other.reporter.lower() in among and not self.corrected:
                 return False
-            # (a first page not read has no first number to differ: "CD" from 4, "Casey" reading None and 5, is that take)
+            # (a first page not read has no first number to differ: "CD" from 4, "Casey" reading None, 5, is that take)
             only_one = (min(mine[1], theirs[1]) == max(mine[0], theirs[0]) and mine[0] != theirs[0]
                         and self.start is not None and other.start is not None)
             return not only_one
@@ -714,9 +714,9 @@ def _read_ours(ws) -> list[Row]:
 
 def page_order(rows: list[Row], unread: float = -1):
     """The key that sorts these takes in the order of the pages: by day, a day's transcripts by the first number read in
-    each (`unread` for one with none: first on the card, last on a run sheet) and each one whole, its takes by where they
-    are in it (their numbers can start again, and a take can have none read). Transcripts starting on one number keep
-    the order given. A take of no transcript goes by its own first number."""
+    each (`unread` for one with none: first on the card, last on a run sheet) and each one whole, its takes by where
+    they are in it (their numbers can start again, and a take can have none read). Transcripts starting on one number
+    keep the order given. A take of no transcript goes by its own first number."""
     turns = {d: i for i, d in enumerate(dict.fromkeys(r.doc for r in rows if r.doc))}
     firsts: dict[str, int] = {}
     for r in sorted((r for r in rows if r.doc), key=lambda r: r.at or 0):

@@ -2384,6 +2384,22 @@ def test_so_on_a_record_with_no_cover(window, tmp_path, s, pages, count):
     assert not cur.pages_typed() and cur.case.get("est_pages") == str(count) and cur.portions_problem()
 
 
+@pytest.mark.parametrize("pages, count", [(15, 25), (35, 45)])
+def test_so_on_a_record_that_says_the_cover_is_out(window, tmp_path, s, pages, count):
+    """Nothing to move there, but its count is held all the same: rows as they are, and they don't fit."""
+    a, b, origin = marked_two_volumes(tmp_path, s, COVER)
+    assert origin["job"]["cover_out"] is True
+    gone = tmp_path / "gone.pdf"
+    b.rename(gone)
+    a.unlink()
+    page_numbered_transcript(a, pages, first=100, cover=COVER)
+    cur = open_again(window, origin)
+    gone.rename(b)
+    drop_back(window, b, 2)
+    assert not cur.pages_typed() and cur.case.get("est_pages") == str(count)
+    assert cur.portions == [(5, [A]), (30, [A, B])] and cur.portions_problem()
+
+
 def test_one_transcript_back_under_another_name_has_no_order_to_tell(window, tmp_path, s):
     """Its rows were left where they were, for a look: with one transcript nothing is in doubt."""
     path = page_numbered_transcript(tmp_path / "Roe.pdf", 20, first=819, cover=COVER)
@@ -2428,11 +2444,14 @@ def test_a_record_that_says_the_cover_is_out_counted_no_cover(tmp_path, s):
     assert job.old_count == 0 and not job.pages_typed() and job.invoice_pages() == 30
 
 
-def test_a_marked_record_doesn_t_take_a_number_as_its_old_count(tmp_path, s):
-    """Without covers among its count a number one more than the pages is the user's, on a job that has a cover."""
+@pytest.mark.parametrize("record", [["21", SRC_USER, 1.0], ["20", SRC_PDF, 0.95]])
+def test_a_marked_record_doesn_t_take_a_number_as_its_old_count(tmp_path, s, record):
+    """Without covers among its count a number one more than the pages is the user's, on a job that has a cover: as the
+    record's, or typed over the count it read."""
     a = page_numbered_transcript(tmp_path / "a.pdf", 20, first=100, cover=COVER)
     job = job_from_origin({"sources": [str(a)], "job": {"cover_out": True},
-                           "case": {"fields": {"est_pages": ["21", SRC_USER, 1.0]}}}, s)
+                           "case": {"fields": {"est_pages": record}}}, s)
+    job.case.fields["est_pages"] = FieldState("21", SRC_USER, 1.0, [])
     job.docs += read_docs([str(a)], s)[0]
     remerge(job, s)
     assert job.pages_typed() and job.invoice_pages() == 21
@@ -2452,16 +2471,33 @@ def test_a_job_taking_rows_from_a_job_opened_again_takes_what_its_record_said(tm
     assert (job.old_total, job.old_count, job.old_sources) == (15, 15, ["a.pdf", "b.pdf"])
 
 
-def test_a_job_with_its_own_rows_and_record_keeps_them(tmp_path, s):
+def merged(tmp_path, s, mine: Job, other: Job) -> Job:
+    """`mine`, of the case of a new transcript, joined by it with `other`."""
     from minute_filler.batch import make_doc
     a = job_of(s, page_numbered_transcript(tmp_path / "a.pdf", 5))
-    mine = Job(portions=[(5, [A])], old_sources=["a.pdf"])
-    other = Job(portions=[(2, [A]), (15, [A, B])], old_total=15, old_count=15, old_sources=["b.pdf"])
     for job in (mine, other):
         job.case.set("index_no", a.case.get("index_no"))
         job.case.set("dates", a.case.get("dates"))
     job, = group([make_doc(a.docs[0].ing, a.docs[0].regex, s, path="a.pdf")], s, [mine, other])
+    return job
+
+
+def test_a_job_with_its_own_rows_and_record_keeps_them(tmp_path, s):
+    job = merged(tmp_path, s, Job(portions=[(5, [A])], old_sources=["a.pdf"]),
+                 Job(portions=[(2, [A]), (15, [A, B])], old_total=15, old_count=15, old_sources=["b.pdf"]))
     assert job.portions == [(5, [A])] and job.old_sources == ["a.pdf"] and job.old_count == 0
+
+
+def test_a_job_opened_again_joined_by_a_new_one_keeps_what_its_record_said(tmp_path, s):
+    job = merged(tmp_path, s, Job(old_sources=["a.pdf", "b.pdf"], old_total=15, old_count=15), Job())
+    assert job.old_sources == ["a.pdf", "b.pdf"] and (job.old_total, job.old_count) == (15, 15)
+
+
+def test_what_a_record_said_goes_with_the_rows_it_kept(tmp_path, s):
+    """They count the pages in that record's order."""
+    job = merged(tmp_path, s, Job(old_sources=["a.pdf"]),
+                 Job(portions=[(2, [A]), (15, [A, B])], old_total=15, old_count=15, old_sources=["b.pdf", "a.pdf"]))
+    assert job.portions == [(2, [A]), (15, [A, B])] and job.old_sources == ["b.pdf", "a.pdf"]
 
 
 def test_a_trial_s_own_count_is_its_rows_and_never_typed(tmp_path, s):
@@ -2663,6 +2699,13 @@ def test_rows_of_two_documents_are_one_take_only_when_all_alike(a, b, same):
 ])
 def test_what_is_the_same_take_without_numbers_to_go_by(a, b, same):
     assert a.same_take(b) is same
+
+
+def test_a_blank_label_is_nobody_s_initials():
+    """A take of no initials on the sheet with no reporter yet isn't the take of a reporter whose initials aren't known."""
+    assert not Row(DAY, "Pat", 27, 114).same_take(Row(DAY, "", 27, 0))
+    assert not Row(DAY, "", 27, 0).same_take(Row(DAY, "Pat", 27, 114))
+    assert Row(DAY, "", 27, 114).same_take(Row(DAY, "", 27, 0))
 
 
 def covered_three_takes(tmp_path, s, later=25):

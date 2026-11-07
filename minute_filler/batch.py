@@ -22,8 +22,8 @@ the records of the files made (job_origin, joint_origin: "page_fixes"), for the 
 A Min-U-Script cover isn't one of a transcript's pages (takes.without_cover); what a record made before that keeps by
 a page's place counts it, and is moved over when the job is opened again, once every transcript it counted is back
 (counts_covers, settle_old_places). A job opened again keeps its record's list of documents and the count it read until
-then, and a record made meanwhile says the same (Job.old_sources, Job.old_count, _kept_from_record); the Pages field says
-it still holds that count (Job.record_count_held).
+then, and a record made meanwhile says the same (Job.old_sources, Job.old_count, _kept_from_record); the Pages field
+says it still holds that count (Job.record_count_held).
 
 A minute agreement, though, counts every page its attorney ordered, whoever wrote it (Job.ordered_pages: the
 whole day, or the attorney's runs of an excerpt): firm A ordering a day of 150 pages and firm B 80 of them get
@@ -82,8 +82,8 @@ from .pdfout import (case_folder_index, case_folder_name, days_in_name, free_fol
                      short_caption)
 from .rates import speed_key
 from .records import recorded_cases
-from .runsheet import (NO_RUNSHEET, RunSheetOpts, cover_pages, matches, name_rows, page_order, read_info, refresh_orders,
-                       rows_from, title_page_texts, transcript_pages)
+from .runsheet import (NO_RUNSHEET, RunSheetOpts, cover_pages, matches, name_rows, page_order, read_info,
+                       refresh_orders, rows_from, title_page_texts, transcript_pages)
 from .takes import counted_words, fix_marks, my_initials, numbers_known, page_owners, run_numbers, run_numbers_known
 from .settings import OUTPUT_FOLDERS, OUTPUTS, SUBFOLDERS, Settings
 
@@ -2196,7 +2196,8 @@ def remerge(job: Job, s: Settings) -> None:
     """Rebuilds job.case from its documents, keeping what the user entered: typed fields, and the proceeding
     types and attorneys (with their ticks) once the user has changed them (Job.proc_touched, Job.att_touched).
     The dates of a batch job, its pages, copies, rate and delivery date are then worked out again. A job opened again
-    from an older record has its rows moved first, as soon as all its transcripts are here (settle_old_places)."""
+    from a record first has its documents put in the record's order (in_record_order) and, as soon as all its
+    transcripts are here, what it kept of the record settled (settle_old_places)."""
     settle_old_places(job)
     prev = job.case
     new = merge([e for d in job.docs for e in d.extractions()], s, previous=prev)
@@ -2347,7 +2348,7 @@ def group(docs: list[Doc], s: Settings, jobs: list[Job] | None = None) -> list[J
                 job.invoice_detail |= other.invoice_detail
                 # (rows taken from a job opened again, its transcripts not read: what its record said goes with them,
                 # and rows still in old places are still to be moved)
-                if job.portions is None and not job.old_places and (other.old_places or not job.old_sources):
+                if job.portions is None and not job.old_places and (other.portions is not None or not job.old_sources):
                     job.old_places, job.old_total, job.old_count, job.old_sources = (
                         other.old_places, other.old_total, other.old_count, other.old_sources)
                 for name in ("invoice_email", "invoice_index", "index_on_typed", "invoice_show", "portions",

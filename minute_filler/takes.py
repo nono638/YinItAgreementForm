@@ -318,9 +318,10 @@ def _continues(n: int, low: tuple[int, int] | None, high: tuple[int, int] | None
 def _numbers_in_heads(facts: list[PageFacts]) -> None:
     """A page printing 0 where its number goes takes the number in its running head (PageFacts.head_number) when that
     goes on from the numbers of the pages around it. On the real transcripts every number recovered so fits, exactly; a
-    head's other numbers ("Proceedings 2026", "Docket 12345", "Juror 9") don't, and as page numbers they would show among
-    the day's and say its numbers fall. No page around it with a number (the whole PDF printing 0): the next page's head
-    must go on from it. Left None otherwise: the page still counts (_scan), and what shows is what was read."""
+    head's other numbers ("Proceedings 2026", "Docket 12345", "Juror 9") don't, and as page numbers they would show
+    among the day's and say its numbers fall. No page around it with a number (the whole PDF printing 0): the next
+    page's head must go on from it. Left None otherwise: the page still counts (_scan), and what shows is what was
+    read."""
     numbered = lambda f: f.mark.number is not None and not f.index
     for i, f in enumerate(facts):
         if f.head_number is None or f.index:
