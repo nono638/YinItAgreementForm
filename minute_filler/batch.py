@@ -21,7 +21,9 @@ corrections count wherever the initials do (the takes, the run sheet, Yours, the
 the records of the files made (job_origin, joint_origin: "page_fixes"), for the job opened again (origin_fixes).
 A Min-U-Script cover isn't one of a transcript's pages (takes.without_cover); what a record made before that keeps by
 a page's place counts it, and is moved over when the job is opened again, once every transcript it counted is back
-(counts_covers, settle_old_places).
+(counts_covers, settle_old_places). A job opened again keeps its record's list of documents and the count it read until
+then, and a record made meanwhile says the same (Job.old_sources, Job.old_count, _kept_from_record); the Pages field says
+it still holds that count (Job.record_count_held).
 
 A minute agreement, though, counts every page its attorney ordered, whoever wrote it (Job.ordered_pages: the
 whole day, or the attorney's runs of an excerpt): firm A ordering a day of 150 pages and firm B 80 of them get

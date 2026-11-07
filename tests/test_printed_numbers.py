@@ -2399,6 +2399,71 @@ def test_one_transcript_back_under_another_name_has_no_order_to_tell(window, tmp
     assert cur.invoice_pages() == 20
 
 
+def test_a_longer_transcript_with_a_letter_away_for_good_needs_no_letter(tmp_path, s):
+    """More pages than the count the record read: a transcript got longer. The count goes, the rows are held for a look."""
+    path = page_numbered_transcript(tmp_path / "Roe.pdf", 30, first=819, cover=COVER)
+    job = job_from_origin({"sources": [str(path), str(tmp_path / "letter.pdf")], "job": {"portions": [[11, [A]], [21, [A, B]]]},
+                           "case": {"fields": {"est_pages": ["21", SRC_PDF, 0.95]}, "attorneys": [ALEX.to_dict(), DANA.to_dict()]}},
+                          s)
+    job.case.fields["est_pages"].source = SRC_USER  # (as the window keeps it, the letter being a PDF away)
+    job.docs += read_docs([str(path)], s)[0]
+    remerge(job, s)
+    assert not job.old_places and not job.pages_typed() and job.case.get("est_pages") == "30"
+    assert job.portions == [(10, [A]), (20, [A, B])] and job.portions_problem()
+
+
+def test_a_record_that_says_the_cover_is_out_counted_no_cover(tmp_path, s):
+    """Its 30 are 29 and 1, the cover no page: a.pdf's 29 and its cover aren't all of them."""
+    a = page_numbered_transcript(tmp_path / "a.pdf", 29, first=100, cover=COVER)
+    b = page_numbered_transcript(tmp_path / "b.pdf", 1, first=200)
+    origin = record_of(firms(job_of(s, a, b)))
+    assert origin["job"]["cover_out"] is True and origin["case"]["fields"]["est_pages"][0] == "30"
+    job = job_from_origin(origin, s)
+    job.case.fields["est_pages"].source = SRC_USER
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    assert job.old_count == 30 and job.case.get("est_pages") == "30" and job.pages_typed()
+    job.docs += read_docs([str(b)], s)[0]
+    remerge(job, s)
+    assert job.old_count == 0 and not job.pages_typed() and job.invoice_pages() == 30
+
+
+def test_a_marked_record_doesn_t_take_a_number_as_its_old_count(tmp_path, s):
+    """Without covers among its count a number one more than the pages is the user's, on a job that has a cover."""
+    a = page_numbered_transcript(tmp_path / "a.pdf", 20, first=100, cover=COVER)
+    job = job_from_origin({"sources": [str(a)], "job": {"cover_out": True},
+                           "case": {"fields": {"est_pages": ["21", SRC_USER, 1.0]}}}, s)
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    assert job.pages_typed() and job.invoice_pages() == 21
+
+
+def test_a_job_taking_rows_from_a_job_opened_again_takes_what_its_record_said(tmp_path, s):
+    """A marked record: not moved, and still in the record's order."""
+    from minute_filler.batch import make_doc
+    a = job_of(s, page_numbered_transcript(tmp_path / "a.pdf", 5))
+    other = Job(portions=[(2, [A]), (15, [A, B])], old_total=15, old_count=15, old_sources=["a.pdf", "b.pdf"])
+    empty = Job()
+    for job in (other, empty):
+        job.case.set("index_no", a.case.get("index_no"))
+        job.case.set("dates", a.case.get("dates"))
+    job, = group([make_doc(a.docs[0].ing, a.docs[0].regex, s, path="a.pdf")], s, [empty, other])
+    assert not job.old_places and job.portions == [(2, [A]), (15, [A, B])]
+    assert (job.old_total, job.old_count, job.old_sources) == (15, 15, ["a.pdf", "b.pdf"])
+
+
+def test_a_job_with_its_own_rows_and_record_keeps_them(tmp_path, s):
+    from minute_filler.batch import make_doc
+    a = job_of(s, page_numbered_transcript(tmp_path / "a.pdf", 5))
+    mine = Job(portions=[(5, [A])], old_sources=["a.pdf"])
+    other = Job(portions=[(2, [A]), (15, [A, B])], old_total=15, old_count=15, old_sources=["b.pdf"])
+    for job in (mine, other):
+        job.case.set("index_no", a.case.get("index_no"))
+        job.case.set("dates", a.case.get("dates"))
+    job, = group([make_doc(a.docs[0].ing, a.docs[0].regex, s, path="a.pdf")], s, [mine, other])
+    assert job.portions == [(5, [A])] and job.old_sources == ["a.pdf"] and job.old_count == 0
+
+
 def test_a_trial_s_own_count_is_its_rows_and_never_typed(tmp_path, s):
     """A day's record has no count: its rows end on the day's pages, which a longer transcript passes."""
     a = page_numbered_transcript(tmp_path / "a.pdf", 25, first=819, cover=COVER)
