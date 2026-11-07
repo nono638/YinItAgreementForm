@@ -623,6 +623,10 @@ class FirmInvoice:
     # whether its days get an index and why, for the math: "Index: 83 total pages, 50 or more." or "No index:
     # 40 total pages, under 50." (see index_note)
     index_note: str = ""
+    # who is billed for the same work, for the math of only some of them to say so (invoice_math._left_out): the
+    # firm of each invoice of its firm_invoices call, and the firms that call left out as invoiced already (opts.skip)
+    billed: list = field(default_factory=list)
+    before: list = field(default_factory=list)
 
 
 _GROUPS = itertools.count(1)
@@ -845,6 +849,14 @@ def default_speed(case: CaseInfo, s: Settings) -> str:
     return sp.name if sp is not None else (sheet.speeds[0].name if sheet.speeds else "")
 
 
+def _one_set(invoices: list[FirmInvoice], before: list) -> list[FirmInvoice]:
+    """The invoices of a firm_invoices call, each told who is billed for the same work (FirmInvoice.billed, .before)."""
+    billed = [f.atty for f in invoices]
+    for f in invoices:
+        f.billed, f.before = billed, before
+    return invoices
+
+
 def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmInvoice]:
     """The invoices to make for this case: one per ticked firm (case.invoice_orderers(): the same one entered
     twice gets one), less those already invoiced (opts.skip). With opts.orders each is the firm's own: only
@@ -862,8 +874,9 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
     if not opts.orders:
         quotes = job_quotes(case, s, opts)
         note = index_note(any(indexed_days(opts, s)), index_reason(opts, s), index_charged(quotes))
-        return [FirmInvoice(a, case, opts, quotes, group, note) for a in orderers
-                if opts.skip_key(a) not in opts.skip]
+        return _one_set([FirmInvoice(a, case, opts, quotes, group, note) for a in orderers
+                         if opts.skip_key(a) not in opts.skip],
+                        [a for a in orderers if opts.skip_key(a) in opts.skip])
     if opts.pages <= 0:
         raise ValueError("an invoice needs pages to bill")  # (the user, 2026-10-30: every count says whose pages)
     got = firm_pages(opts.orders, [_key(a) for a in orderers])
@@ -874,11 +887,14 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
     speeds = offered(sheet, s.invoice_speeds, case.get("delivery") or s.agreement_speed())
     names = {_key(a): (a.label() if a is not None else "(no attorney)") for a in orderers}
     upfront, fallback = courthouses.speed_upfront(), default_speed(case, s)
-    out = []
+    out, before = [], []
     for atty in orderers:  # (one per key: see CaseInfo.invoice_orderers)
         k = _key(atty)
-        if k not in got or opts.skip_key(atty) in opts.skip:
-            continue  # ordered no pages, or invoiced already: no invoice
+        if k not in got:
+            continue  # ordered no pages: no invoice
+        if opts.skip_key(atty) in opts.skip:
+            before.append(atty)  # invoiced already: no invoice
+            continue
         days = sorted(got[k].items())
         parts = [(i, x) for i, xs in days for x in xs]
         split = any(x.others for _, x in parts)
@@ -921,7 +937,7 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
         note = index_note(any(x.indexed for x in shares), index_reason(opts, s, [i for i, _ in days]),
                           index_charged(quotes))
         out.append(FirmInvoice(atty, fcase, fopts, quotes, group, note))
-    return out
+    return _one_set(out, before)
 
 
 class Invoices:
@@ -944,8 +960,8 @@ class Invoices:
         invoice set), each recorded; with Settings.invoice_detailed_copy, its detailed copy too; then the math
         of them, as Settings.save_math says (invoice_math.save_math: not recorded, as the copies aren't), also of
         those made before an invoice that failed: trying again leaves them out (InvoiceOpts.skip), so their math
-        is saved now or never. (The "everyone's" PDF of that later run covers only the invoices it makes.) All
-        dated the run's day (Making.day)."""
+        is saved now or never. (The "everyone's" PDF of that run, and of the later one, covers only the invoices it
+        made, and says so: invoice_math._covers.) All dated the run's day (Making.day)."""
         made = []  # (FirmInvoice, number, file) of each invoice: their math
         # one day for every invoice and its detailed copy: the run's (deliver.generate's), worked out here only for
         # a Making made without one. Asked again a moment later, past midnight or the evening hour, a copy would be

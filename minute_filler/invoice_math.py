@@ -29,8 +29,10 @@ Under each invoice's heading (about): the pages the user wrote of the whole tran
 total pages.") and whether there is an index and why (FirmInvoice.index_note). When several firms are billed for
 the same work, a last section, "All the firms together", adds up what they pay against their exact shares added
 up, which shows what rounding each one up to the cent added (or what rounding each price a page added or took
-off). Before it, when firms ordered the same pages at different speeds, "Who pays what a page" (split_pages)
-has a table for each set of those pages: what each firm named on them pays a page of each charge, as its own
+off). The math of only some of those firms (a Generate that stopped part way, or the next one, which bills only
+those left) says so first thing (_covers), and its last section adds up "these 2 of the 4 firms", as what they pay
+isn't what the job costs. Before it, when firms ordered the same pages at different speeds, "Who pays what a page"
+(split_pages) has a table for each set of those pages: what each firm named on them pays a page of each charge, as its own
 invoice bills it, and the firms together (in the math of one firm's invoice, sent to that firm, "What this firm
 pays a page": its own row alone, explain's one_firm). who_pays() is the short version the main window keeps up
 to date as things are ticked: a row per firm, its pages, how it ordered them and what it pays at each speed;
@@ -108,12 +110,16 @@ def _firms(n: int) -> str:
     return "1 firm" if n == 1 else f"{n} firms"
 
 
+def _and(named: list[str]) -> str:
+    """'a', 'a and b', 'a, b and c'; '' for none."""
+    return ", ".join(named[:-1]) + " and " + named[-1] if len(named) > 1 else (named[0] if named else "")
+
+
 def _with(others) -> str:
     """The other firms on a stretch, with their speeds: 'Smith Law (Immediate)', 'Smith Law (Immediate) and
     Counsel & Counsel (Daily)'; parties a Parties number counts beyond them are left out (they order this firm's
     speed)."""
-    named = [f"{name} ({speed})" for name, speed in others]
-    return ", ".join(named[:-1]) + " and " + named[-1] if len(named) > 1 else (named[0] if named else "")
+    return _and([f"{name} ({speed})" for name, speed in others])
 
 
 def _how_once(x: Stretch) -> str:
@@ -328,12 +334,17 @@ def _sum(q: Quote) -> list[str]:
     return out
 
 
-def _who(f: FirmInvoice) -> str:
-    """Who an invoice bills: 'Dana Smith (Smith Law)', 'Smith Law'; '' for a blank Bill To."""
-    if f.atty is None:
+def _named(atty) -> str:
+    """An Attorney as an invoice bills it: 'Dana Smith (Smith Law)', 'Smith Law'; '' for a blank Bill To (None)."""
+    if atty is None:
         return ""
-    name, firm = (f.atty.name or "").strip(), (f.atty.firm or "").strip()
+    name, firm = (atty.name or "").strip(), (atty.firm or "").strip()
     return name + (f" ({firm})" if firm and name else firm)
+
+
+def _who(f: FirmInvoice) -> str:
+    """Who an invoice bills (_named)."""
+    return _named(f.atty)
 
 
 def heading(f: FirmInvoice, number: str) -> str:
@@ -544,20 +555,25 @@ def together(made: list[tuple[FirmInvoice, str]]) -> list[str]:
     ordered are added up together: 'As ordered (Daily, Immediate): the 2 firms together pay $780.00 for work that
     costs $780.00', and when some of their pages were ordered at different speeds, what their parts of each
     original add up to (the split rule's words, SplitRule.adds_up: one original at the fastest speed, under
-    Make-Whole Split). [] when no set has two firms."""
+    Make-Whole Split). Of only some of a set's firms: 'Regular: these 2 of the 4 firms pay $309.00 for their share of
+    the work, which costs $309.00', and nothing of what their parts add up to (they don't: the others' are missing).
+    [] when no set has two firms."""
     groups: dict[int, list[FirmInvoice]] = {}
     for f, _ in made:
         if f.quotes and f.quotes[0].share:
             groups.setdefault(f.group, []).append(f)
     out = []
     for firms in groups.values():
+        missing = sum(map(len, _left_out(firms)))
+        of = len(firms) + missing if missing else 0
         ordered = [f for f in firms if _ordered(f)]
         if len(ordered) > 1:
             quotes = [f.quotes[0] for f in ordered]
             whose = ordered[0].opts.reporter
             speeds = ", ".join(dict.fromkeys(sp for q in quotes for sp in q.ordered))
-            out.append(_together(f"As ordered ({speeds}){f' ({whose.upper()} invoices)' if whose else ''}", quotes))
-            out += list(dict.fromkeys(q.rule.adds_up for q in quotes if q.mixed))
+            out.append(_together(f"As ordered ({speeds}){f' ({whose.upper()} invoices)' if whose else ''}", quotes, of))
+            if not of:
+                out += list(dict.fromkeys(q.rule.adds_up for q in quotes if q.mixed))
         firms = [f for f in firms if not _ordered(f)]
         if len(firms) < 2:
             continue
@@ -566,18 +582,55 @@ def together(made: list[tuple[FirmInvoice, str]]) -> list[str]:
             if len(quotes) != len(firms):
                 continue
             whose = firms[0].opts.reporter  # (another reporter's invoices are added up apart from the user's)
-            out.append(_together(f"{q0.speed}{f' ({whose.upper()} invoices)' if whose else ''}", quotes))
+            out.append(_together(f"{q0.speed}{f' ({whose.upper()} invoices)' if whose else ''}", quotes, of))
     return out
 
 
-def _together(what: str, quotes: list[Quote]) -> str:
+def _left_out(firms: list[FirmInvoice]) -> tuple[list, list]:
+    """Who else is billed for the same work as these invoices of one set (FirmInvoice.group), as Attorneys: (those
+    invoiced by an earlier Generate, those whose invoice this one didn't make: it stopped part way). Both empty when
+    all are here. Only firms with an invoice to their name count: not one ticked that ordered none of the pages, nor a
+    party a Parties number counts beyond the firms named, as neither is ever on an invoice."""
+    return firms[0].before, [a for a in firms[0].billed if not any(f.atty is a for f in firms)]
+
+
+def _covers(made: list[tuple[FirmInvoice, str]]) -> list[tuple[str, str]]:
+    """What the math of only some of the firms billed for the same work says first, someone looking back taking it
+    for the whole job otherwise: for each such set, ('This math covers 2 of the 4 firms billed for this work.', who
+    the rest are and why they aren't here). [] when every firm is here. Not for a firm's own math (explain's
+    one_firm), which goes to that firm."""
+    groups: dict[int, list[FirmInvoice]] = {}
+    for f, _ in made:
+        groups.setdefault(f.group, []).append(f)
+    out = []
+    for firms in groups.values():
+        before, unmade = _left_out(firms)
+        if before or unmade:
+            rest = ([f"Invoiced by an earlier Generate: {_names(before)}."] if before else []) + (
+                [f"Invoices not made by this Generate: {_names(unmade)}."] if unmade else [])
+            whole = len(firms) + len(before) + len(unmade)
+            out.append((f"This math covers {len(firms)} of the {whole} firms billed for this work.", " ".join(rest)))
+    return list(dict.fromkeys(out))
+
+
+def _names(firms: list) -> str:
+    """Attorneys as the math names them: 'Kim Park (Park Law) and Sam Poe (Poe LLP)'."""
+    return _and([_named(a) or "(no attorney)" for a in firms])
+
+
+def _together(what: str, quotes: list[Quote], of: int = 0) -> str:
     """'Regular: the 2 firms together pay $618.00 for work that costs $618.00' (+ what rounding each one up to the
     cent added, or, each price a page rounded to the cent, what that added or took off: '(rounding each firm's
-    price a page to the cent takes off $10.00)'), for these firms' quotes."""
+    price a page to the cent takes off $10.00)'), for these firms' quotes. of: how many firms the work is billed to
+    when these are only some of them: 'Regular: these 2 of the 4 firms pay $309.00 for their share of the work, which
+    costs $309.00', as their shares aren't what the work costs."""
     paid = sum((q.per_party for q in quotes), Decimal("0.00"))
     # the exact shares added up first: a third of a cent three times is a whole cent, not 0.99…
     cost = _d(sum((q.due for q in quotes), Fraction(0)))
-    line = f"{what}: the {len(quotes)} firms together pay {fmt(paid)} for work that costs {money_exact(cost)}"
+    n = len(quotes)
+    line = (f"{what}: these {n} of the {of} firms pay {fmt(paid)} for their share of the work, which costs "
+            f"{money_exact(cost)}" if of else
+            f"{what}: the {n} firms together pay {fmt(paid)} for work that costs {money_exact(cost)}")
     extra = paid - cost
     if any(q.page_rounded for q in quotes):
         if extra:
@@ -863,11 +916,13 @@ def explain(made: list[tuple[FirmInvoice, str]], layout: str = "invoice",
     speeds get a section of their own after the invoices, what each firm on them pays a page (split_pages).
     one_firm: the math of one invoice (the first of `made`), to send that firm, shows only what that firm owes
     (the user, 2026-10-21): of those pages, its own row alone under OWN_HEADING (SplitSection.own), not the other
-    firms' nor the firms together."""
+    firms' nor the firms together. The math of only some of the firms billed for the work says so first (_covers)."""
     if one_firm:
         made = made[:1]
-    parts = _by_firms(made) if layout == "firms" else _by_invoice(made)
-    plain = _plain(made)
+    covers = [] if one_firm else _covers(made)
+    parts = [f"<p><b>{_e(what)}</b> {_e(rest)}</p>" for what, rest in covers]
+    parts += _by_firms(made) if layout == "firms" else _by_invoice(made)
+    plain = ([f"{what} {rest}" for what, rest in covers] + [""] if covers else []) + _plain(made)
     split = split_pages(made)
     if one_firm:
         split = [sec.own() for sec in split]
@@ -881,9 +936,10 @@ def explain(made: list[tuple[FirmInvoice, str]], layout: str = "invoice",
         plain += [heading] + ([f"  {SPLIT_EXACT}"] if rounded else []) + _split_plain(split) + [""]
     check = together(made)
     if check:
-        parts.append("<h2>All the firms together</h2>")
+        title = "These firms together" if covers else "All the firms together"
+        parts.append(f"<h2>{title}</h2>")
         parts += [f"<p>{_e(x)}</p>" for x in check]
-        plain += ["All the firms together"] + [f"  {x}" for x in check]
+        plain += [title] + [f"  {x}" for x in check]
     return "\n".join(parts), "\n".join(plain).rstrip() + "\n"
 
 

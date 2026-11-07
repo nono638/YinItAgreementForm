@@ -14,8 +14,9 @@ import pytest
 from helpers import ROE, make_case, pat_settings, transcript_pdf
 from minute_filler.batch import expand_paths, fill_jobs, group, read_docs, saved_folders
 from minute_filler.deliver import generate
-from minute_filler.invoice import InvoiceOpts, firm_invoices
-from minute_filler.invoice_math import is_math_file, math_note, math_pdfs, new_pdf, save_math, to_pdf
+from minute_filler.invoice import DayOrder, InvoiceOpts, Portion, firm_invoices
+from minute_filler.invoice_math import (explain, is_math_file, math_note, math_pdfs, new_pdf, save_math, to_pdf,
+                                        together)
 from minute_filler.models import Attorney
 from minute_filler.settings import ReporterProfile, Settings
 from test_show_the_math import math_window, settled
@@ -174,9 +175,9 @@ def test_invoices_already_made_keep_their_math_when_a_later_one_fails(s, tmp_pat
     assert {p.name for p in maths} >= {f"{p.stem} - the math.pdf" for p in invoices}
     everyone = [p for p in maths if p.name.startswith("Invoices ")]
     assert len(maths) == 3 and len(everyone) == 1 and {p.parent for p in maths} == {tmp_path / "Math"}
-    with pymupdf.open(everyone[0]) as doc:  # (of the invoices made: not of the two that weren't)
+    with pymupdf.open(everyone[0]) as doc:  # (of the invoices made: not of the two that weren't, which it only names)
         text = "".join(page.get_text() for page in doc)
-    assert "Alex B. Counsel" in text and "Dana Smith" in text and "Kim Park" not in text
+    assert "Bill to Alex B. Counsel" in text and "Bill to Dana Smith" in text and "Bill to Kim Park" not in text
     assert math_note("both", math, failed.value.made) == ""
 
 
@@ -231,6 +232,164 @@ def test_generate_says_what_was_saved_before_the_problem_and_of_the_math(tmp_pat
         assert [p for p in win.cur.saved if is_math_file(p) and p.parent.name == "Math"]
     else:
         assert " - the math.pdf" not in said[0] and OFF_ONE in said[0]
+
+
+# ------------------------------------------------------------------ math of only some of the firms says so
+COVERS = "This math covers 2 of the 4 firms billed for this work."
+NOT_MADE = "Invoices not made by this Generate: Kim Park (Park Law) and Sam Poe (Poe LLP)."
+EARLIER = "Invoiced by an earlier Generate: Alex B. Counsel (Counsel & Counsel) and Dana Smith (Smith Law)."
+THESE_TWO = ("These firms together As ordered (Regular): these 2 of the 4 firms pay $527.66 for their share of the "
+             "work, which costs $527.65 (rounding each one up to the cent adds $0.01)")
+
+
+def a_day(s, tmp_path, n: int = 4):
+    """A 61-page day read from its transcript, n firms sharing it: 4 pay $263.83 each ($263.825, rounded up)."""
+    docs, errors = read_docs([str(transcript_pdf(tmp_path / "Roe 6-3-2026.pdf", 61))], s)
+    assert not errors
+    job, = group(docs, s)
+    job.case.attorneys = attorneys(n)
+    return job
+
+
+def words(path: Path) -> str:
+    """What a PDF says, as one line whatever its lines' ends (its "ﬁ" as two letters)."""
+    with pymupdf.open(path) as doc:
+        text = " ".join(page.get_text() for page in doc)
+    return " ".join(text.replace("ﬁ", "fi").split())
+
+
+def everyones(paths: list) -> list:
+    return [p for p in paths if is_math_file(p) and p.name.startswith("Invoices ")]
+
+
+def test_the_math_of_every_firm_is_all_the_firms_together(s, tmp_path):
+    done = fill_jobs([a_day(s, tmp_path)], s, outputs=["invoice"], math=[])
+    text = words(everyones(done)[0])
+    assert ("All the firms together As ordered (Regular): the 4 firms together pay $1,055.32 for work that costs "
+            "$1,055.30 (rounding each one up to the cent adds $0.02)") in text
+    assert "This math covers" not in text
+
+
+@pytest.mark.parametrize("layout", ["invoice", "firms"])
+def test_the_math_of_a_run_that_stopped_says_what_it_covers(s, tmp_path, monkeypatch, layout):
+    """4 firms, the 3rd invoice fails: what's added up is 2 firms' shares, not the job's, and the PDF says so first
+    thing and again where it adds them up, for someone looking back at the job."""
+    s.math_layout = layout
+    job = a_day(s, tmp_path)
+    failing_at(monkeypatch, 3)
+    math = []
+    done = fill_jobs([job], s, outputs=["invoice"], math=math)
+    assert job.error and len(math) == 2
+    text = words(everyones(done)[0])
+    assert text.startswith(f"The math {COVERS} {NOT_MADE}")
+    assert THESE_TWO in text
+    for false in ("All the firms together", "the 2 firms together", "work that costs"):
+        assert false not in text
+    plain = explain(math, layout)[1]
+    assert plain.startswith(f"{COVERS} {NOT_MADE}\n")
+    assert ("These firms together\n  As ordered (Regular): these 2 of the 4 firms pay $527.66 for their share of the "
+            "work, which costs $527.65 (rounding each one up to the cent adds $0.01)\n") in plain
+
+
+def test_the_math_of_a_retry_says_what_it_covers(s, tmp_path, monkeypatch):
+    """The next run bills the other two: its PDF is of them alone, and names the two it leaves out."""
+    job = a_day(s, tmp_path)
+    failing_at(monkeypatch, 3)
+    fill_jobs([job], s, outputs=["invoice"], math=[])
+    later = fill_jobs([job], s, outputs=["invoice"], math=[])
+    assert not job.error
+    text = words(everyones(later)[0])
+    assert text.startswith(f"The math {COVERS} {EARLIER}")
+    assert THESE_TWO in text
+    assert "Bill to Kim Park" in text and "Bill to Alex" not in text and "All the firms together" not in text
+
+
+def test_a_run_between_an_earlier_one_and_a_stop_says_both(s, tmp_path, monkeypatch):
+    job = a_day(s, tmp_path)
+    failing_at(monkeypatch, 2)  # (Alex's made, Dana's not)
+    fill_jobs([job], s, outputs=["invoice"], math=[])
+    s.save_math = "all"  # (one invoice alone gets its own with "both")
+    failing_at(monkeypatch, 3)  # (Dana's and Kim's made, Sam's not; failing_at's own count: the first has passed)
+    done = fill_jobs([job], s, outputs=["invoice"], math=[])
+    assert words(everyones(done)[0]).startswith(
+        "The math This math covers 2 of the 4 firms billed for this work. Invoiced by an earlier Generate: Alex B. "
+        "Counsel (Counsel & Counsel). Invoices not made by this Generate: Sam Poe (Poe LLP).")
+
+
+def test_a_firms_own_math_says_nothing_of_the_others(s, tmp_path, monkeypatch):
+    """It goes to that firm when it asks: only what that firm owes."""
+    failing_at(monkeypatch, 3)
+    done = fill_jobs([a_day(s, tmp_path)], s, outputs=["invoice"], math=[])
+    own = [p for p in done if is_math_file(p) and p.name.startswith("Invoice ")]
+    assert len(own) == 2
+    for p in own:
+        text = words(p)
+        assert "This math covers" not in text and "Kim Park" not in text and "Sam Poe" not in text
+
+
+def test_each_reporters_math_says_what_it_covers(s, tmp_path, monkeypatch):
+    """Each reporter's invoices are a set of their own: the user's 3 are all there, the other reporter's 2 of 3."""
+    s.profile.initials = "pr"
+    s.reporters = {"ds": ReporterProfile(name="Dana", full_name="Dana Smith")}
+    path = transcript_pdf(tmp_path / "Roe 6-3-2026.pdf", 10, initials=["pr"] * 6 + ["ds"] * 4)
+    docs, errors = read_docs([str(path)], s)
+    assert not errors
+    job, = group(docs, s)
+    job.case.attorneys = attorneys(3)
+    job.page_basis = {job.docs[0].key(): ["me", "ds"]}
+    failing_at(monkeypatch, 6)
+    done = fill_jobs([job], s, outputs=["invoice"], math=[])
+    ours, theirs = everyones(done)
+    assert "DS-" not in ours.name and "DS-" in theirs.name
+    assert "This math covers" not in words(ours) and "the 3 firms together pay" in words(ours)
+    text = words(theirs)
+    assert text.startswith("The math This math covers 2 of the 3 firms billed for this work. Invoices not made by "
+                           "this Generate: Kim Park (Park Law).")
+    assert "(DS invoices): these 2 of the 3 firms pay" in text
+
+
+def orders_of(case, *portions, **more) -> InvoiceOpts:
+    """Options of a 60-page day ordered as these Portions say."""
+    return InvoiceOpts(60, 3, days=[("6/3/2026", 60)], orders=[DayOrder("6/3/2026", 60, list(portions))], **more)
+
+
+def test_the_window_before_a_generate_says_who_was_invoiced_already(s):
+    """The links to the math in the main window, the preview: the firm invoiced already isn't priced again."""
+    case, _ = firms(3)
+    keys = [a.key() for a in case.attorneys]
+    made = [(f, "") for f in firm_invoices(case, s, orders_of(case, Portion(60, keys), skip=keys[:1]))]
+    assert [f.atty.name for f, _ in made] == ["Dana Smith", "Kim Park"]
+    html, plain = explain(made)
+    note = ("This math covers 2 of the 3 firms billed for this work. Invoiced by an earlier Generate: Alex B. Counsel "
+            "(Counsel & Counsel).")
+    assert plain.startswith(note + "\n") and "<p><b>This math covers 2 of the 3 firms billed for this work.</b> " in html
+    assert "Invoices not made" not in plain
+    assert "(Counsel &amp; Counsel)" in html  # (its name as text in the HTML)
+
+
+def test_a_firm_on_no_invoice_isnt_missing(s):
+    """Ticked but with none of the pages it has no invoice to come; a party counted by Parties beyond the firms named
+    is on no invoice of the job at all. Neither makes the math part way: the words of a whole job stay."""
+    case, _ = firms(3)
+    alex, dana, _ = [a.key() for a in case.attorneys]
+    for portion in (Portion(60, [alex, dana]), Portion(60, [alex, dana], 4)):
+        made = [(f, "") for f in firm_invoices(case, s, orders_of(case, portion))]
+        assert len(made) == 2
+        plain = explain(made)[1]
+        assert "This math covers" not in plain and "All the firms together" in plain
+        assert "the 2 firms together pay" in plain
+
+
+def test_what_the_parts_add_up_to_isnt_said_of_some_of_the_firms(s):
+    """Under Make-Whole Split "the firms' parts of each original add up to one": not these firms' parts."""
+    from minute_filler.courthouses.queens_supreme_civil.billing import MAKE_WHOLE
+    case, _ = firms(3)
+    keys = [a.key() for a in case.attorneys]
+    speeds = tuple(zip(keys, ("Daily", "Immediate", "Daily")))
+    made = [(f, "") for f in firm_invoices(case, s, orders_of(case, Portion(60, keys, speeds=speeds)))]
+    assert len(made) == 3 and MAKE_WHOLE.adds_up in together(made)
+    some = together(made[:2])
+    assert MAKE_WHOLE.adds_up not in some and "these 2 of the 3 firms pay" in some[0]
 
 
 # ------------------------------------------------------------------ the note in the box at the end
