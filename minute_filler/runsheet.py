@@ -712,17 +712,34 @@ def _read_ours(ws) -> list[Row]:
     return rows
 
 
+def page_order(rows: list[Row], unread: float = -1):
+    """The key that sorts these takes in the order of the pages: by day, a day's transcripts by the first number read in
+    each (`unread` for one with none: first on the card, last on a run sheet) and each one whole, its takes by where they
+    are in it (their numbers can start again, and a take can have none read). Transcripts starting on one number keep
+    the order given. A take of no transcript goes by its own first number."""
+    turns = {d: i for i, d in enumerate(dict.fromkeys(r.doc for r in rows if r.doc))}
+    firsts: dict[str, int] = {}
+    for r in sorted((r for r in rows if r.doc), key=lambda r: r.at or 0):
+        if r.first_read() is not None:
+            firsts.setdefault(r.doc, r.first_read())
+
+    def key(r: Row) -> tuple:
+        first = firsts.get(r.doc) if r.doc else r.first_read()
+        return r.day or date.max, unread if first is None else first, turns.get(r.doc, -1), r.at or 0
+    return key
+
+
 def _in_order(old: list[Row], new: list[Row]) -> list[Row]:
-    """The rows of the run sheet: the old ones where they were (in the order the user keeps them), each new one
-    before the first old row that comes later by date, then first page. Old rows without a date or first page
-    are passed over."""
+    """The rows of the run sheet: the old ones where they were (in the order the user keeps them), each new one in the
+    order of the pages (page_order), before the first old row that comes later by date, then first page. Old rows
+    without a date or first page are passed over."""
     def key(r: Row) -> tuple:
         """Its day, then its first number read (a blank Start would send it to the end of its day)."""
         first = r.first_read()
         return r.day or date.max, first if first is not None else float("inf")
     rows = list(old)
     olds = {id(r) for r in old}
-    for n in sorted(new, key=key):
+    for n in sorted(new, key=page_order(new, float("inf"))):
         at = next((i for i, o in enumerate(rows) if id(o) in olds and o.day and o.start is not None
                    and key(o) > key(n)), len(rows))
         rows.insert(at, n)

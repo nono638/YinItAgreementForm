@@ -80,8 +80,8 @@ from .pdfout import (case_folder_index, case_folder_name, days_in_name, free_fol
                      short_caption)
 from .rates import speed_key
 from .records import recorded_cases
-from .runsheet import (NO_RUNSHEET, RunSheetOpts, cover_pages, matches, name_rows, read_info, refresh_orders, rows_from,
-                       title_page_texts, transcript_pages)
+from .runsheet import (NO_RUNSHEET, RunSheetOpts, cover_pages, matches, name_rows, page_order, read_info, refresh_orders,
+                       rows_from, title_page_texts, transcript_pages)
 from .takes import counted_words, fix_marks, my_initials, numbers_known, page_owners, run_numbers
 from .settings import OUTPUT_FOLDERS, OUTPUTS, SUBFOLDERS, Settings
 
@@ -580,7 +580,7 @@ class Job:
                 # the page before it (the take before it was made to end later)
                 r.corrected = r.at is not None and any(r.at - 1 <= i <= r.at + (r.pages or 0) for i in d.fixes)
             rows += mine
-        rows.sort(key=_take_order)
+        rows.sort(key=page_order(rows))
         name_rows(rows)  # a reporter named on one day's title page is named on the other days too
         return RunSheetOpts(rows, self.runsheet_to)
 
@@ -1540,13 +1540,6 @@ class OrderLine:
     note: str = ""
     parties: int = 0  # the Parties number typed for the day (its price is shared that many ways); 0 = not typed
     typed: bool = False  # the pages are the Pages field's number, typed in, not the transcript's pages
-
-
-def _take_order(row) -> tuple:
-    """Where a take (runsheet.Row) goes among the takes of its days: by day, then its first number read (a blank Start
-    stays between the takes around it); without any, first."""
-    first = row.first_read()
-    return row.day or date.max, first if first is not None else -1
 
 
 def _join(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -3006,7 +2999,8 @@ def takes_of(days: list[Job], s: Settings) -> list:
             n = len(cases)
             cases.append(ident(j.case))
         rows += [(n, j, r) for r in j.runsheet_opts(s).rows]
-    rows.sort(key=lambda x: (x[2].day or date.max, x[0], _take_order(x[2])))
+    order = page_order([r for _, _, r in rows])
+    rows.sort(key=lambda x: (x[2].day or date.max, x[0], order(x[2])))
     if len(cases) > 1:
         for _, j, r in rows:
             r.case = short_caption(j.case.get("case_name"), 24) or j.title()
@@ -3799,7 +3793,7 @@ def unit_sheet(unit: list[Job], s: Settings, started: list[Path]) -> RunSheetOpt
     they go: as the window chose for the case (Job.runsheet_to), else a run sheet this batch started for the
     case, else as Settings say."""
     rows = [r for j in unit for r in j.runsheet_opts(s).rows]
-    rows.sort(key=_take_order)
+    rows.sort(key=page_order(rows))
     name_rows(rows)  # a reporter named on one day's title page is named on the other days too
     sheet = RunSheetOpts(rows, unit[0].runsheet_to, days=[j.case for j in unit])
     if sheet.target is None and s.runsheet_existing != "new":

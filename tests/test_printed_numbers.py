@@ -22,7 +22,7 @@ from minute_filler.excerpts import Day, Run, carve, case_days
 from minute_filler.extract_regex import RegexExtractor
 from minute_filler.ingest import Ingested, ingest_file
 from minute_filler.models import SRC_PDF, SRC_USER, Attorney, Extraction, FieldState
-from minute_filler.runsheet import (Row, RunSheetOpts, add_takes, rows_from, run_sheet_summary, takes_to_add,
+from minute_filler.runsheet import (Row, RunSheetOpts, add_takes, page_order, rows_from, run_sheet_summary, takes_to_add,
                                     title_page_texts, title_page_total)
 from minute_filler.takes import (PageCount, PageFacts, PageMark, _scan, count_pages, counted_words, find_takes,
                                  numbers_known, place_words, read_pages, run_numbers, scan_page, scan_pdf, without_cover)
@@ -2682,3 +2682,54 @@ def test_their_own_sheet_goes_by_the_same_rules(tmp_path, sheets):
     assert (opts.added, opts.skipped) == (2, 3)
     ws = load_workbook(path).active
     assert sum(ws.cell(r, 6).value for r in range(2, ws.max_row + 1)) == 111
+
+
+# ------------------------------------------------------------------ takes in the order of the pages
+def test_a_take_with_no_number_read_stays_in_its_place(tmp_path, sheets):
+    """It went first on the card and last on the sheet: an earlier version counted on from the page before, so it was in
+    order."""
+    from minute_filler.batch import takes_of, unit_sheet
+    s = sheets
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", [1, 2, 3, None, None, None, 7, 8], ["ab"] * 3 + ["cd"] * 3 + ["ef"] * 2))
+    want = ["AB", "CD", "EF"]
+    assert [r.reporter for r in job.runsheet_opts(s).rows] == want
+    assert [r.reporter for r in takes_of([job], s)] == want
+    assert [r.reporter for r in unit_sheet([job], s, []).rows] == want
+    assert [who for who, *_ in sheet_of(add(job.case, job.runsheet_opts(s).rows, s))] == want
+
+
+def test_a_falling_day_s_takes_stay_in_the_order_of_its_pages(tmp_path, sheets):
+    """Sorted by their numbers, Dana's second take came straight after the first, out of the order of the pages."""
+    from minute_filler.batch import takes_of, unit_sheet
+    s = sheets
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", FALLS, FALLS_WHO))
+    want = [("Pat", 1), ("DS", 10), ("Pat", 60), ("DS", 10), ("Pat", 100)]
+    assert [(r.reporter, r.start) for r in job.runsheet_opts(s).rows] == want
+    assert [(r.reporter, r.start) for r in takes_of([job], s)] == want
+    assert [(r.reporter, r.start) for r in unit_sheet([job], s, []).rows] == want
+    assert [(who, start) for who, _, start in sheet_of(add(job.case, job.runsheet_opts(s).rows, s))] == want
+
+
+def test_a_day_s_transcripts_go_by_the_first_number_read_in_each(tmp_path, sheets):
+    """Each one whole: the second's numbers fall among the first's, and they no longer mix. Given in the other order, or
+    with an unread first page, the same."""
+    s = sheets
+    a = printed_pdf(tmp_path / "a.pdf", [None] + list(range(102, 121)), [PR] * 10 + [DS] * 10)
+    b = printed_pdf(tmp_path / "b.pdf", list(range(111, 131)), [PR] * 20)
+    for paths in ((a, b), (b, a)):
+        job = job_of(s, *paths)
+        assert [(r.reporter, r.start) for r in job.runsheet_opts(s).rows] == [("Pat", None), ("DS", 111), ("Pat", 111)]
+
+
+def test_two_volumes_from_one_number_stay_in_the_order_given_and_whole(tmp_path, sheets):
+    s = sheets
+    job = job_of(s, printed_pdf(tmp_path / "AM.pdf", list(range(1, 21)), [PR] * 10 + [DS] * 10),
+                 printed_pdf(tmp_path / "PM.pdf", list(range(1, 16)), [DS] * 5 + [PR] * 10))
+    assert [(r.doc[-6:], r.at) for r in job.runsheet_opts(s).rows] == [("AM.pdf", 0), ("AM.pdf", 10), ("PM.pdf", 0),
+                                                                        ("PM.pdf", 5)]
+
+
+def test_takes_of_no_transcript_go_by_their_own_numbers():
+    rows = [Row(DAY, "B", 5, 20), Row(date(2026, 6, 4), "C", 5, 1), Row(DAY, "A", 5, 10), Row(DAY, "D", 5, None)]
+    assert [r.reporter for r in sorted(rows, key=page_order(rows))] == ["D", "A", "B", "C"]
+    assert [r.reporter for r in sorted(rows, key=page_order(rows, float("inf")))] == ["A", "B", "D", "C"]
