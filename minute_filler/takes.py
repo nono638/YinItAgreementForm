@@ -64,9 +64,11 @@ _HEAD_OWN = re.compile(r"(?i)\b(?:vol(?:ume)?|day|part|session|no|index|exhibit)
                        r"jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b\.?\s+(?:\d{1,2},?\s+)?$")
 SKIP_OK = 5  # numbers this far apart on pages side by side are one stretch (a page left out where a reporter changes)
 _BRAND = "min-u-script"  # (a false match would leave a real page unbilled without a word, so nothing looser)
-# what a typed title page says and a Min-U-Script cover doesn't: "-against-", "- against -", "Index No.", "Index Number"
-# (its "Word Index" is neither, nor "In The Matter Of: Jane Roe v. Sam Poe")
-_CAPTION = re.compile(r"(?i)-\s*against\s*-|\bindex\s*(?:no\b|number\b|#)")
+# what a typed title page says and a Min-U-Script cover doesn't: "-against-", "– v. –", "against" on a line of its own,
+# "Plaintiff", "Defendants", "Index No.", "Ind. No.", "Index Number", "Index: 712345/2021" (its "Word Index" is none of
+# those, nor "In The Matter Of: Jane Roe v. Sam Poe"). What it misses costs a real page, unbilled, with no word said.
+_CAPTION = re.compile(r"(?im)[-–—]\s*(?:against|vs?\.?)\s*[-–—]|^\s*against\s*$|\b(?:plaintiff|defendant)s?\b"
+                      r"|\bind(?:ex)?\.?\s*(?:no\b|number\b|#|:\s*\d+\s*[-/]\s*\d)")
 
 
 # ------------------------------------------------------------------ page numbers as read
@@ -272,7 +274,7 @@ class PageFacts:
     blank: bool = False  # next to no text and no picture: an empty page (a scanned page is not blank)
     top: str = ""        # an index-looking page's first lines: the heading that can name the case
     branded: bool = False  # it says "Min-U-Script" (what a Min-U-Script cover says: without_cover)
-    caption: bool = False  # it says "-against-" or "Index No.": a typed title page, which no cover says (without_cover)
+    caption: bool = False  # it says "-against-", "Plaintiff", "Index No.": a typed title page, no cover (without_cover)
     zero: bool = False     # it prints 0 where its number goes (mark.number: from its head, or None: _numbers_in_heads)
     head_number: int | None = None  # that page's number in its running head, to check against the pages around it
 
@@ -296,18 +298,20 @@ def read_pages(doc) -> list[PageFacts]:
 
 
 def _continues(n: int, low: tuple[int, int] | None, high: tuple[int, int] | None) -> bool:
-    """A number goes on from those around it, each (how many pages away, its number): above the one before and below
-    the one after, by no more than SKIP_OK beyond the pages between. At least one must be there."""
+    """A number goes on from those around it, each (how many pages away, its number): it is the number one of them
+    implies, counting the pages between, and it is above the one before and below the one after, the other by no more
+    than SKIP_OK beyond the pages between (a skip can be on either side of it). 15 after 11 only fits a skip, and a head
+    says "Juror 15"."""
     fits = lambda a, b, away: a < b and b - a - (away - 1) <= SKIP_OK
-    return (low or high) is not None and (low is None or fits(low[1], n, low[0])) and (
-        high is None or fits(n, high[1], high[0]))
+    implied = (low is not None and n == low[1] + low[0]) or (high is not None and n == high[1] - high[0])
+    return implied and (low is None or fits(low[1], n, low[0])) and (high is None or fits(n, high[1], high[0]))
 
 
 def _numbers_in_heads(facts: list[PageFacts]) -> None:
     """A page printing 0 where its number goes takes the number in its running head (PageFacts.head_number) when that
-    goes on from the numbers of the pages around it. On the real transcripts every number recovered so fits; a head's
-    other numbers ("Proceedings 2026", "Docket 12345", "Juror 9") don't, and as page numbers they would show among the
-    day's and say its numbers fall. No page around it with a number (the whole PDF printing 0): the next page's head
+    goes on from the numbers of the pages around it. On the real transcripts every number recovered so fits, exactly; a
+    head's other numbers ("Proceedings 2026", "Docket 12345", "Juror 9") don't, and as page numbers they would show among
+    the day's and say its numbers fall. No page around it with a number (the whole PDF printing 0): the next page's head
     must go on from it. Left None otherwise: the page still counts (_scan), and what shows is what was read."""
     numbered = lambda f: f.mark.number is not None and not f.index
     for i, f in enumerate(facts):
@@ -360,9 +364,11 @@ def _scan(facts: list[PageFacts]) -> list[PageMark]:
         pages.append(f)
     if not any(f.mark.initials or f.mark.number is not None or f.zero for f in pages):
         return []
-    # trailing pages with nothing to say they are the transcript's are dropped; a last page with only its number, its
-    # line numbers or a 0 where its number goes is kept (it ends the last take: without it the count is a page short)
-    signed = [i for i, f in enumerate(pages) if f.mark.initials or f.mark.number is not None or f.lined or f.zero]
+    # trailing pages with nothing to say they are the transcript's are dropped; a last page with only its number or a 0
+    # where its number goes is kept (it ends the last take: without it the count is a page short). Not for its line
+    # numbers alone: the first page of a word index, its entries "1 [2] ..." to "9", can look lined, and the readings
+    # compared after this say so (count_pages)
+    signed = [i for i, f in enumerate(pages) if f.mark.initials or f.mark.number is not None or f.zero]
     return [f.mark for f in pages[:signed[-1] + 1]]
 
 

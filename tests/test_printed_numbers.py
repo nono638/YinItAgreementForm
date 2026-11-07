@@ -1212,7 +1212,7 @@ def test_a_last_page_printing_0_still_counts(tmp_path, zeros):
 
 def test_what_keeps_a_page_at_the_end_of_the_first_reading():
     signed = PageFacts(PageMark(100, PR))
-    assert len(_scan([signed, PageFacts(PageMark(), lined=True)])) == 2
+    assert len(_scan([signed, PageFacts(PageMark(), lined=True)])) == 1  # (a word index's first page can look lined)
     assert len(_scan([signed, PageFacts(PageMark(), zero=True)])) == 2
     assert len(_scan([signed, PageFacts(PageMark())])) == 1  # (nothing on it to say it is one)
     # (line numbers alone don't make a transcript's pages out of a PDF with nothing else on them: no marks to go by)
@@ -2733,3 +2733,85 @@ def test_takes_of_no_transcript_go_by_their_own_numbers():
     rows = [Row(DAY, "B", 5, 20), Row(date(2026, 6, 4), "C", 5, 1), Row(DAY, "A", 5, 10), Row(DAY, "D", 5, None)]
     assert [r.reporter for r in sorted(rows, key=page_order(rows))] == ["D", "A", "B", "C"]
     assert [r.reporter for r in sorted(rows, key=page_order(rows, float("inf")))] == ["A", "B", "D", "C"]
+
+
+# ------------------------------------------------------------------ a page of the word index isn't kept for its line numbers
+INDEX_ENTRIES = "\n".join(f"{n} [2] {n}:{n + 1};{n + 3}:{n + 2}" for n in range(1, 10))
+REFERENCES = "\n".join(f"word{k} (2)\n    {10 + k}:{k % 25 + 1};{20 + k}:{(k * 3) % 25 + 1}" for k in range(18))
+
+
+def pages_pdf(path, pages) -> str:
+    """A PDF of (number, body) pages signed "pr" where they have a number: None for no number, a body of None for 25
+    numbered lines."""
+    doc = pymupdf.open()
+    for number, body in pages:
+        page = doc.new_page()
+        if number is not None:
+            page.insert_text((300, 40), str(number), fontsize=10)
+            page.insert_text((520, page.rect.height - 40), PR, fontsize=10)
+        page.insert_text((60, 80), LINES if body is None else body, fontsize=9)
+    doc.save(path)
+    doc.close()
+    return str(path)
+
+
+def test_the_first_page_of_a_word_index_is_no_page_of_the_transcript(tmp_path):
+    """Unnumbered and unsigned, its entries "1 [2] ..." to "9" with no 10-19 read as line numbers: 21 billed at 0.95, with
+    no word said, for the 20 and a warning the other readings give."""
+    pages = [(i, None) for i in range(1, 21)] + [(None, INDEX_ENTRIES)] + [(None, REFERENCES)] * 3
+    c = ingest_file(pages_pdf(tmp_path / "Roe.pdf", pages)).count
+    assert c.pages == 20 and c.confidence == 0.55 and "check the count" in c.warning
+    only = [(i, None) for i in range(1, 21)] + [(None, INDEX_ENTRIES)]  # (with nothing after it)
+    assert ingest_file(pages_pdf(tmp_path / "Poe.pdf", only)).count.pages == 20
+
+
+# ------------------------------------------------------------------ the number in a head must be the one the pages imply
+@pytest.mark.parametrize("numbers, heads, want", [
+    ([10, 11, 0], ["", "", "Juror 15"], [10, 11, None]),  # (within a skip of the page before, but not what it implies)
+    ([10, 11, 0], ["", "", "Juror 12"], [10, 11, 12]),
+    ([0, 11, 12], ["Juror 7", "", ""], [None, 11, 12]),
+    ([0, 11, 12], ["Proceedings 10", "", ""], [10, 11, 12]),
+    ([10, None, 0, 15], ["", "", "Juror 13", ""], [10, None, None, 15]),  # (10 implies 12, 15 implies 14)
+    ([10, None, 0, 14], ["", "", "Proceedings 12", ""], [10, None, 12, 14]),  # (either side will do)
+    ([10, None, 0, 15], ["", "", "Proceedings 14", ""], [10, None, 14, 15]),
+])
+def test_a_head_s_number_must_be_the_one_the_pages_around_it_imply(numbers, heads, want):
+    """[10, 11, 0 under "Juror 15"] gave 15: within SKIP_OK of the page before, so it read as a skip. All 107 real numbers
+    in heads are exactly what the pages around them imply."""
+    assert read_numbers(numbers, heads) == want
+
+
+# ------------------------------------------------------------------ a typed title page is no cover, however it says so
+@pytest.mark.parametrize("words", [
+    "JANE ROE,\nPlaintiff,\n-v-\nSAM POE,\nDefendant.",
+    "JANE ROE\n-v.-\nSAM POE",
+    "JANE ROE\n-vs-\nSAM POE",
+    "JANE ROE,\n\nagainst\n\nSAM POE",
+    "JANE ROE, Plaintiff, and SAM POE",
+    "JANE ROE v. SAM POE, Defendants",
+    "JANE ROE v. SAM POE\nInd. No. 712345/2021",
+    "JANE ROE v. SAM POE\nIndex: 712345/2021",
+    "JANE ROE v. SAM POE\nIndex # 712345/2021",
+])
+def test_nor_is_a_typed_title_page_in_other_words(tmp_path, s, words):
+    path = page_numbered_transcript(tmp_path / "Roe.pdf", 20, first=819, cover=f"{words}\nJune 3, 2026\nMin-U-Script")
+    c = job_of(s, path).docs[0].ing.count
+    assert (c.cover, c.pages) == (0, 21)
+
+
+@pytest.mark.parametrize("words", ["JANE ROE\n– against –\nSAM POE", "JANE ROE\n—against—\nSAM POE", "ROE\n– v. –\nPOE"])
+def test_nor_with_the_dashes_a_typist_uses(words):
+    """(The test PDFs' font has no such dashes: as read from a PDF that has them.)"""
+    from minute_filler.takes import _CAPTION
+    assert _CAPTION.search(words)
+
+
+@pytest.mark.parametrize("words", [
+    "In The Matter Of:\nJane Roe v. Sam Poe\nProceedings\nJune 3, 2026\nQueens Supreme Court\nMin-U-Script® with Word Index",
+    "In The Matter Of:\nJANE ROE vs. SAM POE\nTrial Day 3\nJune 3, 2026\nSupreme Court of the State of New York\n"
+    "Min-U-Script® with Word Index",
+    "In The Matter Of:\nPeople v. Sam Poe\nProceedings\nMin-U-Script\nWord Index: 12 pages",  # (no index number after it)
+    "In The Matter Of:\nJane Against All Odds, Inc. v. Sam Poe\nMin-U-Script® with Word Index",
+])
+def test_what_a_cover_says_is_still_a_cover(tmp_path, words):
+    assert ingest_file(page_numbered_transcript(tmp_path / "Roe.pdf", 5, cover=words)).count.cover == 1
