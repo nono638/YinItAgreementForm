@@ -3560,7 +3560,7 @@ def fill_jobs(jobs: list[Job], s: Settings, progress: Progress | None = None,
     if not folders_chosen:
         settle_case_folders(jobs, s, outputs, batch or jobs, ledger)
         move_case_folders(jobs, s, ledger, batch or jobs)  # (one that can't be renamed is logged, saved in as it is)
-    settle_split_speeds(jobs, s, outputs)
+    settle_split_speeds([j for j in jobs if not j.invoiced], s, outputs)  # (one billed already gives no speed: speed_days)
     names = [j.name_key() for j in batch or jobs]
     unchecked = {id(j) for j in jobs if j.invoice_hold()} if "invoice" in outputs else set()
     to_bill = [j for j in jobs if not j.invoiced and id(j) not in unchecked]

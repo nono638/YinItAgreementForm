@@ -433,6 +433,7 @@ def test_where_firms_neednt_commit_the_others_speed_is_the_firms_own(qt, themed,
 def trial_window(qt, tmp_path, make_window, s, pages=(10, 20)):
     """A main window on two days of a trial (Generate all bills them together), Alex alone on both."""
     from test_show_the_math import settled
+    s.outputs = ["invoice"]
     win = settled(make_window(s))
     jobs = days_of(tmp_path / "a", s, pages=pages, ticked=(A,))
     for j in jobs:
@@ -473,6 +474,131 @@ def test_a_day_generate_leaves_out_gives_no_speed(qt, themed, tmp_path, make_win
     assert set(invoices_shown(w)["Alex B. Counsel"]) == {"Regular", "Expedite"}
     assert win._ask_split_speeds([two]) and two.speeds == {}
     w.close()
+
+
+def generate_all(qt, win, s, monkeypatch) -> dict:
+    """What Generate all bills, all of it as it runs: the days it makes (_to_generate), the speeds it sets
+    (_ask_split_speeds), fill_jobs on its copies on its own thread; the invoices made, from the records: firm -> speed ->
+    amount. The day shown is put in the editor first, as Generate all reads it back."""
+    import time
+    monkeypatch.setattr(qt.QMessageBox, "exec", lambda self: 0)
+    win._show_job()
+    before = {i.invoice_no for i in ledger_for(s).invoices()}
+    win.fill_all_jobs()
+    end = time.time() + 30
+    while time.time() < end and (win.filling or win.runner._live):
+        qt.QApplication.processEvents()
+        time.sleep(0.01)
+    assert not win.filling
+    made = [i for i in ledger_for(s).invoices() if i.invoice_no not in before]
+    return {i.bill_to: {sp: Decimal(v) for sp, v in i.amounts.items()} for i in made}
+
+
+CHOOSES_ON_DAY_2 = {"Alex B. Counsel": {"Regular": Decimal("126.00"), "Expedite": Decimal("152.00")}}
+
+
+@pytest.mark.parametrize("made", [True, False])
+def test_a_day_invoiced_gives_no_speed_whether_or_not_it_was_made(qt, themed, tmp_path, make_window, s, monkeypatch, made):
+    """Day 1 billed already, at Alex's Daily. Whether it counts as made (Job.made: not when a file of it failed on the run
+    that made the invoice, so Generate all takes it up again) has nothing to do with the bill: not made, it was among the
+    days day 2's speed was worked out over, which billed Daily $180.00, where the window said he chooses."""
+    win, (one, two) = trial_window(qt, tmp_path, make_window, s)
+    one.speeds, one.invoiced, one.made = {A: "Daily"}, True, made
+    assert any(j is one for j in win._to_generate()) is not made
+    w = open_window(qt, [two], s, pool=win._speed_days)
+    assert cell(w, 0, A).text() == "" and w.firm_speed_boxes[A].short_text() == "Chooses"
+    assert invoices_shown(w) == CHOOSES_ON_DAY_2 == generate_all(qt, win, s, monkeypatch)
+    assert two.speeds == {}
+    w.close()
+
+
+def test_fill_jobs_works_no_speed_out_over_a_day_invoiced(tmp_path, s):
+    """As the command line and the preview call it: the same days, without the window."""
+    jobs = days_of(tmp_path / "a", s, pages=(10, 20), ticked=(A,))
+    one, two = jobs
+    one.speeds, one.invoiced = {A: "Daily"}, True
+    assert generate(jobs, s) == CHOOSES_ON_DAY_2
+    assert two.speeds == {}
+
+
+def test_generate_all_asks_nothing_about_a_day_invoiced(qt, themed, tmp_path, make_window, s, monkeypatch):
+    """Where Generate asks: a day billed already, shared and with no speed, isn't asked about (what would the answer
+    change?), and a speed on it doesn't start the question of another day's."""
+    s.split_speeds = "ask"
+    win, (one, two) = trial_window(qt, tmp_path, make_window, s)
+    for j in (one, two):
+        for a in j.case.attorneys:
+            a.checked = a.key() in (A, D)
+    one.invoiced, one.speeds = True, {A: "Daily"}
+    asked = []
+    from minute_filler.gui import dialogs
+
+    class Box(dialogs.SplitSpeedsDialog):
+        def __init__(self, asks, *a, **k):
+            asked.extend(asks)
+            super().__init__(asks, *a, **k)
+
+        def exec(self):
+            return dialogs.SplitSpeedsDialog.Accepted
+    monkeypatch.setattr(dialogs, "SplitSpeedsDialog", Box)
+    generate_all(qt, win, s, monkeypatch)
+    assert [(a.job, a.speed) for a in asked] == [(two, "Expedite"), (two, "Expedite")]
+    assert one.speeds == {A: "Daily"}
+
+
+@pytest.mark.parametrize("shown", ["day 2, ticked", "day 1, unticked"])
+def test_what_generate_all_bills_doesnt_depend_on_the_day_shown(qt, themed, tmp_path, make_window, s, monkeypatch, shown):
+    """Day 1 unticked, so not made, at Alex's Daily. It gave day 2 his Daily, $180.00, only while day 1 was the day on
+    screen; the window on day 2 says what Generate all bills, from either."""
+    win, (one, two) = trial_window(qt, tmp_path, make_window, s)
+    one.speeds, one.include = {A: "Daily"}, False
+    win.cur = two if shown.startswith("day 2") else one
+    win._who_ordered(two)
+    pump(qt)
+    w = win.excerpts
+    assert [d.job for d in w.days] == [two]
+    assert invoices_shown(w) == CHOOSES_ON_DAY_2 == generate_all(qt, win, s, monkeypatch)
+    assert two.speeds == {}
+    w.close()
+
+
+@pytest.mark.parametrize("shown", ["ticked", "unticked"])
+def test_a_ticked_day_still_gives_its_speed_whichever_day_is_shown(qt, themed, tmp_path, make_window, s, monkeypatch, shown):
+    """The other way about: days 1 and 2 ticked, day 3 unticked. Day 2 takes Alex's Daily from day 1 whichever is shown."""
+    win, jobs = trial_window(qt, tmp_path, make_window, s, pages=(10, 20, 5))
+    one, two, three = jobs
+    one.speeds, three.include = {A: "Daily"}, False
+    win.cur = two if shown == "ticked" else three
+    win._who_ordered(two)
+    pump(qt)
+    w = win.excerpts
+    assert [d.job for d in w.days] == [one, two]
+    both = {"Alex B. Counsel": {"Daily": Decimal("270.00")}}
+    assert invoices_shown(w) == both == generate_all(qt, win, s, monkeypatch)
+    w.close()
+
+
+def test_generate_of_the_day_shown_still_counts_the_days_ticked(qt, themed, tmp_path, make_window, s):
+    """Generate of day 2, shown and unticked, works its speeds out over the days ticked, as it did: Generate all's days
+    are the ticked ones, and this day is the one it makes."""
+    win, (one, two) = trial_window(qt, tmp_path, make_window, s)
+    one.speeds, two.include = {A: "Daily"}, False
+    win.cur = two
+    assert [id(j) for j in win._speed_days([two])] == [id(two), id(one)]
+    assert win._ask_split_speeds([two]) and two.speeds == {A: "Daily"}
+    win._unsettle()
+
+
+def test_generate_of_a_day_invoiced_still_settles_its_own_speeds(qt, themed, tmp_path, make_window, s):
+    """Generate of the day shown bills a day invoiced already again: its firms sharing pages still commit to a speed,
+    though Generate all leaves it out."""
+    win, (one, two) = trial_window(qt, tmp_path, make_window, s)
+    for a in one.case.attorneys:
+        a.checked = a.key() in (A, D)
+    one.invoiced = True
+    win.cur = one
+    assert win._ask_split_speeds([one]) and one.speeds == {A: "Expedite", D: "Expedite"}
+    win._unsettle()
 
 
 def test_a_day_invoiced_already_is_shown_as_it_was_billed(qt, themed, tmp_path, make_window, s):

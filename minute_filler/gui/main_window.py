@@ -4518,16 +4518,18 @@ class MainWindow(QMainWindow):
         return box.clickedButton() is go_on and not self._batch_running()
 
     def _speed_days(self, jobs: list[Job]) -> list[Job]:
-        """The days Generate works the speeds of these jobs out over: them and the days of their trials Who ordered
-        counts, not invoiced yet, as its Speed column is (batch.speed_shown: a firm ordering one day alone that shares
-        pages on another commits on both, Generate of one day too). What the prices are worked out over too
-        (_as_billed, and the Excerpts window's), or they would say another speed than is billed."""
+        """The days Generate works the speeds of these jobs out over: them and the days of their trials ticked in the
+        list (_considered), not invoiced yet, as its Speed column is (batch.speed_shown: a firm ordering one day alone
+        that shares pages on another commits on both, Generate of one day too). Not a day for being the one on screen
+        (_counted): what Generate all bills would change with it. What the prices are worked out over too (_as_billed,
+        and the Excerpts window's), or they would say another speed than is billed."""
         from ..batch import trial_days
         pool: dict[int, Job] = {id(j): j for j in jobs}
+        considered = self._considered()
         for j in jobs:
             if j in self.jobs:
-                for d in self._counted(trial_days(j, self.jobs)):
-                    if not d.invoiced:
+                for d in trial_days(j, self.jobs):
+                    if not d.invoiced and any(d is k for k in considered):
                         pool.setdefault(id(d), d)
         return list(pool.values())
 
@@ -6278,8 +6280,10 @@ class MainWindow(QMainWindow):
         if courthouses.asks(outputs, "parties") and not self._ask_parties(chosen):
             return
         chosen = [j for j in chosen if j in self.jobs]
-        # The firms of split orders commit to a speed: those not set yet, asked at once for every case
-        if courthouses.asks(outputs, "speeds") and not self._ask_split_speeds(chosen, "Generate all"):
+        # The firms of split orders commit to a speed: those not set yet, asked at once for every case (of the days it
+        # bills: a day invoiced already and not made, here for its other files, gives no speed, as fill_jobs has it)
+        if courthouses.asks(outputs, "speeds") and not self._ask_split_speeds([j for j in chosen if not j.invoiced],
+                                                                              "Generate all"):
             return
         chosen = [j for j in chosen if j in self.jobs]
         # Days whose invoice still waits for a choice (Excerpts..., whose pages to bill, the speeds): say which,
