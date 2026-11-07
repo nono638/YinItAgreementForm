@@ -22,7 +22,7 @@ from .ingest import Ingested
 from .log import log
 from .models import Attorney, Candidate, Extraction, SRC_PDF, SRC_REGEX, firm_key, join_names, to_int
 from .settings import Profile
-from .takes import CREDENTIALS, body_pages
+from .takes import CREDENTIALS, body_pages, run_numbers
 
 # ------------------------------------------------------------------ helpers
 
@@ -1065,7 +1065,11 @@ class RegexExtractor:
             pages = body_pages(ing.marks, ing.page_count, count)  # without the word index printed after it
             note = ""
             if count is not None and count.first is not None:
-                note = f"transcript pages {count.first}-{count.last}" if count.first > 1 else ""
+                read = run_numbers([m.number for m in ing.marks]).text
+                if "," in read:  # (they start again or jump: first-last would be one solid range)
+                    note = f"transcript pages {read}"
+                elif count.first > 1:
+                    note = f"transcript pages {count.first}-{count.last}"
             elif ing.first_page_no and ing.first_page_no > 1:
                 note = f"starts at page {ing.first_page_no}"
             index = count.index_pages if count is not None else ing.page_count - pages

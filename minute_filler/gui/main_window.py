@@ -3036,9 +3036,11 @@ class MainWindow(QMainWindow):
         job opened again: batch.origin_fixes); each document read whose key is there gets them (Doc.fixes).
         orders: a trial's record opened again (its origin, add_files): the days made of these documents get who
         ordered them as it kept it (batch.put_back_orders). old_places: that record counted Min-U-Script covers among
-        the pages: the corrected takes are moved to places without them, and a toast says the count changed (the
-        rows are the jobs': batch.settle_old_places). A cell of the attorney table being typed in when the
-        read ends is taken as typed, and opened again afterwards while the same job is on screen (_resume_edit).
+        the pages: the corrected takes are moved to places without them (the rows are the jobs':
+        batch.settle_old_places), and a toast says the count changed once a job has all its transcripts, this read
+        or a later one (until then the Pages field still shows the record's count). A cell of the attorney table
+        being typed in when the read ends is taken as typed, and opened again afterwards while the same job is on
+        screen (_resume_edit).
         """
         # the reading thread gets its own copy of the settings: Settings may change them meanwhile
         gen, target, s = self.gen, self.cur, deepcopy(self.s)
@@ -3069,6 +3071,7 @@ class MainWindow(QMainWindow):
             if docs:
                 typing = self._sync_from_ui()
                 shown = self.cur
+                waiting = [j for j in self.jobs if j.old_places]  # (a read may bring the last of their transcripts)
                 one_job = len(self.jobs) == 1 and target in self.jobs and not batch
                 if one_job and (same_job or len(docs) == 1 or len(group(docs, self.s)) == 1):
                     # the usual way: everything dropped is about the job on screen
@@ -3100,8 +3103,11 @@ class MainWindow(QMainWindow):
                                 f"{len(self.jobs)} in total.")
                 if self.cur is shown:  # (still the job the user was typing in)
                     self._resume_edit(typing)
-                if old_places and cover_note(docs):  # (last: a toast replaces the one before it)
-                    self._toast(cover_note(docs))
+                # (last: a toast replaces the one before it)
+                moved = [d for j in self.jobs if not j.old_places and (any(j is w for w in waiting) or (
+                    old_places and any(d is e for d in docs for e in j.docs))) for d in j.docs]
+                if cover_note(moved):
+                    self._toast(cover_note(moved))
             else:
                 self._update_status()
             log.info("read %d of %d document(s)%s", len(docs), len(loaders), " (batch)" if batch else "")
