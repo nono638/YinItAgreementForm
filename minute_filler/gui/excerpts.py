@@ -638,7 +638,7 @@ class ExcerptsWindow(QDialog):
         if p.firms:
             how = ("its price a page rounded to the cent" if self.s.invoice_rounding == "page"
                    else "rounded up to the cent")
-            lines.append(f"<br><b>Each firm's invoice</b> ({how})")
+            lines.append(f"<br><b>Each firm's invoice</b> ({how}){self._whose_invoices(p)}")
             for key, amounts in p.firms:
                 # (the speeds offered, as ticked above; an invoice of the speed the firm ordered: that one, ticked
                 # or not. With none of them to list, all: a firm's line never comes out with no amount)
@@ -646,6 +646,17 @@ class ExcerptsWindow(QDialog):
                 costs = " · ".join(f"{html.escape(sp)} {fmt(amounts[sp])}" for sp in listed)
                 lines.append(f"{named(key)}: {costs}")
         return "<br>".join(lines)
+
+    @staticmethod
+    def _whose_invoices(p) -> str:
+        """Whose name the invoices under the table are in, where Whose pages... bills another reporter, and who else
+        Generate makes invoices for (only the first set is priced: excerpts.prices): ", in your name; those in DS's
+        name are made too". "" while they are simply the user's."""
+        if not p.reporter and not p.more_sets:
+            return ""
+        whose = f"in {p.reporter.upper()}'s name" if p.reporter else "in your name"
+        others = " and ".join(f"{r.upper()}'s" for r in p.more_sets)
+        return f", {whose}" + (f"; those in {others} name are made too" if others else "")
 
     def _pages_of(self, runs: list[int]) -> str:
         """The pages of a line under the table (the runs, by id, of a set of firms ordering together:

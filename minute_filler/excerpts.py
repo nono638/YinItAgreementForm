@@ -33,7 +33,8 @@ from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
 from . import courthouses
-from .batch import Job, as_billed, group_problem, joint_invoice, portion_row, same_entries, speed_days, speeds_to_ask
+from .batch import (Job, as_billed, group_problem, joint_invoice, joint_invoice_sets, portion_row, same_entries,
+                    speed_days, speeds_to_ask)
 from .invoice import ORDERED_BY_NOBODY, default_speed, firm_invoices, index_mode, index_pages
 from .invoice_calc import Share, index_days, offered, quote_ordered, quote_shares
 from .models import Attorney
@@ -371,10 +372,15 @@ def store(day: Day, runs: list[Run], firms: list[Attorney], s: Settings | None =
         job.refresh_copies(s)  # No. of copies follows the parties ordering now
 
 
-def billed_in(day: Day, run: Run) -> int:
+def billed_in(day: Day, run: Run, job: Job | None = None) -> int:
     """The pages billed in a run: on a transcript of several reporters only those Whose pages... bills (the
-    user's, by default; Job.day_mask)."""
-    mask = day.job.day_mask() if day.splittable else None
+    user's, by default; Job.day_mask), of the day as the invoices priced bill it (job: Job.billed_by; default: the
+    day's own). A job of several days is ordered whole, and so is a day whose places are counted in a number typed
+    but billed by another reporter's invoices, which don't go by that number (Job.billed_by): what they bill of it."""
+    job = job or day.job
+    if not day.splittable or (job.portion_pages() != day.pages and (run.start, run.end) == (1, day.pages)):
+        return job.invoice_pages()
+    mask = job.day_mask()
     return sum(mask[run.start - 1:run.end]) if mask is not None else run.end - run.start + 1
 
 
@@ -477,6 +483,8 @@ class Prices:
     # (id(job), firm key) -> the speed Generate's question starts from, where it asks (Settings.split_speeds "ask")
     asked: dict[tuple[int, str], str] = field(default_factory=dict)
     hold: str = ""  # why Generate makes no invoice of these days yet, as they are billed ("" when it does: find_hold)
+    reporter: str = ""  # whose name the invoices priced are in (InvoiceOpts.reporter: "" = the user's)
+    more_sets: list[str] = field(default_factory=list)  # the other reporters Generate makes invoices for, not priced here
 
     def speed_billed(self, run: Run, key: str) -> str:
         """The speed firm `key` is billed for the run at: the run's own, else its speed on the day, set or as Generate
@@ -503,15 +511,17 @@ def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None
     invoice. A firm's share of a run is worked out exactly, and the
     invoices round each firm's total up to the cent (invoice_calc.quote_shares, quote_ordered); with each price a
     page rounded to the cent (Settings.invoice_rounding "page"), a share is that price times its pages, as the
-    invoice has it ($6.6125 a page -> $6.61 x 30 = $198.30, not $198.375). Only one set of
-    invoices is priced (batch.joint_invoice): on a transcript of several reporters, the pages of the first
-    reporter Whose pages... bills (the user, when ticked), not each reporter's set (batch.joint_invoice_sets)."""
+    invoice has it ($6.6125 a page -> $6.61 x 30 = $198.30, not $198.375). Only the first set of invoices is priced
+    (batch.joint_invoice_sets): on days of several reporters, those of the first reporter Whose pages... bills on any
+    of them (the user, when ticked), each day as that reporter's invoices bill it; Prices.reporter and more_sets say so."""
     group = [d.job for d in days]
     try:
-        firms_of(group)  # (the same firm named alike on every day, batch.same_entries, before the days are copied)
+        firms = firms_of(group)  # (the same firm named alike on every day, batch.same_entries, before they are copied)
         billed = as_billed(group, s, pool)
-        case, opts = joint_invoice(billed)
-        orders = [(d, o) for d in days for o in d.job.invoice_orders()]
+        sets = joint_invoice_sets(billed)
+        case, opts = sets[0] if sets else joint_invoice(billed)
+        theirs = {id(d): b.billed_by(opts.reporter or "me") for d, b in zip(days, billed)}
+        orders = [(d, o) for d in days for o in theirs[id(d)].invoice_orders()]
     except Exception:  # (a day with nothing to bill yet)
         return Prices([])
     sheet = s.sheet()
@@ -534,12 +544,13 @@ def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None
 
     out = Prices([sp.name for sp in speeds], fallback=default_speed(case, s),
                  settled={(id(j), k): sp for j, b in zip(group, billed) for k, sp in b.speeds.items() if sp},
-                 hold=find_hold(days, billed))
+                 hold=find_hold(days, billed), reporter=opts.reporter, more_sets=[o.reporter for _, o in sets[1:]])
     if s.split_speeds == "ask":
         out.asked = {(id(a.job), a.key): a.speed for a in speeds_to_ask(speed_days(group, pool), s)}
     # (the job's split rule once it was billed: batch.Job.split_rule)
     upfront, rule = courthouses.speed_upfront(), courthouses.split_rule(opts.split_rule or s.invoice_split_rule)
-    names = {a.key(): a.label() for a in firms_of(group)}
+    names = {a.key(): a.label() for a in firms}
+    pages_in = {id(r): billed_in(r.day, r, theirs[id(r.day)]) for r in runs if id(r.day) in theirs}
 
     def shares_of(run: Run, key: str | None = None) -> list[Share]:
         """A run's pages for quote_shares, each share split as many ways as firms ordered the run; for firm
@@ -554,7 +565,7 @@ def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None
                            for o in run.keys if o != key)
         if not run.day.splittable and len(own) > 1:  # (ordered whole: a share per date, each indexed or not)
             return [Share(p, n, x, speed, others) for p, x in own]
-        return [Share(billed_in(run.day, run), n, any(x for _, x in own), speed, others)]
+        return [Share(pages_in[id(run)], n, any(x for _, x in own), speed, others)]
 
     # The firms billed one speed for all their pages, as invoice.firm_invoices has it: a speed on any of them, or a
     # run shared with another firm where firms commit (the rest of their pages too, alone or not)
@@ -583,7 +594,7 @@ def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None
                                for sp in speeds}
     together: dict[tuple[str, ...], list[Run]] = {}
     at: dict[tuple[tuple[str, str], ...], list[Run]] = {}
-    order = {a.key(): i for i, a in enumerate(firms_of(group))}
+    order = {a.key(): i for i, a in enumerate(firms)}
     for r in runs:
         if not r.keys:
             continue
@@ -600,7 +611,7 @@ def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None
                             for sp in speeds}))
     out.groups.sort(key=lambda g: (len(g[0]), g[0]))
     for pairs, rs in at.items():
-        pages = sum(billed_in(r.day, r) for r in rs)
+        pages = sum(pages_in[id(r)] for r in rs)
         out.ordered_groups.append((pairs, pages, {k: sum((out.ordered[id(r)][k][1] for r in rs), Decimal(0))
                                                   for k, _ in pairs}))
     out.ordered_groups.sort(key=lambda g: (len(g[0]), g[0]))
