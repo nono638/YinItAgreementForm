@@ -563,8 +563,10 @@ class ExcerptsWindow(QDialog):
         else:
             tip = f"Ordered by this firm alone: {name} pays {price}."
         if not run.speed(key):
-            forms = {speed_key(default_speed(run.day.job.case, self.s)), speed_key(p.fallback)}
-            whence = "the agreement form's speed" if speed_key(speed) in forms else "its speed on its other pages"
+            # (this day's form: another day's speed that a firm has on these pages comes from its pages there. None at
+            # all, where it needn't commit: it is shown at the first day's form, Prices.fallback)
+            form = not p.speed_billed(run, key) or speed_key(speed) == speed_key(default_speed(run.day.job.case, self.s))
+            whence = "the agreement form's speed" if form else "its speed on its other pages"
             tip += f" Billed at {speed}, {whence}, unless you choose another (right-click, or under the firm's name)."
         it.setToolTip(tip)
 
@@ -615,8 +617,10 @@ class ExcerptsWindow(QDialog):
             who = " + ".join(named(k) for k in keys)
             alone = len(keys) == 1
             costs = " · ".join(f"{html.escape(sp)} {money_exact(each[sp])}" for sp in shown if sp in each)
-            lines.append(f"{who}{' only' if alone else ''}: {self._pages_of(p.members.get(keys, []))} - "
-                         + (f"costs {costs}" if alone else f"each of the {len(keys)} pays {costs}"))
+            line = f"{who}{' only' if alone else ''}: {self._pages_of(p.members.get(keys, []))}"
+            # (every speed's box unticked: its pages alone, not "- costs " and nothing after it)
+            lines.append(line + (" - " + (f"costs {costs}" if alone else f"each of the {len(keys)} pays {costs}")
+                                 if costs else ""))
         for pairs, _, each in p.ordered_groups:
             who = " + ".join(f"{named(k)} ({html.escape(sp)})" for k, sp in pairs)
             if len(pairs) == 1:
@@ -634,6 +638,8 @@ class ExcerptsWindow(QDialog):
         if nobody:
             mine = [n.your_transcribed for n in nobody]
             yours = "" if None in mine else f", {sum(mine)} of them yours"
+            if yours and sum(n.total_transcribed for n in nobody) == 1:  # (one page isn't "them")
+                yours = ", it is yours" if sum(mine) else ", not yours"
             lines.append(f"Nobody: {self._totals(nobody, 'total_transcribed')}{yours} (not billed)")
         if p.firms:
             how = ("its price a page rounded to the cent" if self.s.invoice_rounding == "page"
@@ -668,11 +674,11 @@ class ExcerptsWindow(QDialog):
     @staticmethod
     def _totals(counts: list, which: str) -> str:
         """These runs' `which` count (excerpts.Counts) in words, what is typed apart from what is counted: "93 total
-        pages", "10 pages typed", "93 total pages, 10 pages typed"."""
+        pages", "1 total page", "10 pages typed", "93 total pages, 10 pages typed"."""
         typed = sum(getattr(n, which) for n in counts if n.typed)
         total = sum(getattr(n, which) for n in counts if not n.typed)
-        return ", ".join(([f"{total} total pages"] if total or not typed else [])
-                         + ([f"{typed} pages typed"] if typed else []))
+        return ", ".join(([f"{total} total page{'' if total == 1 else 's'}"] if total or not typed else [])
+                         + ([f"{typed} page{'' if typed == 1 else 's'} typed"] if typed else []))
 
     def _firm_speed_boxes(self, p) -> None:
         """Each firm's box in its heading: the speed all its pages of the case are billed at (p: Prices.speed_billed,
@@ -741,7 +747,9 @@ class ExcerptsWindow(QDialog):
         QTimer.singleShot(0, self._speeds_kept)
 
     def _speeds_kept(self) -> None:
-        """After a speed is set: the days read again and shown, and the main window told."""
+        """After a speed is set: the days read again and shown (no longer saying why a run typed before it was refused),
+        and the main window told."""
+        self.problem.setText("")
         self._fill(self.group)
         self.changed()
 

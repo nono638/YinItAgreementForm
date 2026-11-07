@@ -1017,6 +1017,118 @@ def test_a_refused_run_stays_said_on_a_held_invoice(qt, themed, tmp_path, s):
     w.close()
 
 
+def test_a_refused_run_isnt_said_once_a_speed_is_chosen(qt, themed, tmp_path, s):
+    """It stayed under the table, after the firm's speed was set from its heading, until the next tick."""
+    from minute_filler.gui.excerpts import PAGES
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    w.table.item(0, PAGES).setText("999-1000")
+    assert w.problem.text().startswith("⚠") and "101–130" in w.problem.text()
+    box = w.firm_speed_boxes[D]
+    box.setCurrentIndex(box.findData("Daily"))
+    box.activated.emit(box.currentIndex())
+    pump(qt)
+    assert w.problem.text() == ""
+    w.close()
+
+
+def test_a_hold_is_still_said_after_a_speed_is_chosen(qt, themed, tmp_path, s):
+    """What the speed chosen brings stays: a refused run's message goes, a third speed's comes."""
+    from minute_filler.gui.excerpts import PAGES
+    jobs = days_of(tmp_path, s, ticked=(D, A, K))
+    jobs[0].speeds = {D: "Daily", A: "Immediate", K: "Daily"}
+    w = open_window(qt, jobs, s)
+    w.table.item(0, PAGES).setText("999-1000")
+    box = w.firm_speed_boxes[K]
+    box.setCurrentIndex(box.findData("Regular"))
+    box.activated.emit(box.currentIndex())
+    pump(qt)
+    assert "3 different speeds" in w.problem.text() and "101–130" not in w.problem.text()
+    w.close()
+
+
+# ------------------------------------------------------------------ what the lines under the table say
+def without_tags(text):
+    import html
+    import re
+    return html.unescape(re.sub(r"<[^>]+>", "", text.replace("<br>", "\n"))).replace("■\xa0", "")
+
+
+def test_no_cost_said_without_an_amount(qt, themed, tmp_path, s):
+    """Every "Show prices for" box unticked, one firm choosing, others at their speeds: "Alex B. Counsel only: 10 of your
+    pages billed (10 total pages) - costs ", with nothing after it. The pages are still said."""
+    jobs = days_of(tmp_path, s, ticked=(D, A, K))
+    w = open_window(qt, jobs, s)
+    d = w.days[0]
+    store(d, [Run(d, 1, 10, [A], {}), Run(d, 11, 30, [D, K], {})], w.firms, s)
+    w.load(jobs)
+    assert "Alex B. Counsel only: 10 of your pages billed (10 total pages) - costs Regular" in without_tags(w.summary.text())
+    for box in w.speed_boxes.values():
+        box.setChecked(False)
+    pump(qt)
+    text = without_tags(w.summary.text())
+    assert "Alex B. Counsel only: 10 of your pages billed (10 total pages)\n" in text
+    assert "costs \n" not in text and "costs" not in text.split("\n")[1]
+    w.close()
+
+
+def test_firms_together_without_an_amount_say_their_pages_alone(qt, themed, tmp_path, s):
+    """The same, for firms choosing together where they needn't commit: no "each of the 2 pays " with nothing after it."""
+    from minute_filler import courthouses
+    from dataclasses import replace
+    was = courthouses.current()
+    courthouses.use(replace(was, speed_upfront=False))
+    try:
+        jobs = days_of(tmp_path, s)
+        w = open_window(qt, jobs, s)
+        d = w.days[0]
+        store(d, [Run(d, 1, 10, [K], {K: "Daily"}), Run(d, 11, 30, [D, A], {})], w.firms, s)
+        w.load(jobs)
+        for box in w.speed_boxes.values():
+            box.setChecked(False)
+        pump(qt)
+        text = without_tags(w.summary.text())
+        assert "Dana Smith + Alex B. Counsel: 20 of your pages billed (20 total pages)\n" in text, text
+        assert "pays \n" not in text
+        w.close()
+    finally:
+        courthouses.use(was)
+
+
+@pytest.mark.parametrize("typed, line", [
+    ("40", "40 of your pages billed (1 total page)"),
+    ("", "1 of your pages billed (1 total page)")])
+def test_one_total_page_is_one_page(qt, themed, tmp_path, s, typed, line):
+    """A caption page and 40 typed read "(1 total pages)"; so did any run of one page."""
+    from minute_filler.models import SRC_USER, FieldState
+    jobs = days_of(tmp_path, s, pages=(1,))
+    if typed:
+        jobs[0].case.fields["est_pages"] = FieldState(typed, SRC_USER, 0.95, [typed])
+    w = open_window(qt, jobs, s)
+    assert line in without_tags(w.summary.text())
+    w.close()
+
+
+def test_a_run_of_one_page_nobody_ordered_says_one_page(qt, themed, tmp_path, s):
+    jobs = days_of(tmp_path, s, pages=(10,))
+    w = open_window(qt, jobs, s)
+    split(w, w.days[0], (1, 9, [D, A]), (10, 10, []))
+    text = without_tags(w.summary.text())
+    assert "Nobody: 1 total page, it is yours (not billed)" in text, text
+    assert "total pages" in text.replace("Nobody: 1 total page", "")  # (the others' line: 9 of them)
+    w.close()
+
+
+def test_a_number_typed_of_one_page_says_one_page(qt, themed, tmp_path, s):
+    jobs = typed_day(tmp_path, s, "20")
+    w = open_window(qt, jobs, s)
+    split(w, w.days[0], (1, 1, [D, A]), (2, 2, []), (3, 20, [A]))
+    text = without_tags(w.summary.text())
+    assert "1 of your pages billed (1 page typed)" in text and "Nobody: 1 page typed (not billed)" in text, text
+    assert "18 pages typed" in text
+    w.close()
+
+
 # ------------------------------------------------------------------ a Pages number typed
 def typed_day(tmp_path, s, typed="20"):
     from minute_filler.models import SRC_USER, FieldState

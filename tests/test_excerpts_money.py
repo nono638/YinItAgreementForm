@@ -188,6 +188,31 @@ def test_each_day_is_at_its_own_forms_speed(qt, themed, tmp_path, s):
     w.close()
 
 
+def test_a_speed_from_the_other_pages_isnt_called_the_forms(qt, themed, tmp_path, s):
+    """Forms Daily then Expedite; Alex Daily on day 1, alone and unset on day 2. Daily was the first day's form, so day
+    2's tip said "Billed at Daily, the agreement form's speed", though that day's form is Expedite."""
+    jobs = days_of(tmp_path / "a", s, pages=(10, 20), ticked=(A, K), forms=("Daily", "Expedite"))
+    w = open_window(qt, jobs, s)
+    set_runs(w, 0, (1, 10, [A], {A: "Daily"}))
+    set_runs(w, 1, (1, 20, [A], {}))
+    tip = cell(w, 1, A).toolTip()
+    assert "Billed at Daily, its speed on its other pages" in tip and "agreement form" not in tip
+    w.close()
+
+
+@pytest.mark.usefixtures("split_orders_choose")
+def test_a_firm_with_no_speed_is_priced_at_the_form_where_firms_neednt_commit(qt, themed, tmp_path, s):
+    """Alex Daily and Dana with none, on day 2, whose form is Daily; Dana has no speed of its own anywhere, and is shown at
+    the first day's form, where its invoice chooses. It has no other pages to take a speed from: the tip doesn't say so."""
+    jobs = days_of(tmp_path / "a", s, pages=(10, 20), ticked=(D, A), forms=("Expedite", "Daily"))
+    w = open_window(qt, jobs, s)
+    set_runs(w, 0, (1, 10, [K], {}))
+    set_runs(w, 1, (1, 20, [A, D], {A: "Immediate"}))
+    tip = cell(w, 1, D).toolTip()
+    assert "the agreement form's speed" in tip and "its other pages" not in tip
+    w.close()
+
+
 def test_no_false_divisor_on_a_run_the_split_rule_divides(qt, themed, tmp_path, s):
     """Alex Daily on day 1, Alex + Dana unset on day 2. Day 2's cell said "Expedite? · $98.00 (÷2)". Alex is billed
     $216.00 at Daily in all, leaving $126.00 for that run, which the split rule divides with Dana at the form's speed."""
