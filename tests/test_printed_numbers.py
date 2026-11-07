@@ -2408,3 +2408,105 @@ def test_a_trial_s_own_count_is_its_rows_and_never_typed(tmp_path, s):
     origin["orders"][0]["portions"] = [[11, [A]], [21, [A, B]]]
     put_back_orders([job], origin, s)
     assert not job.old_places and job.portions == [(10, [A]), (20, [A, B])] and job.portions_problem()
+
+
+# ------------------------------------------------------------------ what a job bills while a document is away
+HOLDS_31 = ("⚠ Pages still holds this job's count from its record, 31 total pages, until b.pdf is back: it counts any "
+            "Min-U-Script cover and every reporter's pages")
+
+
+def test_pages_says_it_holds_the_record_s_count_while_a_document_is_away(window, tmp_path, s):
+    """31 billed for the 30 there are, under "Typed by you", which nobody did."""
+    a, b, origin = old_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    cur = open_with_away(window, origin, b, gone)
+    assert cur.invoice_pages() == 31 and cur.pages_typed() and not cur.invoice_hold()  # (a warning, no hold)
+    line, warning = cur.pages_help()
+    assert warning == HOLDS_31 and "Typed by you" not in line
+    assert line.startswith("From this job's record · the transcript has 20 total pages")
+    window._show_job()
+    assert window.pages_warn.text() == HOLDS_31
+    assert any(p.text == HOLDS_31 for p in window._problems())
+    gone.rename(b)
+    drop_back(window, b, 2)
+    assert cur.pages_help()[1] == "" and window.pages_warn.text() == ""
+
+
+def test_so_it_says_on_a_transcript_of_two_reporters(tmp_path, s):
+    """The user's invoice bills every reporter's pages meanwhile: 31 for Pat's 8 here, 13 once b.pdf is back."""
+    a, b, origin = own_count_two_volumes(tmp_path, s, "31", SRC_PDF)
+    job = job_from_origin(origin, s)
+    job.case.fields["est_pages"].source = SRC_USER  # (as the window keeps it: MainWindow.open_past_job)
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    assert job.invoice_pages() == 31 and job.own_pages() == 8 and job.pages_help()[1] == HOLDS_31
+    job.docs += read_docs([str(b)], s)[0]
+    remerge(job, s)
+    assert job.invoice_pages() == job.own_pages() == 13 and job.pages_help()[1] == ""
+
+
+def test_it_names_every_pdf_away(tmp_path, s):
+    a = page_numbered_transcript(tmp_path / "a.pdf", 5, first=100)
+    job = job_from_origin({"sources": [str(a), str(tmp_path / "b.pdf"), str(tmp_path / "c.pdf"), str(tmp_path / "d.eml")],
+                           "job": {}, "case": {"fields": {"est_pages": ["31", SRC_PDF, 0.95]}}}, s)
+    job.case.fields["est_pages"].source = SRC_USER
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    assert "31 total pages, until b.pdf and c.pdf are back:" in job.pages_help()[1]
+
+
+def test_a_record_that_says_the_cover_is_out_says_nothing_of_a_cover_here(window, tmp_path, s):
+    a, b, origin = marked_two_volumes(tmp_path, s, COVER)
+    gone = tmp_path / "gone.pdf"
+    cur = open_with_away(window, origin, b, gone)
+    assert cur.pages_help()[1] == ("⚠ Pages still holds this job's count from its record, 30 total pages, until b.pdf is "
+                                   "back: it counts every reporter's pages")
+
+
+def test_a_number_really_typed_is_said_to_be_typed(tmp_path, s):
+    a, b, origin = own_count_two_volumes(tmp_path, s, "50")
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    line, warning = job.pages_help()
+    assert line.startswith("Typed by you ·") and warning == ""
+
+
+def test_a_number_typed_over_the_record_s_count_is_said_to_be_typed(window, tmp_path, s):
+    a, b, origin = old_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    cur = open_with_away(window, origin, b, gone)
+    cur.case.fields["est_pages"] = FieldState("40", SRC_USER, 1.0, [])
+    line, warning = cur.pages_help()
+    assert line.startswith("Typed by you ·") and warning == ""
+
+
+def test_its_own_warning_keeps_the_pdf_s_after_it(window, tmp_path, s):
+    a, b, origin = old_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    cur = open_with_away(window, origin, b, gone)
+    cur.docs[0].ing.count.warning = "⚠ 30 of the PDF's 96 total pages were taken for the word index"
+    assert cur.pages_help()[1] == HOLDS_31 + "\n30 of the PDF's 96 total pages were taken for the word index"
+
+
+def test_an_old_own_count_back_from_another_folder_goes_back_to_the_count(tmp_path, s):
+    """Whose pages... keeps the first pages' owner by the path it was at: not found, 9 stayed a number typed, and billed
+    the cover."""
+    old_path = tmp_path / "Roe.pdf"
+    (tmp_path / "x").mkdir()
+    moved = shared_with_cover(tmp_path / "x", s)
+    job = job_from_origin(own_count_record(old_path, "9"), s)
+    job.docs += read_docs([str(moved)], s)[0]
+    remerge(job, s)
+    assert not job.pages_typed() and job.invoice_pages() == job.own_pages() == 8
+
+
+def test_whose_cover_it_was_goes_by_the_document_s_name_only_when_its_path_says_nothing():
+    shared = covered_doc(5, path="x\\Roe.pdf")
+    shared.ing.name = "Roe.pdf"
+    shared.ing.marks = [PageMark(100, PR), PageMark(101, PR), PageMark(102, DS), PageMark(103, DS), PageMark(104, DS)]
+    assert Job(docs=[shared], own=(PR,), front_owner={"y\\Roe.pdf": PR})._cover_billed(shared) is True
+    assert Job(docs=[shared], own=(PR,), front_owner={"y\\Roe.pdf": DS})._cover_billed(shared) is False
+    assert Job(docs=[shared], own=(PR,), front_owner={"y\\Other.pdf": PR})._cover_billed(shared) is False
+    # (its own path first)
+    assert Job(docs=[shared], own=(PR,), front_owner={"y\\Roe.pdf": PR, "x\\Roe.pdf": DS})._cover_billed(shared) is False

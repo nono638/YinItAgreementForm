@@ -502,12 +502,30 @@ class Job:
         reads = [d.ing.count for d in self.transcripts() if getattr(d.ing, "count", None) is not None]
         return min([c.confidence for c in reads] or [0.95])
 
+    def record_count_held(self) -> str:
+        """The warning while the Pages field holds the count of the record the job was opened from (Job.old_count),
+        kept as if typed because a PDF of it is away (MainWindow.open_past_job); "" when it doesn't. Until the PDF is
+        back it is billed as a number typed: every reporter's pages, and on an older record the covers, on the user's
+        invoice (what the document back then corrects: a warning says so, not a hold). A number really typed over it
+        says nothing: that is the user's."""
+        fs = self.case.fields["est_pages"]
+        held = self.old_count and fs.source == SRC_USER and to_int(fs.value, -1) == self.old_count
+        if not held or not self.transcripts():
+            return ""
+        pdfs = [p for p in self.old_sources if p.lower().endswith(".pdf")]
+        away = [Path(p).name for p in documents_not_here(pdfs, [d.key() for d in self.docs])]
+        what = (f"{', '.join(away[:-1])} and {away[-1]} are" if len(away) > 1 else f"{away[0]} is" if away
+                else "the rest of its transcripts are")
+        cover = "any Min-U-Script cover and " if self.old_places else ""
+        return (f"Pages still holds this job's count from its record, {self.old_count} total pages, until {what} back: "
+                f"it counts {cover}every reporter's pages")
+
     def pages_help(self) -> tuple[str, str]:
-        """What Est. number of pages counts, for the line under it in the window, and the warnings of the
-        transcripts whose readings of their pages disagree (takes.count_pages): ("Transcript pages 378–460 ·
-        excludes the 13 word-index pages after them", ""). A Min-U-Script cover left out says so ("· without the
-        Min-U-Script cover"). A count taken from another reading than the scan says so on a second line. ("", "")
-        without a transcript PDF."""
+        """What Est. number of pages counts, for the line under it in the window, and the warnings: that it holds a
+        record's count (record_count_held), and of the transcripts whose readings of their pages disagree
+        (takes.count_pages): ("Transcript pages 378–460 · excludes the 13 word-index pages after them", ""). A
+        Min-U-Script cover left out says so ("· without the Min-U-Script cover"). A count taken from another reading
+        than the scan says so on a second line. ("", "") without a transcript PDF."""
         docs = self.transcripts()
         if not docs:
             return "", ""
@@ -516,14 +534,16 @@ class Job:
         index = sum(c.index_pages if c else max(0, d.ing.page_count - n) for d, n, c in reads)
         many = len(docs) > 1
         name = (lambda d: f"{d.ing.name}: " if many else "")
-        warns = [name(d) + c.warning.removeprefix("⚠ ") for d, _, c in reads if c and c.warning]
+        held = self.record_count_held()
+        warns = [held] * bool(held) + [name(d) + c.warning.removeprefix("⚠ ") for d, _, c in reads if c and c.warning]
         warning = "⚠ " + "\n".join(warns) if warns else ""
         covers = sum(cover_pages(d.ing) for d in docs)
         left_out = f" · without the Min-U-Script cover{'s' if covers > 1 else ''}" if covers else ""
+        from_where = "From this job's record" if held else "Typed by you"
         # (the user, 2026-10-30: every count says whose pages): the transcripts' counts are "total pages"
         if all(c and c.how == "pdf" for _, _, c in reads):  # no reading could tell: every page is counted
             if self.pages_typed():
-                return f"Typed by you · the PDF{'s have' if many else ' has'} {total} total pages{left_out}", warning
+                return f"{from_where} · the PDF{'s have' if many else ' has'} {total} total pages{left_out}", warning
             why = "" if warns else " (no text to find a word index in)"
             return f"{total} total pages: every page of the PDF{'s' if many else ''}{why}{left_out}", warning
         if index:
@@ -532,7 +552,7 @@ class Job:
         else:
             gone = "no word index"
         if self.pages_typed():
-            line = (f"Typed by you · the transcript{'s have' if many else ' has'} {total} total pages, "
+            line = (f"{from_where} · the transcript{'s have' if many else ' has'} {total} total pages, "
                     f"{'index excluded' if index else 'no word index'}")
         elif many:
             line = f"{len(docs)} transcripts, {' + '.join(str(n) for _, n, _ in reads)} total pages · {gone}"
@@ -676,14 +696,17 @@ class Job:
     def _cover_billed(self, doc: Doc) -> bool:
         """A transcript's Min-U-Script cover was among its pages billed, when it still counted as a page: the whole
         transcript was, or its first pages were the reporter's billed (no initials on a cover, so Whose pages... said:
-        front_owner; see _mask)."""
+        front_owner, by the path it had then, or it may have been dropped back from another folder; see _mask)."""
         basis = self.basis_of(doc)[0]
         if basis == NOBODY:
             return False
         if self._mask(doc, basis) is None:
             return True
         found = doc.reporters()
-        front = found[0] if len(found) == 1 else self.front_owner.get(doc.key(), "")
+        name = Path(doc.key()).name.lower()
+        said = self.front_owner.get(doc.key(),
+                                    next((v for k, v in self.front_owner.items() if Path(k).name.lower() == name), ""))
+        front = found[0] if len(found) == 1 else said
         return front in (set(self.own) if basis == "me" else {basis})
 
     def your_pages_of(self, doc: Doc) -> int | None:
