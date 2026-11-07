@@ -12,7 +12,7 @@ would close its list and lose the focus each time. hold() makes them stay as the
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QPointF, QRect, QSignalBlocker, QSize, Qt
+from PySide6.QtCore import QEvent, QPointF, QRect, QSignalBlocker, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (QApplication, QHeaderView, QStyle, QStyleOptionComboBox, QStyleOptionHeader,
                                QStyleOptionViewItem, QStylePainter)
@@ -65,6 +65,11 @@ class FirmSpeedBox(QuietCombo):
 
     def contextMenuEvent(self, e) -> None:  # noqa: N802 (Qt's name)
         """Not taken: a right-click on the box is one on the heading (its Columns menu), as anywhere else on it."""
+        e.ignore()
+
+    def wheelEvent(self, e) -> None:  # noqa: N802
+        """Never taken, focus or not: the table behind it scrolls. These boxes keep the focus while the table is shown
+        again, so a wheel going by after a choice moved the firm to the next speed and repriced it with no word."""
         e.ignore()
 
     def paintEvent(self, _e) -> None:  # noqa: N802
@@ -187,6 +192,21 @@ class FirmCellDelegate(StripeDelegate):
     a selected row (the style sheet's item:selected sets one colour there, which took the amber of a speed to
     commit to), and a left click anywhere in it ticks or unticks it. Other cells as usual."""
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._closing = False  # an editor closed just now: the press being handled is what closed it
+        self._pass_over = False  # the press that closed it was on a firm's cell: its release ticks nothing
+        self.closeEditor.connect(self._editor_closed)
+
+    def _editor_closed(self, *_) -> None:
+        """The cell typed in has closed, kept or not. If a press took the focus from it, that press is delivered next,
+        before the timer's zero is up; closed any other way (Enter, Escape), the mark is gone by the next press."""
+        self._closing = True
+        QTimer.singleShot(0, self._closed_a_while_ago)
+
+    def _closed_a_while_ago(self) -> None:
+        self._closing = False
+
     @staticmethod
     def _is_firms(index) -> bool:
         """A cell with a box to tick: only the firms' are (ExcerptsWindow._cell makes the others uncheckable)."""
@@ -225,10 +245,17 @@ class FirmCellDelegate(StripeDelegate):
     def editorEvent(self, event, model, option, index) -> bool:  # noqa: N802 (Qt's name)
         """A left click anywhere in a firm's cell flips its tick through the model, so the table's itemChanged runs
         as for any tick. On the release only: the press chooses the row as on any cell, and the view sends the release
-        only when it is over the cell pressed, so a drag ticks nothing. The other buttons are left alone (a
-        right-click is the run's menu). Space comes here too, and is the base class's."""
+        only when it is over the cell pressed, so a drag ticks nothing. A press that closed the cell being typed in
+        ticks nothing: it was to leave that cell, and keeping what was typed has shown the table again, so a different
+        run may be under the mouse by its release (firm dropped from pages it ordered; a run refused and its message
+        cleared). The other buttons are left alone (a right-click is the run's menu). Space comes here too, and is the
+        base class's."""
         if event.type() in MOUSE and self._is_firms(index):
-            if event.button() != Qt.LeftButton or event.type() != QEvent.MouseButtonRelease:
+            if event.button() != Qt.LeftButton:
+                return False
+            if event.type() == QEvent.MouseButtonPress:
+                self._pass_over = self._closing
+            if event.type() != QEvent.MouseButtonRelease or self._pass_over:
                 return False
             on = Qt.CheckState(index.data(Qt.CheckStateRole)) == Qt.Checked
             return model.setData(index, Qt.Unchecked if on else Qt.Checked, Qt.CheckStateRole)
