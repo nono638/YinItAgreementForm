@@ -781,16 +781,15 @@ half a cent a page ($6,612.50 there, $6,610.00 here, for 1,000 pages).</p>
     # ------------------------------------------------------------------------------- Pages ordered and speeds
     T("exc-table", EXCERPTS, "Who ordered which pages…: a firm that ordered some pages only (an excerpt)",
       "excerpt excerpts part of the transcript some pages runs page range split run remove run partial order firm "
-      "ordered only how to use steps button pages ordered each firm whole",
+      "ordered only how to use steps button pages ordered each firm whole ordered which pages",
       """
 <p>When one firm ordered the whole trial and others only some pages (an excerpt), open <b>Who ordered which
 pages…</b> (the button under the firms in Who ordered, or
 <i>Some days or pages…</i> in a firm's <i>What</i>). It is one table for every day of the case on that invoice (every day ticked, as a rule):</p>
 <ul>
 <li>each row is a <b>run of pages</b> of a day, typed in its <b>Page numbers</b> cell in the transcript's own
-printed page numbers (<i>141-170</i>); the rows around a run you type make room for it. The cell shows the numbers as
-read from the PDF. Where a page has none, or the page numbers start over partway through and a number is on two pages,
-a run goes by its place in the day (<i>place 40-44</i>). A job of several days is
+printed page numbers (<i>141-170</i>); the rows around a run you type make room for it. A page with no number, or
+numbers that start over: type its place in the day (<i>place 40-44</i>). A job of several days is
 ordered whole: its cell shows the page numbers printed on its transcripts;</li>
 <li>each firm has a coloured column: <b>tick the firms that ordered the run</b>, a click anywhere in the cell (on
 the date, it only chooses the row). At first every ticked firm ordered every page;</li>

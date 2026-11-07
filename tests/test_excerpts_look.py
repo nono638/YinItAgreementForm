@@ -879,7 +879,7 @@ def test_split_run_cancelled_changes_nothing(qt, themed, tmp_path, s, monkeypatc
     w.close()
 
 
-@pytest.mark.parametrize("typed, why", [("500", "pages are 101–130"), ("130", "before its last page"),
+@pytest.mark.parametrize("typed, why", [("500", "page numbers are 101–130"), ("130", "before its last page"),
                                         ("x", "type the run")])
 def test_split_run_says_why_it_cant_cut_there(qt, themed, tmp_path, s, monkeypatch, typed, why):
     w = open_window(qt, days_of(tmp_path, s), s)
