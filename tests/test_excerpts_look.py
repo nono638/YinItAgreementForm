@@ -45,11 +45,11 @@ def themed(qt):
     app.setPalette(palette)
 
 
-def days_of(tmp_path, s, pages=(30,), firms=(DANA, ALEX, KIM), ticked=(D, A)):
+def days_of(tmp_path, s, pages=(30,), firms=(DANA, ALEX, KIM), ticked=(D, A), initials=None):
     """Jobs of a transcript per number in `pages`, one day each (at Expedite, as on the agreement form), with these
     firms, those in `ticked` ordering every page."""
     when = ("June 3, 2026", "June 4, 2026", "June 5, 2026")
-    docs, errors = read_docs([str(transcript_pdf(tmp_path / f"Day {i}.pdf", n, date=when[i]))
+    docs, errors = read_docs([str(transcript_pdf(tmp_path / f"Day {i}.pdf", n, date=when[i], initials=initials))
                               for i, n in enumerate(pages)], s)
     assert not errors
     jobs = group(docs, s)
@@ -244,6 +244,93 @@ def test_a_right_click_on_a_cell_is_the_runs_menu_and_ticks_nothing(qt, clicking
     click_at(qt, w, 0, D, Qt.RightButton)
     click_at(qt, w, 0, D, Qt.MiddleButton)
     assert sorted(w.runs[0].keys) == sorted([D, A]) and told == []
+
+
+def typing(qt, w, text, row=0):
+    """A run typed in Page numbers, the editor still open: not kept until it closes."""
+    from PySide6.QtWidgets import QAbstractItemView, QLineEdit
+    from minute_filler.gui.excerpts import PAGES
+    w.table.setCurrentCell(row, PAGES)
+    w.table.editItem(w.table.item(row, PAGES))
+    pump(qt)
+    editor = qt.QApplication.focusWidget()
+    assert isinstance(editor, QLineEdit) and w.table.state() == QAbstractItemView.EditingState
+    editor.setText(text)
+    return editor
+
+
+def test_the_click_that_finishes_typing_a_run_ticks_nothing(qt, clicking):
+    """Type, then tick is the how-to's own order. The press takes the focus, so the run is kept and the table shown
+    again before the press lands, and the release ticked whatever was under the mouse by then: Dana unticked on 101-110,
+    so not billed for those pages. Only the next click ticks."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    w, told = clicking
+    rect = w.table.visualItemRect(cell(w, 0, D))
+    at = QPoint(rect.right() - 6, rect.center().y())
+    typing(qt, w, "111-120")
+    QTest.mouseClick(w.table.viewport(), Qt.LeftButton, Qt.NoModifier, at)
+    pump(qt)
+    both = sorted([D, A])
+    assert [(r.start, r.end, sorted(r.keys)) for r in w.runs] == [(1, 10, both), (11, 20, both), (21, 30, both)]
+    assert told == [1]
+    QTest.mouseClick(w.table.viewport(), Qt.LeftButton, Qt.NoModifier, at)
+    pump(qt)
+    assert w.runs[0].keys == [A] and told == [1, 1]
+
+
+def test_the_click_that_finishes_a_run_refused_leaves_the_message(qt, clicking):
+    """A number no page has: refused. The tick landed anyway, and showing that cleared the ⚠ at once."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    w, told = clicking
+    rect = w.table.visualItemRect(cell(w, 0, D))
+    typing(qt, w, "999-1000")
+    QTest.mouseClick(w.table.viewport(), Qt.LeftButton, Qt.NoModifier, QPoint(rect.right() - 6, rect.center().y()))
+    pump(qt)
+    assert w.problem.text().startswith("⚠") and "101–130" in w.problem.text()
+    assert sorted(w.runs[0].keys) == sorted([D, A]) and len(w.runs) == 1 and told == []
+
+
+def test_a_click_after_the_typing_was_kept_by_enter_ticks(qt, clicking):
+    """Only a press that closes the editor is passed over: the typing kept by Enter, the next click is a click."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    w, told = clicking
+    QTest.keyClick(typing(qt, w, "111-120"), Qt.Key_Return)
+    pump(qt)
+    assert told == [1]
+    click_at(qt, w, 0, D)
+    assert w.runs[0].keys == [A] and told == [1, 1]
+
+
+def test_a_click_that_closes_an_unchanged_editor_ticks_nothing(qt, clicking):
+    """The same text: nothing to keep, and the click was still on the way out of the cell."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    w, told = clicking
+    rect = w.table.visualItemRect(cell(w, 0, D))
+    typing(qt, w, w.table.item(0, 2).text())
+    QTest.mouseClick(w.table.viewport(), Qt.LeftButton, Qt.NoModifier, QPoint(rect.right() - 6, rect.center().y()))
+    pump(qt)
+    assert sorted(w.runs[0].keys) == sorted([D, A])
+
+
+def test_a_dragged_press_leaves_nothing_to_pass_over_for_the_next_click(qt, clicking):
+    """A press that closed the editor, let go over another cell: no release reaches the delegate. The next click ticks."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    w, told = clicking
+    rect, other = w.table.visualItemRect(cell(w, 0, D)), w.table.visualItemRect(cell(w, 0, K))
+    typing(qt, w, "111-120")
+    viewport = w.table.viewport()
+    QTest.mousePress(viewport, Qt.LeftButton, Qt.NoModifier, QPoint(rect.right() - 6, rect.center().y()))
+    QTest.mouseMove(viewport, other.center())
+    QTest.mouseRelease(viewport, Qt.LeftButton, Qt.NoModifier, other.center())
+    pump(qt)
+    assert told == [1] and K not in w.runs[0].keys
+    click_at(qt, w, 0, K)
+    assert K in w.runs[0].keys and told == [1, 1]
 
 
 def test_the_date_chooses_the_row_without_ticking(qt, clicking):
@@ -581,6 +668,36 @@ def test_choosing_in_a_box_sets_the_firms_speed(qt, themed, tmp_path, s):
     w.close()
 
 
+@pytest.mark.parametrize("focused", [True, False])
+def test_a_wheel_going_by_never_changes_a_firms_speed(qt, themed, tmp_path, s, focused):
+    """The boxes keep the focus across a rebuild now. Choose Daily, one notch of the wheel over the box: Dana went to
+    Immediate, repriced with no message (the accident believed to have turned off the user's math). The table takes
+    the wheel."""
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    told = []
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s, told)
+    box = w.firm_speed_boxes[D]
+    box.setCurrentIndex(box.findData("Daily"))
+    box.activated.emit(box.currentIndex())
+    pump(qt)
+    w.activateWindow()
+    if focused:
+        box.setFocus()
+        pump(qt)
+        assert box.hasFocus()
+    centre = box.rect().center()
+    for notch in (-120, 120):
+        wheel = QWheelEvent(QPointF(centre), QPointF(box.mapToGlobal(centre)), QPoint(0, 0), QPoint(0, notch),
+                            Qt.NoButton, Qt.NoModifier, Qt.NoScrollPhase, False)
+        qt.QApplication.sendEvent(box, wheel)
+        pump(qt)
+        assert not wheel.isAccepted()
+    assert jobs[0].speeds[D] == "Daily" and box.currentData() == "Daily" and told == [1]
+    w.close()
+
+
 def test_a_firm_that_ordered_nothing_has_no_speed_to_set(qt, themed, tmp_path, s):
     """Kim ordered nothing: there is no day to set a speed on. Tick a run first, it says, and then the box works."""
     from PySide6.QtCore import Qt
@@ -778,8 +895,8 @@ def test_a_committed_firms_cells_add_up_to_its_invoice(qt, themed, tmp_path, s, 
 
 
 def test_a_lone_firm_with_a_speed_on_another_day_is_at_that_speed_as_its_invoice(tmp_path, s):
-    """prices(): a firm with a speed set on one run is billed one speed for all of it, its other runs at the form's,
-    as invoice.firm_invoices has it. A firm with no speed and no shared pages still chooses."""
+    """prices(): a firm with a speed set on one run is billed that speed on its other runs too, as Generate sets them
+    (batch.settle_split_speeds). A firm with no speed and no shared pages still chooses."""
     jobs = days_of(tmp_path, s, pages=(10, 20), ticked=(A, K))
     d1, d2 = days = case_days(jobs)
     firms = firms_of(jobs)
@@ -788,11 +905,255 @@ def test_a_lone_firm_with_a_speed_on_another_day_is_at_that_speed_as_its_invoice
     runs = [r for d in days for r in runs_of(d, firms)]
     p = prices(days, runs, s)
     assert id(runs[1]) in p.ordered and id(runs[1]) not in p.runs
-    assert p.ordered[id(runs[1])][A][0] == "Expedite"
+    assert p.ordered[id(runs[1])][A][0] == "Daily"  # (Generate gives it its speed on its other pages, not the form's)
     store(d2, [Run(d2, 1, 20, [K])], firms)
     runs = [r for d in days for r in runs_of(d, firms)]
     p = prices(days, runs, s)
     assert id(runs[1]) in p.runs and id(runs[1]) not in p.ordered  # (Kim alone, and nothing set: she chooses)
+
+
+# ------------------------------------------------------------------ a firm's invoice line
+def invoice_line(w, name):
+    """The firm's line under "Each firm's invoice", without its square."""
+    import html
+    import re
+    below = w.summary.text().split("Each firm's invoice", 1)[1]
+    found = [re.sub(r"<[^>]+>", "", x) for x in below.split("<br>") if name in html.unescape(x)]
+    assert len(found) == 1, w.summary.text()
+    return html.unescape(found[0]).replace("■", "").strip()
+
+
+@pytest.fixture
+def two_reporters(tmp_path, s):
+    """A transcript of 30 total pages: the user's first 10, another reporter's 20. Alex alone on the user's, Alex and
+    Dana on the other reporter's, so that run has no billed pages."""
+    s.profile.initials = "PR"
+    jobs = days_of(tmp_path, s, initials=["PR"] * 10 + ["DS"] * 20)
+    assert sum(jobs[0].day_mask()) == 10
+    return jobs
+
+
+def test_a_firm_sharing_only_pages_not_billed_is_billed_as_generate_has_it(qt, themed, s, two_reporters):
+    """"Alex B. Counsel: " with no amount: commit counted the shared run, the invoice doesn't (no pages of it billed)."""
+    w = open_window(qt, two_reporters, s)
+    split(w, w.days[0], (1, 10, [A]), (11, 30, [A, D]))
+    assert invoice_line(w, "Alex B. Counsel") == "Alex B. Counsel: Expedite $76.00"
+    w.close()
+
+
+def test_a_firm_with_nothing_chosen_lists_all_its_amounts_rather_than_none(qt, themed, s, two_reporters):
+    """Where Generate asks: the invoice as it stands offers both speeds, and no Show prices for boxes are shown."""
+    s.split_speeds = "ask"
+    w = open_window(qt, two_reporters, s)
+    split(w, w.days[0], (1, 10, [A]), (11, 30, [A, D]))
+    assert not w.speeds_label.isVisible()
+    assert invoice_line(w, "Alex B. Counsel") == "Alex B. Counsel: Regular $63.00 · Expedite $76.00"
+    w.close()
+
+
+def test_a_held_invoices_line_isnt_blank_and_the_hold_is_said(qt, themed, tmp_path, s):
+    """A row naming a firm no longer ticked: "Dana Smith: ", and nothing to say why."""
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    split(w, w.days[0], (1, 10, [D]), (11, 30, [D, A]))
+    next(a for a in jobs[0].case.attorneys if a.key() == A).checked = False
+    w.load(jobs)
+    assert "$" in invoice_line(w, "Dana Smith")
+    assert w.problem.text() == ("⚠ No invoice yet for 6/3/2026: Who ordered which pages… needs checking (it names an "
+                                "attorney no longer ticked)")
+    w.close()
+
+
+# ------------------------------------------------------------------ a held invoice
+def test_a_held_invoice_says_so_and_stops_saying_so_once_fixed(qt, themed, tmp_path, s):
+    """Parties 3 with two firms at different speeds: prices showed, the line was empty, and Generate held it."""
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    assert w.problem.text() == ""
+    jobs[0].parties, jobs[0].speeds = 3, {D: "Daily", A: "Immediate"}
+    w.load(jobs)
+    assert w.problem.text() == f"⚠ No invoice yet for 6/3/2026: {jobs[0].invoice_hold()}"
+    assert "Parties says 3" in w.problem.text()
+    jobs[0].parties = 0
+    w.load(jobs)
+    assert w.problem.text() == ""
+    w.close()
+
+
+def test_a_day_of_several_names_the_day_held(qt, themed, tmp_path, s):
+    jobs = days_of(tmp_path, s, pages=(10, 20))
+    jobs[1].parties, jobs[1].speeds = 3, {D: "Daily", A: "Immediate"}
+    w = open_window(qt, jobs, s)
+    assert w.problem.text().startswith("⚠ No invoice yet for 6/4/2026: Parties says 3")
+    w.close()
+
+
+def test_a_day_invoiced_already_isnt_said_to_be_held(qt, themed, tmp_path, s):
+    jobs = days_of(tmp_path, s)
+    jobs[0].parties, jobs[0].speeds, jobs[0].invoiced = 3, {D: "Daily", A: "Immediate"}, True
+    w = open_window(qt, jobs, s)
+    assert w.problem.text() == ""
+    w.close()
+
+
+def test_a_day_nobody_is_ticked_on_is_said_to_hold_the_invoice(qt, themed, tmp_path, s):
+    """batch.group_problem: Generate makes no invoice for the case until that day says who ordered it."""
+    jobs = days_of(tmp_path, s, pages=(10, 20))
+    for a in jobs[1].case.attorneys:
+        a.checked = False
+    w = open_window(qt, jobs, s)
+    assert w.problem.text().startswith("⚠ No invoice yet") and "nobody is ticked on" in w.problem.text()
+    w.close()
+
+
+def test_a_refused_run_stays_said_on_a_held_invoice(qt, themed, tmp_path, s):
+    """Showing the table again put the hold over the reason just given."""
+    from minute_filler.gui.excerpts import PAGES
+    jobs = days_of(tmp_path, s)
+    jobs[0].parties, jobs[0].speeds = 3, {D: "Daily", A: "Immediate"}
+    w = open_window(qt, jobs, s)
+    w.table.item(0, PAGES).setText("999-1000")
+    assert "101–130" in w.problem.text()
+    w.close()
+
+
+# ------------------------------------------------------------------ a Pages number typed
+def typed_day(tmp_path, s, typed="20"):
+    from minute_filler.models import SRC_USER, FieldState
+    jobs = days_of(tmp_path, s)
+    jobs[0].case.fields["est_pages"] = FieldState(typed, SRC_USER, 0.95, [typed])
+    assert jobs[0].pages_typed() and jobs[0].invoice_pages() == int(typed)
+    return jobs
+
+
+def counts_of(w, r):
+    from minute_filler.gui.excerpts import COUNTS, FIRST_FIRM
+    first = FIRST_FIRM + len(w.firms)
+    return [w.table.item(r, first + k).text() for k in range(len(COUNTS))]
+
+
+def test_a_number_typed_isnt_called_total_pages(qt, themed, tmp_path, s):
+    """A transcript of 30 total pages, 20 typed. Total pages transcribed said 20, and "(20 total pages)": a typed number
+    is the user's own count. The whole day's total is known, so each heading stays true with the transcript's."""
+    from minute_filler.gui.excerpts import PLACE
+    w = open_window(qt, typed_day(tmp_path, s), s)
+    assert counts_of(w, 0) == ["20", "?", "30", "30"]
+    assert "20 of your pages billed (30 total pages)" in w.summary.text()
+    assert w.table.item(0, PLACE).text() == "1–20 of 20 pages typed"
+    w.close()
+
+
+def test_a_run_cut_from_a_number_typed_says_pages_typed(qt, themed, tmp_path, s):
+    """Its places are in the number typed: how many of the transcript's pages it holds can't be told."""
+    jobs = typed_day(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    split(w, w.days[0], (1, 5, [D, A]), (6, 15, []), (16, 20, [A]))
+    assert counts_of(w, 0) == ["5", "?", "5 typed", "5 typed"]
+    assert counts_of(w, 1) == ["0 (nobody)", "?", "10 typed", "0"]
+    from minute_filler.excerpts import count_runs
+    assert count_runs(w.runs)[id(w.runs[0])].typed
+    text = w.summary.text()
+    assert "5 of your pages billed (5 pages typed)" in text, text
+    assert "Nobody: 10 pages typed (not billed)" in text and "total pages" not in text.replace("\n", " ")
+    from minute_filler.gui.excerpts import FIRST_FIRM
+    assert "typed" in w.table.item(0, FIRST_FIRM + len(w.firms) + 2).toolTip()
+    w.close()
+
+
+def test_a_number_typed_without_a_transcript_says_pages_typed(qt, themed, tmp_path, s):
+    jobs = typed_day(tmp_path, s, "40")
+    jobs[0].transcript_pages = lambda: 0
+    w = open_window(qt, jobs, s)
+    assert counts_of(w, 0) == ["40", "?", "40 typed", "40 typed"]
+    assert "40 of your pages billed (40 pages typed)" in w.summary.text()
+    w.close()
+
+
+def test_days_typed_and_counted_say_each(qt, themed, tmp_path, s):
+    """A line of two days, one counted and a run of one typed: both, not one added into the other."""
+    from minute_filler.models import SRC_USER, FieldState
+    jobs = days_of(tmp_path, s, pages=(10, 30))
+    jobs[1].case.fields["est_pages"] = FieldState("20", SRC_USER, 0.95, ["20"])
+    w = open_window(qt, jobs, s)
+    split(w, w.days[1], (1, 5, [D, A]), (6, 20, []))
+    assert "15 of your pages billed (10 total pages, 5 pages typed)" in w.summary.text(), w.summary.text()
+    w.close()
+
+
+def test_a_job_of_several_days_typed_says_the_transcripts_total(qt, themed, tmp_path, s):
+    from minute_filler.excerpts import count_runs
+    from minute_filler.models import SRC_USER, FieldState
+    s.batch_combine_dates = True
+    docs, errors = read_docs([str(transcript_pdf(tmp_path / "D1.pdf", 30)),
+                              str(transcript_pdf(tmp_path / "D2.pdf", 20, date="June 4, 2026"))], s)
+    assert not errors
+    job, = group(docs, s)
+    job.case.attorneys = [Attorney(**DANA, checked=True)]
+    job.case.fields["est_pages"] = FieldState("40", SRC_USER, 0.95, ["40"])
+    run = runs_of(case_days([job])[0])[0]
+    c = count_runs([run])[id(run)]
+    assert (c.your_billed, c.total_transcribed, c.total_billed, c.typed) == (40, 50, 50, False)
+
+
+# ------------------------------------------------------------------ the row and the column chosen
+def test_the_row_chosen_after_typing_a_run_is_the_run_typed(qt, clicking):
+    """Type 111-120 on row 0: row 0 is then 101-110, and Remove run or Delete acted on that, not on the run typed."""
+    from minute_filler.gui.excerpts import PAGES
+    w, _ = clicking
+    w.table.setCurrentCell(0, PAGES)
+    w.table.item(0, PAGES).setText("111-120")
+    pump(qt)
+    run = w._chosen()
+    assert (run.start, run.end) == (11, 20) and w.table.currentRow() == 1
+    assert w.table.currentColumn() == PAGES  # (ready for the next run to type)
+    w._remove()
+    assert [(r.start, r.end) for r in w.runs] == [(1, 20), (21, 30)] or [(r.start, r.end) for r in w.runs] == [(1, 30)]
+
+
+def test_the_row_chosen_after_a_run_typed_with_enter(qt, clicking):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    w, _ = clicking
+    QTest.keyClick(typing(qt, w, "121-125"), Qt.Key_Return)
+    pump(qt)
+    assert (w._chosen().start, w._chosen().end) == (21, 25)
+
+
+def test_a_firm_added_before_the_cell_chosen_leaves_the_same_firm_chosen(qt, clicking):
+    """The column was kept by its number: with a firm added before it, Space ticked the firm beside."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    w, _ = clicking
+    column = section_of(w, K)
+    w.table.setCurrentCell(0, column)
+    job = w.group[0]
+    job.case.attorneys.insert(0, Attorney(name="Pat Lee", firm="Lee LLP", party="Plaintiff", checked=False))
+    w.load(w.group)
+    pump(qt)
+    assert w.table.currentColumn() == section_of(w, K) == column + 1
+    QTest.keyClick(w.table, Qt.Key_Space)
+    assert K in w.runs[0].keys and len(w.runs[0].keys) == 3 and w.table.currentColumn() == column + 1
+    w.table.setCurrentCell(0, 0)
+
+
+def test_a_count_chosen_stays_that_count_when_a_firm_comes_or_goes(qt, clicking):
+    from minute_filler.gui.excerpts import COUNTS, FIRST_FIRM
+    w, _ = clicking
+    w.table.setCurrentCell(0, FIRST_FIRM + len(w.firms) + 2)
+    w.group[0].case.attorneys = [a for a in w.group[0].case.attorneys if a.key() != K]
+    w.load(w.group)
+    pump(qt)
+    assert w.table.currentColumn() == FIRST_FIRM + len(w.firms) + 2 and len(COUNTS) == 4
+
+
+def test_the_chosen_firm_gone_goes_to_the_date(qt, clicking):
+    from minute_filler.gui.excerpts import DATE
+    w, _ = clicking
+    w.table.setCurrentCell(0, section_of(w, K))
+    w.group[0].case.attorneys = [a for a in w.group[0].case.attorneys if a.key() != K]
+    w.load(w.group)
+    pump(qt)
+    assert w.table.currentColumn() == DATE and w.table.currentRow() == 0
 
 
 # ------------------------------------------------------------------ the words
@@ -836,6 +1197,20 @@ def test_the_names_of_the_buttons_and_the_page_numbers_heading(qt, themed, tmp_p
     assert [a.text() for a in menu.actions()][:4] == ["Split run…", "Remove run", "Make this day whole",
                                                       "Make every day whole"]
     assert not hasattr(w, "firm_speeds_label") and not hasattr(w, "firm_speed_row")
+    w.close()
+
+
+def test_type_here_only_where_a_shown_day_can_be_typed_in(qt, themed, tmp_path, s):
+    """A job of several days is ordered whole: its cell can't be typed in."""
+    from minute_filler.gui.excerpts import PAGES
+    s.batch_combine_dates = True
+    docs, errors = read_docs([str(transcript_pdf(tmp_path / "D1.pdf", 30)),
+                              str(transcript_pdf(tmp_path / "D2.pdf", 20, date="June 4, 2026"))], s)
+    assert not errors
+    job, = group(docs, s)
+    job.case.attorneys = [Attorney(**DANA, checked=True)]
+    w = open_window(qt, [job], s)
+    assert not w.days[0].splittable and w.table.horizontalHeaderItem(PAGES).text() == "Page numbers"
     w.close()
 
 
