@@ -61,8 +61,8 @@ def two_firms():
 # ------------------------------------------------------------------ the math spelled out
 def test_the_math_of_an_even_split(s):
     case, opts = two_firms()
-    f = firm_invoices(case, s, opts)[0]
-    html, plain = explain([(f, "2026-0007")])
+    first, other = firm_invoices(case, s, opts)
+    html, plain = explain([(first, "2026-0007"), (other, "2026-0008")])
     # 60 pp.: original 60 x 4.30 = 258.00; copy, e-mailed copy and index 2 x 60 x 1.00 = 120.00 each (one for
     # each party); the judge's 60.00: 678.00, 339.00 each
     assert plain.splitlines()[0] == "Invoice 2026-0007 · Bill to Alex B. Counsel (Counsel & Counsel) · 60 pages, 2 parties"
@@ -425,7 +425,8 @@ def test_the_math_window_copies_saves_and_turns_off(made, s, qt, tmp_path, monke
     dlg = MathDialog(made, s, None, tmp_path)
     assert "Total, the 2 parties together" in dlg.text.toPlainText() and "$678.00" in dlg.text.toPlainText()
     dlg._copy()
-    assert qt.QApplication.clipboard().text() == dlg.plain and dlg.plain.startswith("Invoice 2026-0001")
+    # (one invoice of the two firms': it says so first, test_math_folder.py)
+    assert qt.QApplication.clipboard().text() == dlg.plain and "\nInvoice 2026-0001 · Bill to" in dlg.plain
     asked = []
 
     def where(parent, title, path, filt):

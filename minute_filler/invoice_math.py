@@ -32,9 +32,9 @@ up, which shows what rounding each one up to the cent added (or what rounding ea
 off). The math of only some of those firms (a Generate that stopped part way, or the next one, which bills only
 those left) says so first thing (_covers), and its last section adds up "these 2 of the 4 firms", as what they pay
 isn't what the job costs. Before it, when firms ordered the same pages at different speeds, "Who pays what a page"
-(split_pages) has a table for each set of those pages: what each firm named on them pays a page of each charge, as its own
-invoice bills it, and the firms together (in the math of one firm's invoice, sent to that firm, "What this firm
-pays a page": its own row alone, explain's one_firm). who_pays() is the short version the main window keeps up
+(split_pages) has a table for each set of those pages: what each firm named on them pays a page of each charge, as
+its own invoice bills it, and the firms together (in the math of one firm's invoice, sent to that firm, "What this
+firm pays a page": its own row alone, explain's one_firm). who_pays() is the short version the main window keeps up
 to date as things are ticked: a row per firm, its pages, how it ordered them and what it pays at each speed;
 page_rates() goes under it.
 
