@@ -473,8 +473,8 @@ e-mails and photos the files were made from, and pasted text as a .txt file, are
 folder in the case's folder (in <i>Save to</i> without case folders), to look back at should a file come out
 wrong. It keeps a second copy of every transcript; a document already in the case's folder isn't copied, and none
 is copied twice.</li>
-<li>Untick <i>A folder for each case, inside Save to</i> to save them all in one folder, with no folders
-inside it but the <b>Math</b> folder.</li>
+<li>Untick <i>A folder for each case, inside Save to</i> to save them all in one folder, with only the <b>Math</b>
+folder inside it, and the <b>Inputs</b> folder when that is on.</li>
 <li>Minute agreements, MOFRs, invoices and run sheets can each have <b>a folder of their own</b> (same place). An
 output with its own folder keeps it; the invoices' math goes in a <b>Math</b> folder inside theirs.</li>
 </ul>
@@ -805,9 +805,9 @@ index; each firm pays its own copy, e-mailed copy and index. A run nobody ticks 
 The window stays open beside the main window and follows what you change there. When the day's total page count changes
 so that the rows no longer end on its last page, the <i>Prices</i> line says <i>Who ordered which pages… needs checking</i> and no
 invoice is made for that day until you fix them.</p>
-<p>Example (no index): with $4.30 originals and $1.00 copies and e-mailed copies, 40 pages ordered by Dana Smith
-alone and 50 by both attorneys cost Dana Smith 40 × $6.30 + 50 × ($2.15 + $2.00) = $459.50, and the other attorney 50 × $4.15 =
-$207.50.</p>
+<p>Example (no index): with $4.30 originals and $1.00 copies and e-mailed copies, 40 of your pages billed ordered by
+Dana Smith alone and 50 of your pages billed ordered by both attorneys cost Dana Smith 40 × $6.30 +
+50 × ($2.15 + $2.00) = $459.50, and the other attorney 50 × $4.15 = $207.50.</p>
 """),
     T("exc-your-pages", EXCERPTS, "Your pages and every reporter's, in Who ordered which pages…",
       "your pages billed transcribed total every reporter count columns hide only your pages filter clear mine",
@@ -847,8 +847,8 @@ default, it is billed at the <b>fastest</b> speed ordered. Each slower firm pays
 ordered its speed, and the fastest pays the rest. The judge's index is divided the same way. Each pays its own copies
 at its own speed, and its own index too (unless Settings → Invoice → <i>Index on shared pages</i> is <i>Split between
 the firms</i>).</p>
-<p>Example (10 pages, no index): one firm orders Daily, one Immediate. The original is billed at Immediate, $7.60 a
-page. The Daily firm pays $6.50 ÷ 2 = $3.25 of it plus its own copies: $57.50. The Immediate firm pays the rest,
+<p>Example (10 of your pages billed, no index): one firm orders Daily, one Immediate. The original is billed at
+Immediate, $7.60 a page. The Daily firm pays $6.50 ÷ 2 = $3.25 of it plus its own copies: $57.50. The Immediate firm pays the rest,
 $4.35, plus its own: $72.50.</p>
 <p>The math of an invoice says how it was divided, and what each firm on those pages pays a page. A trial is
 billed one way throughout: once a day of it is invoiced, every later day of the same index number is divided the
