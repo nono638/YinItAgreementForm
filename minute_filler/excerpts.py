@@ -282,7 +282,7 @@ def remove(runs: list[Run], i: int) -> list[Run]:
 
 
 def whole_day(day: Day, runs: list[Run], ticked: list[str], firms: list[Attorney] | None = None) -> list[Run]:
-    """The day as one run of all its pages (Remove this day's excerpts), ordered by every firm that ordered any
+    """The day as one run of all its pages (Make this day whole), ordered by every firm that ordered any
     of its runs: "1-20 Alex, 21-40 Alex + Dana" is "1-40 Alex + Dana", each at the speed of its first run that
     has one. When no run was ordered by anyone, by the firms ticked on the day (ticked: Job.ticked_keys). firms:
     the table's columns (firms_of), to put the firms in their order, as runs_of does."""
@@ -343,6 +343,15 @@ def billed_in(day: Day, run: Run) -> int:
     return sum(mask[run.start - 1:run.end]) if mask is not None else run.end - run.start + 1
 
 
+def sharers(run: Run) -> int:
+    """How many ways a run's original is split: the firms that ordered it, or the day's Parties number when that
+    is more (Parties shares a day ordered whole). What prices() divides by, so what the table says beside a price."""
+    n = len(run.keys)
+    if run.day.job.portions is None and run.day.job.parties:
+        n = max(n, run.day.job.parties)
+    return max(1, n)
+
+
 @dataclass
 class Counts:
     """A run's pages, as the Who ordered window counts them (the user, 2026-10-29: "Pages billed" read as every
@@ -395,8 +404,8 @@ class Prices:
     """What the table costs. Runs priced at each speed offered (their firms choose from the invoice): each run's
     price for each firm that ordered it and each set of firms ordering together (their pages, and what each of
     them pays for those pages). Runs whose firms are priced at the speeds they ordered (`ordered`: a speed set,
-    or a split order that commits to one): what each firm pays for the run at its speed, and each set of firms
-    and speeds ordering together. And each firm's invoice (as invoiced: rounded as Settings -> Invoice -> Rounding
+    a split order that commits to one, or a firm billed one speed for its other pages, its run alone too): what each
+    firm pays for the run at its speed, and each set of firms and speeds ordering together. And each firm's invoice (as invoiced: rounded as Settings -> Invoice -> Rounding
     says)."""
     speeds: list[str]
     runs: dict[int, dict[str, Decimal]] = field(default_factory=dict)  # id(run) -> speed -> each pays
@@ -454,22 +463,26 @@ def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
     def shares_of(run: Run, key: str | None = None) -> list[Share]:
         """A run's pages for quote_shares, each share split as many ways as firms ordered the run; for firm
         `key`, as quote_ordered prices them: at its speed, with the other firms' (unset: the form's)."""
-        n = len(run.keys)
-        if run.day.job.portions is None and run.day.job.parties:  # (the Parties number shares a whole day)
-            n = max(n, run.day.job.parties)
+        n = sharers(run)
         own = dates.get(id(run.day), [])
         speed, others = "", ()
         if key is not None:
             speed = run.speed(key) or out.fallback
             others = tuple((names.get(o, o), run.speed(o) or out.fallback) for o in run.keys if o != key)
         if not run.day.splittable and len(own) > 1:  # (ordered whole: a share per date, each indexed or not)
-            return [Share(p, max(1, n), x, speed, others) for p, x in own]
-        return [Share(billed_in(run.day, run), max(1, n), any(x for _, x in own), speed, others)]
+            return [Share(p, n, x, speed, others) for p, x in own]
+        return [Share(billed_in(run.day, run), n, any(x for _, x in own), speed, others)]
+
+    # The firms billed one speed for all their pages, as invoice.firm_invoices has it: a speed set on any of them,
+    # or a run shared with another firm where firms commit (the rest of their pages too, alone or not)
+    commit = {k for r in runs for k in r.keys if r.speed(k) or (upfront and len(r.keys) > 1)}
 
     def at_speeds(run: Run) -> bool:
         """The run's firms are priced at the speeds they ordered (as invoice.firm_invoices bills them): a speed
-        is set for one of them, or they ordered it together and must commit to theirs."""
-        return any(run.speed(k) for k in run.keys) or (len(run.keys) > 1 and upfront)
+        is set for one of them, they ordered it together and must commit to theirs, or each is billed one speed
+        for its other pages anyway (a firm alone on this run offered no choice of speeds on its invoice)."""
+        return any(run.speed(k) for k in run.keys) or (len(run.keys) > 1 and upfront) \
+            or all(k in commit for k in run.keys)
 
     for r in runs:
         if not r.keys:
