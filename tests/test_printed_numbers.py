@@ -14,8 +14,9 @@ import pymupdf
 import pytest
 
 from minute_filler.batch import (Doc, Job, _printed_span, _run_words, billed_split_rule, counts_covers, cover_note,
-                                 fill_jobs, fixes_without_cover, group, job_from_origin, job_origin, joint_origin,
-                                 origin_fixes, put_back_orders, read_docs, remerge, settle_old_places, trial_orders)
+                                 documents_not_here, fill_jobs, fixes_without_cover, group, job_from_origin, job_origin,
+                                 joint_origin, origin_fixes, put_back_orders, read_docs, record_documents, remerge,
+                                 settle_old_places, trial_orders)
 from minute_filler.deliver import case_snapshot, ledger_for
 from minute_filler.excerpts import Day, Run, carve, case_days
 from minute_filler.extract_regex import RegexExtractor
@@ -1939,3 +1940,471 @@ def test_the_help_says_what_a_flat_save_to_has_inside_it():
     text = " ".join(" ".join(t.html.split()) for t in TOPICS)
     assert "no folders inside it but the <b>Math</b> folder" not in text
     assert "and the <b>Inputs</b> folder when that is on" in text
+
+
+# ------------------------------------------------------------------ a record's own list of documents and its count
+def record_of(job: Job) -> dict:
+    """What a Generate would keep of this job now."""
+    return json.loads(json.dumps({**job_origin(job), "case": case_snapshot(job.case)}))
+
+
+def toasts(window, monkeypatch) -> list:
+    said = []
+    monkeypatch.setattr(window, "_toast", said.append)
+    return said
+
+
+def open_with_away(window, origin, path, gone):
+    """Opens this record with the document at `path` moved to `gone`; the job on screen once what is there is read."""
+    path.rename(gone)
+    return open_again(window, origin)
+
+
+def open_again(window, origin):
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: window.cur.docs)
+    return window.cur
+
+
+def test_a_generate_while_a_document_is_away_keeps_what_the_record_said(window, tmp_path, s, monkeypatch):
+    """b.pdf away. The record made then named a.pdf alone, so opening it settled at once: 31 stayed typed against 30 total
+    pages when b.pdf came back, the rows in old places, Alex billed 6 "counted pages 1–6", with no word said."""
+    said = toasts(window, monkeypatch)
+    a, b, origin = old_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    first = open_with_away(window, origin, b, gone)
+    made = record_of(first)
+    assert made["sources"] == [str(a)]  # (what was read: a trial day's list would read other days' documents in)
+    assert made["job"]["old_sources"] == [str(a), str(b)] and made["job"]["old_count"] == 31
+    assert "cover_out" not in made["job"] and made["job"]["portions"] == [[6, [A]], [31, [A, B]]]
+    said.clear()
+    cur = open_again(window, made)
+    assert cur.old_places and cur.portions == [(6, [A]), (31, [A, B])] and cur.case.get("est_pages") == "31"
+    assert cur.old_count == 31 and cur.old_sources == [str(a), str(b)]
+    assert any(x.startswith("1 document of this job is no longer where it was") for x in said)
+    gone.rename(b)
+    drop_back(window, b, 2)
+    assert_moved_over(cur)
+
+
+def test_a_record_of_a_record_made_while_a_document_was_away_says_the_same(window, tmp_path, s):
+    """Made again and again while it stays away, the list and the count stay the first record's."""
+    a, b, origin = old_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    made = record_of(open_with_away(window, origin, b, gone))
+    again = record_of(open_again(window, made))
+    assert again["job"]["old_sources"] == made["job"]["old_sources"] and again["job"]["old_count"] == 31
+    gone.rename(b)
+    cur = open_again(window, again)
+    drop_back(window, b, 2)
+    assert_moved_over(cur)
+
+
+def test_a_number_typed_over_the_record_s_count_meanwhile_stays_the_user_s(window, tmp_path, s):
+    a, b, origin = old_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    first = open_with_away(window, origin, b, gone)
+    first.case.fields["est_pages"] = FieldState("40", SRC_USER, 1.0, [])
+    cur = open_again(window, record_of(first))
+    assert cur.old_count == 31 and cur.old_total == 31
+    gone.rename(b)
+    drop_back(window, b, 2)
+    assert cur.pages_typed() and cur.invoice_pages() == 40 and not cur.old_places
+
+
+def test_a_trial_s_record_made_while_a_day_s_document_is_away_says_the_same(window, tmp_path, s):
+    """a.pdf (10 pages) away, b.pdf a cover and 20. The record named b.pdf alone: the cover taken at place 1 for 11, rows
+    [4, 30], Alex billed 4 "pp. 110–113" for 5 "pp. 100–104", with no word said."""
+    a = page_numbered_transcript(tmp_path / "a.pdf", 10, first=100)
+    b = page_numbered_transcript(tmp_path / "b.pdf", 20, first=110, cover=COVER)
+    job = firms(job_of(s, a, b))
+    origin = json.loads(json.dumps(joint_origin([job])))
+    del origin["cover_out"]
+    origin["orders"][0]["portions"] = [[5, [A]], [31, [A, B]]]
+    gone = tmp_path / "gone.pdf"
+    first = open_with_away(window, origin, a, gone)
+    made = json.loads(json.dumps(joint_origin([first])))
+    assert made["sources"] == [str(b)] and made["orders"][0]["old_sources"] == [str(a), str(b)]
+    cur = open_again(window, made)
+    assert cur.old_places and cur.portions == [(5, [A]), (31, [A, B])]
+    gone.rename(a)
+    window.add_files([str(a)])
+    wait(window, lambda: len(window.cur.docs) == 2)
+    assert not cur.old_places and cur.portions == [(5, [A]), (30, [A, B])] and not cur.portions_problem()
+    assert [d.ing.name for d in cur.transcripts()] == ["a.pdf", "b.pdf"]
+    assert [(p.pages, p.span) for p in cur.invoice_orders()[0].portions] == [(5, "pp. 100–104"), (25, "pp. 105–129")]
+
+
+def test_nothing_new_in_a_record_once_every_document_is_here(tmp_path, s):
+    """Earlier records are compared by their text (billed_split_rule): a job with all its documents writes as it did."""
+    a, b, origin = old_two_volumes(tmp_path, s)
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(a), str(b)], s)[0]
+    remerge(job, s)
+    assert not job.old_places and job.old_count == 0
+    kept = record_of(job)
+    assert "old_sources" not in kept["job"] and "old_count" not in kept["job"]
+    assert "old_sources" not in json.loads(json.dumps(joint_origin([job])))["orders"][0]
+
+
+def test_the_rule_a_job_was_billed_by_is_still_found_with_a_document_away(tmp_path, s):
+    """What a record keeps meanwhile is in the invoice's record and its other files' alike (billed_split_rule)."""
+    a, b, origin = old_two_volumes(tmp_path, s)
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(a)], s)[0]
+    job.case.set("index_no", "712345/2021")
+    remerge(job, s)
+    assert job.old_places
+    job.portions = None  # (the rows have their own check: this is about the record)
+    fill_jobs([job], s, outputs=["agreement", "invoice"])
+    lg = ledger_for(s)
+    kinds = {x.kind: x for x in lg.activity()}
+    assert '"old_sources"' in kinds["agreement"].origin and '"old_sources"' in kinds["invoice"].origin
+    assert job.split_rule and billed_split_rule(kinds["agreement"].origin, lg) == job.split_rule
+
+
+@pytest.mark.parametrize("kept", ["31", True, -1, None, 0, [31]])
+def test_a_record_s_kept_count_that_isn_t_one_is_left_out(kept):
+    job = job_from_origin({"sources": ["a.pdf"], "job": {"old_count": kept}}, pat_settings())
+    assert job.old_count == 0 and job.old_total == 0
+
+
+@pytest.mark.parametrize("kept", ["a.pdf", 3, None, {"a": 1}, []])
+def test_a_record_s_kept_list_that_isn_t_one_is_left_out(kept):
+    origin = {"sources": ["a.pdf"], "job": {"old_sources": kept}, "orders": [{"old_sources": kept}, "?"]}
+    assert job_from_origin(origin, pat_settings()).old_sources == ["a.pdf"]
+    assert record_documents(origin) == ["a.pdf"]
+
+
+def test_the_documents_a_record_says_it_was_made_from():
+    assert record_documents({"sources": ["x\\a.pdf"], "job": {"old_sources": ["w\\a.pdf", "x\\b.pdf"]}}) == [
+        "x\\a.pdf", "x\\b.pdf"]  # (a.pdf back from another folder is the one read)
+    days = [{"old_sources": ["a.pdf", "b.pdf", "c.pdf"]}, {"old_sources": ["a.pdf", "b.pdf", "c.pdf"]}]
+    assert record_documents({"sources": ["b.pdf"], "joint": True, "orders": days}) == ["b.pdf", "a.pdf", "c.pdf"]
+    assert record_documents({"sources": ["a.pdf"], "job": "?", "orders": "?"}) == ["a.pdf"]
+    assert record_documents({}) == []
+
+
+def test_a_record_s_kept_list_follows_a_folder_renamed(tmp_path, s):
+    from minute_filler.batch import follow_moves
+    from minute_filler.records import moved_origin
+    old, new = tmp_path / "old", tmp_path / "new"
+    data = {"sources": [str(old / "a.pdf")], "job": {"old_sources": [str(old / "a.pdf"), str(old / "b.pdf")]},
+            "orders": [{"dates": "6/3/2026", "old_sources": [str(old / "b.pdf"), "elsewhere.pdf"]}]}
+    assert moved_origin(data, old, new) is True
+    assert data["job"]["old_sources"] == [str(new / "a.pdf"), str(new / "b.pdf")]
+    assert data["orders"][0]["old_sources"] == [str(new / "b.pdf"), "elsewhere.pdf"]
+    job = Job(old_sources=[str(old / "a.pdf"), str(tmp_path / "c.pdf")])
+    follow_moves([job], [(old, new)])
+    assert job.old_sources == [str(new / "a.pdf"), str(tmp_path / "c.pdf")]
+
+
+def test_a_document_taken_out_of_the_job_is_no_longer_waited_for(window, tmp_path, s):
+    """The user took it out: nothing says it will come back, and a record made now doesn't say it is away."""
+    a, b, origin = old_two_volumes(tmp_path, s)
+    cur = open_again(window, origin)
+    wait(window, lambda: len(cur.docs) == 2)
+    assert "old_sources" not in record_of(cur)["job"]
+    window._remove_doc(cur, next(d for d in cur.docs if d.ing.name == "b.pdf"))
+    assert cur.old_sources == [str(a)] and "old_sources" not in record_of(cur)["job"]
+
+
+@pytest.mark.parametrize("named, here, away", [
+    (["x\\a.pdf", "x\\b.pdf"], ["x\\a.pdf"], ["x\\b.pdf"]),
+    (["x\\a.pdf"], ["y\\A.PDF"], []),  # (back from another folder: by its name)
+    (["am\\t.pdf", "pm\\t.pdf"], ["am\\t.pdf"], ["pm\\t.pdf"]),  # (one name, two documents: one back isn't both)
+    (["am\\t.pdf", "pm\\t.pdf"], ["pm\\t.pdf"], ["am\\t.pdf"]),
+    (["am\\t.pdf", "pm\\t.pdf"], ["y\\t.pdf"], ["pm\\t.pdf"]),
+    (["am\\t.pdf", "pm\\t.pdf"], ["y\\t.pdf", "z\\t.pdf"], []),
+    (["am\\t.pdf", "pm\\t.pdf"], ["pm\\t.pdf", "y\\t.pdf"], []),
+    ([], ["a.pdf"], []),
+])
+def test_which_of_a_record_s_documents_arent_here(named, here, away):
+    assert documents_not_here(named, here) == away
+
+
+def same_name_volumes(tmp_path, s):
+    """A day of two transcripts of one file name: AM (a cover and 20 pages from 100), PM (10 from 200), rows as an older
+    version kept them."""
+    (tmp_path / "AM").mkdir()
+    (tmp_path / "PM").mkdir()
+    am = page_numbered_transcript(tmp_path / "AM" / "Transcript.pdf", 20, first=100, cover=COVER)
+    pm = page_numbered_transcript(tmp_path / "PM" / "Transcript.pdf", 10, first=200)
+    origin = old_record(firms(job_of(s, am, pm)))
+    origin["job"]["portions"] = [[6, [A]], [31, [A, B]]]
+    return am, pm, origin
+
+
+def assert_same_names_moved_over(cur):
+    assert not cur.old_places and cur.portions == [(5, [A]), (30, [A, B])] and not cur.portions_problem()
+    assert not cur.pages_typed() and cur.invoice_pages() == 30
+    assert [(p.pages, p.span) for p in cur.invoice_orders()[0].portions] == [(5, "pp. 100–104"), (25, "pp. 105–119, 200–209")]
+
+
+def test_two_documents_of_one_name_wait_for_each_other(window, tmp_path, s):
+    """AM back, PM away: its name was on the record, so it took the day as all back. PM dropped later: 31 typed, rows
+    [6, 31], "counted pages 1–6"."""
+    am, pm, origin = same_name_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    cur = open_with_away(window, origin, pm, gone)
+    assert cur.old_places and cur.portions == [(6, [A]), (31, [A, B])]
+    gone.rename(pm)
+    drop_back(window, pm, 2)
+    assert_same_names_moved_over(cur)
+
+
+def test_two_documents_of_one_name_go_by_their_paths_whichever_comes_first(window, tmp_path, s):
+    """PM back first, AM after: in the order they came, Alex was billed pp. 200–205."""
+    am, pm, origin = same_name_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    cur = open_with_away(window, origin, am, gone)
+    gone.rename(am)
+    drop_back(window, am, 2)
+    assert [d.path for d in cur.transcripts()] == [str(am), str(pm)]
+    assert_same_names_moved_over(cur)
+
+
+def test_two_documents_of_one_name_read_at_once_in_the_other_order(tmp_path, s):
+    am, pm, origin = same_name_volumes(tmp_path, s)
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(pm), str(am)], s)[0]
+    remerge(job, s)
+    assert [d.path for d in job.transcripts()] == [str(am), str(pm)]
+    assert_same_names_moved_over(job)
+
+
+def test_two_documents_of_one_name_back_from_other_folders_hold_the_rows(tmp_path, s):
+    """Nothing says which is which, so nor where the cover was: never moved by a guess, and the rows don't fit."""
+    am, pm, origin = same_name_volumes(tmp_path, s)
+    (tmp_path / "X").mkdir()
+    (tmp_path / "Y").mkdir()
+    x, y = am.rename(tmp_path / "X" / "Transcript.pdf"), pm.rename(tmp_path / "Y" / "Transcript.pdf")
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(x), str(y)], s)[0]
+    remerge(job, s)
+    assert not job.old_places and job.portions == [(6, [A]), (31, [A, B])] and job.portions_problem()
+
+
+def test_two_documents_of_one_name_one_from_another_folder_is_told_by_the_other_s_path(tmp_path, s):
+    am, pm, origin = same_name_volumes(tmp_path, s)
+    (tmp_path / "X").mkdir()
+    x = pm.rename(tmp_path / "X" / "Transcript.pdf")
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(x), str(am)], s)[0]
+    remerge(job, s)
+    assert [d.path for d in job.transcripts()] == [str(am), str(x)]
+    assert_same_names_moved_over(job)
+
+
+def marked_two_volumes(tmp_path, s, *cover):
+    """A day of a.pdf (20 pages from 100, after a cover when `cover` says) and b.pdf (10 from 200), as a record of now
+    keeps it: Alex alone ordered 100-104."""
+    a = page_numbered_transcript(tmp_path / "a.pdf", 20, first=100, cover=cover[0] if cover else "")
+    b = page_numbered_transcript(tmp_path / "b.pdf", 10, first=200)
+    job = firms(job_of(s, a, b))
+    job.portions = [(5, [A]), (30, [A, B])]
+    return a, b, record_of(job)
+
+
+def test_on_a_record_that_says_the_cover_is_out_the_first_document_back_goes_first(window, tmp_path, s):
+    """It came last: [b, a], no hold, Alex billed "pp. 200–204" for "pp. 100–104". A record with no cover sorted right,
+    so the newer record did worse than the older."""
+    a, b, origin = marked_two_volumes(tmp_path, s, COVER)
+    assert origin["job"]["cover_out"] is True
+    gone = tmp_path / "gone.pdf"
+    cur = open_with_away(window, origin, a, gone)
+    assert [d.ing.name for d in cur.docs] == ["b.pdf"]
+    gone.rename(a)
+    drop_back(window, a, 2)
+    assert_moved_over(cur)
+
+
+def test_so_on_a_record_with_no_cover_at_all(window, tmp_path, s):
+    a, b, origin = marked_two_volumes(tmp_path, s)
+    assert "cover_out" not in origin["job"]
+    gone = tmp_path / "gone.pdf"
+    cur = open_with_away(window, origin, a, gone)
+    gone.rename(a)
+    drop_back(window, a, 2)
+    assert_moved_over(cur)
+
+
+def test_a_generate_while_the_first_document_is_away_keeps_its_place_on_a_marked_record(window, tmp_path, s):
+    a, b, origin = marked_two_volumes(tmp_path, s, COVER)
+    gone = tmp_path / "gone.pdf"
+    made = record_of(open_with_away(window, origin, a, gone))
+    assert made["sources"] == [str(b)] and made["job"]["old_sources"] == [str(a), str(b)]
+    # (the document with the cover is the one away: without the mark, rows that had lost the cover would lose it again)
+    assert made["job"]["cover_out"] is True
+    cur = open_again(window, made)
+    gone.rename(a)
+    drop_back(window, a, 2)
+    assert_moved_over(cur)
+
+
+def test_a_document_new_to_the_job_goes_after_those_the_record_names(tmp_path, s):
+    a, b, origin = marked_two_volumes(tmp_path, s, COVER)
+    c = page_numbered_transcript(tmp_path / "c.pdf", 5, first=300)
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(c), str(b), str(a)], s)[0]
+    remerge(job, s)
+    assert [d.ing.name for d in job.transcripts()] == ["a.pdf", "b.pdf", "c.pdf"]
+
+
+def test_a_trial_s_day_goes_by_its_own_documents_on_a_marked_record_too(tmp_path, s):
+    a, b, _ = marked_two_volumes(tmp_path, s, COVER)
+    day = firms(job_of(s, b))
+    origin = json.loads(json.dumps(joint_origin([firms(job_of(s, a, b))])))
+    origin["orders"][0]["portions"] = [[5, [A]], [30, [A, B]]]
+    put_back_orders([day], origin, s)
+    assert day.old_sources == [str(a), str(b)] and not day.old_places
+    day.docs += read_docs([str(a)], s)[0]
+    remerge(day, s)
+    assert [d.ing.name for d in day.transcripts()] == ["a.pdf", "b.pdf"]
+
+
+def test_a_trial_s_day_doesn_t_wait_for_the_documents_of_its_other_days(tmp_path, s):
+    """Read into their own days, they are no documents of this one: a day's corrected transcript can settle by its own."""
+    x = page_numbered_transcript(tmp_path / "x.pdf", 15, first=100, cover=COVER)
+    y = page_numbered_transcript(tmp_path / "y.pdf", 20, first=200, caption=TITLE.replace("3", "4"))
+    docs, errors = read_docs([str(x), str(y)], s)
+    assert not errors
+    jobs = group(docs, s)
+    assert len(jobs) == 2
+    day = next(j for j in jobs if j.docs[0].ing.name == "x.pdf")
+    for j in jobs:
+        j.case.attorneys = [replace(ALEX), replace(DANA)]
+    origin = json.loads(json.dumps(joint_origin(jobs)))
+    del origin["cover_out"]
+    row = next(r for r in origin["orders"] if r["dates"] == day.case.get("dates"))
+    row["portions"] = [[6, [A]], [21, [A, B]]]  # (it was a cover and 20 then)
+    put_back_orders(jobs, origin, s)
+    assert day.old_sources == [str(x)] and not day.old_places
+    assert day.portions == [(5, [A]), (20, [A, B])] and day.portions_problem()
+
+
+def own_count_two_volumes(tmp_path, s, est, source=SRC_USER, rows=None):
+    """a.pdf (a cover and 20: Pat's first 8) and b.pdf (10: Pat's first 5), the record's Pages holding `est`."""
+    s.profile.initials = "P.R."
+    a = page_numbered_transcript(tmp_path / "a.pdf", 20, first=100, initials=[PR] * 8 + [DS] * 12, cover=COVER)
+    b = page_numbered_transcript(tmp_path / "b.pdf", 10, first=200, initials=[PR] * 5 + [DS] * 5)
+    origin = json.loads(json.dumps({"sources": [str(a), str(b)],
+                                    "job": {"front_owner": {str(a): PR}, "att_touched": True, "portions": rows},
+                                    "case": {"fields": {"est_pages": [est, source, 1.0]},
+                                             "attorneys": [ALEX.to_dict(), DANA.to_dict()]}}))
+    return a, b, origin
+
+
+def test_an_own_count_across_two_documents_waits_for_both(tmp_path, s):
+    """14 was 8, the cover and 5. a.pdf's 21 pages were more than 14, so it settled on a.pdf alone: b.pdf back, it billed
+    14 of the 13 of Pat's, no rows so no hold."""
+    a, b, origin = own_count_two_volumes(tmp_path, s, "14")
+    job = job_from_origin(origin, s)
+    assert job.old_count == 0 and job.old_sources == [str(a), str(b)]
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    assert job.old_places and job.case.get("est_pages") == "14" and job.pages_typed()
+    job.docs += read_docs([str(b)], s)[0]
+    remerge(job, s)
+    assert not job.old_places and not job.pages_typed() and job.invoice_pages() == job.own_pages() == 13
+
+
+def test_an_own_count_with_rows_cut_in_it_waits_for_both_too(tmp_path, s):
+    """Its rows end on 14 too: the pages here being more than that says nothing either."""
+    a, b, origin = own_count_two_volumes(tmp_path, s, "14", rows=[[5, [A]], [14, [A, B]]])
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    assert job.old_places and job.pages_typed()
+    job.docs += read_docs([str(b)], s)[0]
+    remerge(job, s)
+    assert not job.old_places and not job.pages_typed() and job.invoice_pages() == 13
+
+
+def test_an_own_count_with_rows_counted_in_the_old_total_moves_them(tmp_path, s):
+    a, b, origin = own_count_two_volumes(tmp_path, s, "14", rows=[[5, [A]], [31, [A, B]]])
+    job = job_from_origin(origin, s)
+    assert job.old_total == 31
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    assert job.old_places
+    job.docs += read_docs([str(b)], s)[0]
+    remerge(job, s)
+    assert not job.old_places and job.portions == [(4, [A]), (30, [A, B])] and job.invoice_pages() == 13
+
+
+def test_a_number_really_typed_over_two_documents_stays(tmp_path, s):
+    a, b, origin = own_count_two_volumes(tmp_path, s, "50")
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    assert job.old_places and job.invoice_pages() == 50
+    job.docs += read_docs([str(b)], s)[0]
+    remerge(job, s)
+    assert not job.old_places and job.pages_typed() and job.invoice_pages() == 50
+
+
+def test_a_typed_count_of_exactly_the_pages_here_needs_no_more(tmp_path, s):
+    """A letter may be away for good: the pages adding up to exactly the number say nothing is missing."""
+    path = page_numbered_transcript(tmp_path / "Roe.pdf", 20, first=819, cover=COVER)
+    job = job_from_origin({"sources": [str(path), str(tmp_path / "letter.pdf")], "job": {},
+                           "case": {"fields": {"est_pages": ["21", SRC_USER, 1.0]}}}, s)
+    job.docs += read_docs([str(path)], s)[0]
+    remerge(job, s)
+    assert not job.old_places and not job.pages_typed() and job.case.get("est_pages") == "20"
+
+
+@pytest.mark.parametrize("pages, count", [(15, 25), (35, 45)])
+def test_a_corrected_transcript_with_another_document_away_goes_back_to_the_count(window, tmp_path, s, pages, count):
+    """a.pdf reissued shorter or longer, b.pdf away, then back. 31 stayed typed against 25 or 45 total pages, and the
+    rows fitted it: no hold, the old count billed, with no word said."""
+    a, b, origin = old_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    b.rename(gone)
+    a.unlink()
+    page_numbered_transcript(a, pages, first=100, cover=COVER)
+    cur = open_again(window, origin)
+    gone.rename(b)
+    drop_back(window, b, 2)
+    assert not cur.old_places and not cur.pages_typed() and cur.case.get("est_pages") == str(count)
+    assert cur.portions == [(5, [A]), (30, [A, B])] and "rows don't end on" in cur.portions_problem()
+
+
+@pytest.mark.parametrize("pages, count", [(15, 25), (35, 45)])
+def test_so_on_a_record_with_no_cover(window, tmp_path, s, pages, count):
+    a, b, origin = marked_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    b.rename(gone)
+    a.unlink()
+    page_numbered_transcript(a, pages, first=100)
+    cur = open_again(window, origin)
+    gone.rename(b)
+    drop_back(window, b, 2)
+    assert not cur.pages_typed() and cur.case.get("est_pages") == str(count) and cur.portions_problem()
+
+
+def test_one_transcript_back_under_another_name_has_no_order_to_tell(window, tmp_path, s):
+    """Its rows were left where they were, for a look: with one transcript nothing is in doubt."""
+    path = page_numbered_transcript(tmp_path / "Roe.pdf", 20, first=819, cover=COVER)
+    origin = old_record(firms(job_of(s, path)))
+    origin["job"]["portions"] = [[11, [A]], [21, [A, B]]]
+    renamed = tmp_path / "Roe corrected.pdf"
+    path.rename(renamed)
+    assert window.open_past_job(json.dumps(origin)) is True
+    window.add_files([str(renamed)], same_job=True)
+    wait(window, lambda: window.cur.docs)
+    cur = window.cur
+    assert not cur.old_places and cur.portions == [(10, [A]), (20, [A, B])] and not cur.portions_problem()
+    assert cur.invoice_pages() == 20
+
+
+def test_a_trial_s_own_count_is_its_rows_and_never_typed(tmp_path, s):
+    """A day's record has no count: its rows end on the day's pages, which a longer transcript passes."""
+    a = page_numbered_transcript(tmp_path / "a.pdf", 25, first=819, cover=COVER)
+    job = firms(job_of(s, a))
+    origin = json.loads(json.dumps(joint_origin([job])))
+    del origin["cover_out"]
+    origin["sources"].append(str(tmp_path / "another day.pdf"))
+    origin["orders"][0]["portions"] = [[11, [A]], [21, [A, B]]]
+    put_back_orders([job], origin, s)
+    assert not job.old_places and job.portions == [(10, [A]), (20, [A, B])] and job.portions_problem()

@@ -105,8 +105,9 @@ from ..batch import (BATCH_EXT, HELD, MISMATCH_LEAD, NOT_INVOICED, Doc, Job, cas
                      expand_paths,
                      fill_jobs, firm_questions, group, ident, index_number_text, input_folders, saved_folders,
                      billed_split_rule, job_from_origin, job_origin, join_entries, new_invoice_set, origin_fixes,
-                     copy_inputs, counts_covers, cover_note, fixes_without_cover, follow_moves, move_case_folders,
-                     moved_path, out_dir_for, read_loaders, remerge, same_case, split_forgotten)
+                     copy_inputs, counts_covers, cover_note, documents_not_here, fixes_without_cover, follow_moves,
+                     move_case_folders, moved_path, out_dir_for, read_loaders, record_documents, remerge, same_case,
+                     split_forgotten)
 from ..extract_llm import OllamaExtractor
 from ..extract_regex import find_dates, use_firm_answers
 from ..dates import us_date
@@ -3693,6 +3694,7 @@ class MainWindow(QMainWindow):
             return
         self._sync_from_ui()
         job.docs[:] = [d for d in job.docs if d is not doc]
+        job.old_sources = documents_not_here(job.old_sources, [doc.key()])  # (out by choice: not waited for)
         remerge(job, self.s)
         if own_job:
             new = Job(docs=[doc], batch=True)
@@ -6912,7 +6914,7 @@ class MainWindow(QMainWindow):
             self.add_files(there, batch=bool(several_days), same_job=not several_days,
                            split_rule=rule if several_days else "", fixes=origin_fixes(data),
                            orders=data if several_days else None, old_places=counts_covers(data))
-        gone = len(sources) - len(there)
+        gone = len(record_documents(data)) - len(there)  # (a record made while one was away still names it)
         if gone:
             self._toast(f"{plural(gone, 'document')} of this job {'is' if gone == 1 else 'are'} no longer where "
                         f"{'it was' if gone == 1 else 'they were'}: drop {'it' if gone == 1 else 'them'} here to "

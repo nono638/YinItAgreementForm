@@ -349,8 +349,9 @@ def _inside(path: str, folder: Path) -> bool:
 
 def moved_origin(data: dict, old: Path, new: Path) -> bool:
     """A record's origin (batch.job_origin, joint_origin) once the folder `old` is `new`: the documents read
-    ("sources") and what is kept by their path (page_fixes; the job's page_basis and front_owner) that were in it
-    are now in `new`. Changed in place; True when anything was."""
+    ("sources"), those it says were away ("old_sources": the job's, or a day's) and what is kept by their path
+    (page_fixes; the job's page_basis and front_owner) that were in it are now in `new`. Changed in place; True when
+    anything was."""
     changed = False
 
     def moved(p):
@@ -372,6 +373,10 @@ def moved_origin(data: dict, old: Path, new: Path) -> bool:
         for k in ("page_basis", "front_owner", "page_fixes"):
             if k in job:
                 job[k] = keys(job[k])
+    days = data.get("orders") if isinstance(data.get("orders"), list) else []
+    for kept in [job] + days:
+        if isinstance(kept, dict) and isinstance(kept.get("old_sources"), list):
+            kept["old_sources"] = [moved(p) for p in kept["old_sources"]]
     return changed
 
 

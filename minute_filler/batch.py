@@ -356,14 +356,17 @@ class Job:
     # copies, and the attorneys the copy invoiced follow them when the batch ends, or a firm renamed meanwhile
     # would be billed again under its new name (MainWindow._run_batch). Not kept with the records.
     renamed: list = field(default_factory=list, repr=False)
-    # Opened again from a record whose Excerpts... rows still count a Min-U-Script cover among their pages (no
-    # "cover_out" in it, counts_covers): settled once every transcript it counted is read (settle_old_places). What
-    # says so: the day's pages as the record counted them (old_total, its covers among them; 0 when it doesn't say) and
-    # the documents it was made from, in its order (old_sources: the places count the pages in that order). None of the
-    # three is kept as such: a record made meanwhile still counts the covers (job_origin, joint_origin).
+    # What a job opened again keeps from the record it came from until every document of that record is back, when it
+    # is settled, once (settle_old_places); a record made meanwhile says the same (_kept_from_record). old_sources: the
+    # documents it was made from, in its order (what it keeps by place counts the pages in that order; a trial's day:
+    # those not read into its other days). old_places: its Excerpts... rows still count a Min-U-Script cover among their
+    # pages (no "cover_out" in it, counts_covers). old_total: the day's pages as it counted them (0 when it doesn't
+    # say). old_count: the count it read from the transcripts, which the Pages field holds as if typed while a PDF is
+    # away (MainWindow.open_past_job); 0 when its number was typed: a number typed says nothing of the pages read.
     old_places: bool = False
     old_total: int = 0
     old_sources: list = field(default_factory=list)
+    old_count: int = 0
 
     def is_empty(self) -> bool:
         """Nothing dropped and nothing typed."""
@@ -1603,16 +1606,28 @@ _ORIGIN_SKIP = ("agreement_date", "delivery_date")
 def job_origin(job: Job) -> dict:
     """Where a job came from, kept with the record of each file made from it (deliver.generate adds the case):
     the documents read (their paths; pasted text has none) and the invoice's own choices (Peripherals, Excerpts...,
-    the speed each firm ordered, Whose pages..., the takes corrected: page_fixes), and whether its places are counted
+    the speed each firm ordered, Whose pages..., the takes corrected: page_fixes), whether its places are counted
     without a Min-U-Script cover ("cover_out": see counts_covers; a job still waiting for its transcripts counts them
-    all, its corrected takes too)."""
+    all, its corrected takes too), and what a job opened again still keeps from its record (_kept_from_record)."""
     fixes = page_fixes(job.docs, job.old_places)
     return {"sources": [d.path for d in job.docs if d.path],
             "job": {**{k: getattr(job, k) for k in _ORIGIN_CHOICES},
                     "proc_touched": job.proc_touched, "att_touched": job.att_touched,
                     **({"not_ordered": sorted(job.not_ordered)} if job.not_ordered else {}),
                     **({"page_fixes": fixes} if fixes else {}),
-                    **({"cover_out": True} if _places_without_cover([job]) else {})}}
+                    **({"cover_out": True} if _places_without_cover([job]) else {}),
+                    **_kept_from_record(job),
+                    **({"old_count": job.old_count} if job.old_count else {})}}
+
+
+def _kept_from_record(job: Job) -> dict:
+    """A job opened again with a document of its record still away keeps the record's list in a record made now
+    ("old_sources", beside "sources", which names what was read: a trial day's list names other days' documents, and
+    those read in would be taken for this job's). Opened again, that record still waits for the document, and it still
+    goes where it went. Nothing is added once they are all here (earlier records are compared by their text, see
+    billed_split_rule)."""
+    away = documents_not_here(job.old_sources, [d.key() for d in job.docs])
+    return {"old_sources": list(job.old_sources)} if away else {}
 
 
 def page_fixes(docs: list[Doc], with_covers: bool = False) -> dict:
@@ -1642,9 +1657,11 @@ def joint_origin(days: list[Job], **more) -> dict:
 def _places_without_cover(days: list[Job]) -> bool:
     """A record of these days says "cover_out": a document has a Min-U-Script cover and the rows and corrections kept
     are counted without it. Only when there is a cover, as with page_fixes: every other record stays as it always was
-    (earlier records are compared by their text, see billed_split_rule). A job still in old places (old_places: its
-    documents gone) writes none: its rows are still counted with the cover."""
-    return all(not j.old_places for j in days) and any(cover_pages(d.ing) for j in days for d in j.docs)
+    (earlier records are compared by their text, see billed_split_rule); a document still away may be the one that has
+    it. A job still in old places (old_places: its documents gone) writes none: its rows are still counted with the
+    cover."""
+    return all(not j.old_places for j in days) and any(
+        any(cover_pages(d.ing) for d in j.docs) or _kept_from_record(j) for j in days)
 
 
 def counts_covers(origin: dict) -> bool:
@@ -1699,60 +1716,102 @@ def _rows_with_covers(job: Job) -> list:
     return [(old_place(int(last)), keys, *more) for last, keys, *more in job.portions]
 
 
+def documents_not_here(named: list[str], here: list[str]) -> list[str]:
+    """Those of a record's documents (named: their paths) that none of `here` (Doc.key()s) is: the same path, else the
+    same file name, as one may be dropped back from another folder. Each of `here` answers for one of them: two
+    documents of a day can share a name ("AM\\Transcript.pdf", "PM\\Transcript.pdf"), and the first back isn't both."""
+    paths = [p.lower() for p in here]
+    rest = []
+    for p in named:
+        if p.lower() in paths:
+            paths.remove(p.lower())
+        else:
+            rest.append(p)
+    names = [Path(p).name for p in paths]
+    out = []
+    for p in rest:
+        if Path(p).name.lower() in names:
+            names.remove(Path(p).name.lower())
+        else:
+            out.append(p)
+    return out
+
+
 def _all_back(job: Job) -> bool:
-    """Every transcript the record of a job opened again counted is read: the pages here, with their covers, come to
-    the day's pages as it counted them (Job.old_total), or every PDF it was made from is here, known by its name (it
-    may be dropped back from another folder). A letter saved as a PDF may be away for good: the pages adding up say
-    nothing is missing. A transcript that got shorter never adds up: its documents all here say nothing more will come.
-    A trial's record names every day's documents, so a day goes by its own pages."""
-    docs = job.transcripts()
-    if job.transcript_pages() + sum(cover_pages(d.ing) for d in docs) >= job.old_total:
+    """Every transcript the record of a job opened again counted is read: every PDF it was made from is here (see
+    documents_not_here), or the pages here, with the covers it counted, come to the day's pages as it counted them
+    (Job.old_total). A letter saved as a PDF may be away for good: the pages adding up say nothing is missing, and more
+    than the count it read say a transcript got longer. A number typed says less of the pages read, so only pages coming
+    to exactly that number count (14 typed says nothing of a first document of 21). A transcript that got shorter never
+    adds up: its documents all here say nothing more will come. A trial's day may have other days' documents among
+    those it waits for, so it can go by its own pages. A record saying neither has nothing to wait for."""
+    counted = job.transcript_pages() + (sum(cover_pages(d.ing) for d in job.transcripts()) if job.old_places else 0)
+    if job.old_total and (counted == job.old_total or (job.old_count and counted > job.old_total)):
         return True
     pdfs = [p for p in job.old_sources if p.lower().endswith(".pdf")]
-    here = {d.ing.name.lower() for d in job.docs}
-    return bool(pdfs) and all(Path(p).name.lower() in here for p in pdfs)
+    if not pdfs:
+        return not job.old_total
+    return not documents_not_here(pdfs, [d.key() for d in job.docs])
 
 
-def _as_the_record_had_them(job: Job) -> bool:
-    """The job's documents back in the order its record had them (Job.old_sources), as its places count the pages in
-    that order: one dropped back later comes last otherwise. False when a transcript isn't one the record names (back
-    under another name, or new): where it goes, and so where any cover was, can't be told."""
-    names = [Path(p).name.lower() for p in job.old_sources]
-    if not names:
+def in_record_order(job: Job) -> bool:
+    """Puts a job opened again in the order its record had its documents (Job.old_sources), as what it keeps by place
+    counts the pages in that order: one dropped back later comes last otherwise, the bill going to the wrong pages with
+    nothing to hold it. A document is found by its path, else by its file name; one the record doesn't name goes after
+    those it does. False when that doesn't say where a transcript goes, and so where any cover was: it isn't named
+    (back under another name, or new), or it shares its name with another and no path says which is which. With one
+    transcript there is no order to tell."""
+    if not job.old_sources:
         return True
-    job.docs.sort(key=lambda d: names.index(d.ing.name.lower()) if d.ing.name.lower() in names else len(names))
-    return all(d.ing.name.lower() in names for d in job.transcripts())
+    free = {i: p.lower() for i, p in enumerate(job.old_sources)}
+    at: dict[int, int] = {}
+    for d in job.docs:
+        i = next((i for i, p in free.items() if p == d.key().lower()), None)
+        if i is not None:
+            at[id(d)] = i
+            del free[i]
+    unknown = set()
+    for d in [d for d in job.docs if id(d) not in at]:
+        same = [i for i, p in free.items() if Path(p).name == Path(d.key()).name.lower()]
+        if same:
+            at[id(d)] = same[0]
+            del free[same[0]]
+        if len(same) != 1:
+            unknown.add(id(d))
+    job.docs.sort(key=lambda d: at.get(id(d), len(job.old_sources)))
+    docs = job.transcripts()
+    return len(docs) == 1 or not any(id(d) in unknown for d in docs)
 
 
 def settle_old_places(job: Job) -> None:
-    """A job opened again from a record that counted Min-U-Script covers among its pages (Job.old_places), now that
-    every transcript the record counted is read (_all_back: until then where the covers were isn't known, and the
+    """A job opened again from a record, now that every transcript the record counted is read (_all_back: until then the
     record's numbers stay as they are, so a day settled on part of its documents would bill wrong once the rest came
-    back), moved over to places without them, once. Each Excerpts... row's last place loses the covers at or before it,
-    and a row left with no pages goes. Always moved, not first checked for fitting: rows that didn't fit before can't
-    start fitting by accident; left where they are when the order of the transcripts can't be told, they don't end on
-    the pages, and the invoice is held for the user to check. A Pages field holding an old count (the record's total or
-    the old count of the pages billed, the covers among them: a record whose document had moved keeps it as typed, see
-    MainWindow.open_past_job) goes back to the count, or it would bill the cover as a number the user typed. A number
-    the user really typed stays, and so do the rows counted in it: nothing ties those to the pages read. (The takes
-    corrected are the documents': fixes_without_cover.)"""
+    back), once. The Pages field goes back to the count when it holds the count the record read (Job.old_count: a
+    document that was away, or a corrected transcript, may have changed it), or, on a record that counted Min-U-Script
+    covers among its pages (Job.old_places), the old count of the pages billed, the cover among them, as an older
+    version kept it as typed: as a number typed it would bill the cover. A number the user really typed stays, and so do
+    the rows counted in it: nothing ties those to the pages read. And the Excerpts... rows of such a record move over to
+    places without the covers: each row's last place loses the covers at or before it, and a row left with no pages
+    goes. Always moved, not first checked for fitting: rows that didn't fit before can't start fitting by accident; left
+    where they are when the order of the transcripts can't be told, they don't end on the pages, and the invoice is
+    held for the user to check. (The takes corrected are the documents': fixes_without_cover.)"""
+    in_order = in_record_order(job)
     docs = job.transcripts()
-    if not job.old_places or not docs or not _all_back(job):
+    if not (job.old_places or job.old_count) or not docs or not _all_back(job):
         return
-    job.old_places = False
-    in_order = _as_the_record_had_them(job)
-    covers = _cover_places(job)
-    if not covers:
-        return
+    moving, count = job.old_places, job.old_count
+    job.old_places, job.old_count = False, 0
+    covers = _cover_places(job) if moving else []
     fs = job.case.fields["est_pages"]
     typed = to_int(fs.value, -1) if fs.source == SRC_USER else -1
     total = job.transcript_pages() + len(covers)
-    billed = job.own_pages() + sum(1 for d in docs if cover_pages(d.ing) and job._cover_billed(d))
-    if typed in (total, billed or total):  # (as is_the_count had it then: a typed "0" is the user's, no invoice)
+    billed = job.own_pages() + sum(1 for d in docs if moving and cover_pages(d.ing) and job._cover_billed(d))
+    # (as is_the_count had it then: a typed "0" is the user's, no invoice)
+    if (count and typed == count) or (covers and typed in (total, billed or total)):
         job.case.fields["est_pages"] = FieldState()
     elif typed >= 0:
         return  # (the user's number: the rows count pages of it)
-    if not job.portions or not in_order:
+    if not covers or not job.portions or not in_order:
         return
     rows, kept = [], 0
     for last, keys, *more in job.portions:
@@ -1775,20 +1834,40 @@ def trial_orders(days: list[Job], with_covers: bool = False) -> list[dict]:
     return [{"dates": j.case.get("dates"), "attorneys": [a.to_dict() for a in j.case.attorneys],
              "not_ordered": sorted(j.not_ordered), "speeds": dict(j.speeds),
              "portions": [[r[0], list(r[1])] + ([dict(r[2])] if len(r) > 2 and isinstance(r[2], dict) else [])
-                          for r in rows_of(j)] if j.portions is not None else None} for j in days]
+                          for r in rows_of(j)] if j.portions is not None else None,
+             **_kept_from_record(j)} for j in days]
+
+
+def _paths_of(value) -> list[str]:
+    """A list of a record's documents as kept ([] when it isn't one)."""
+    return [p for p in value if isinstance(p, str)] if isinstance(value, list) else []
+
+
+def record_documents(origin: dict) -> list[str]:
+    """Every document a record was made from: those read ("sources"), then those it says were away when it was made
+    (_kept_from_record), for what the window says when it is opened again."""
+    named = _paths_of(origin.get("sources"))
+    choices = origin.get("job") if isinstance(origin.get("job"), dict) else {}
+    days = origin.get("orders") if isinstance(origin.get("orders"), list) else []
+    for kept in [choices] + [d for d in days if isinstance(d, dict)]:
+        named += documents_not_here(_paths_of(kept.get("old_sources")), named)
+    return named
 
 
 def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
     """Who ordered each day of a trial opened again, as its record kept it (trial_orders, in origin["orders"]):
     each of `jobs` (read again from the record's documents, a job per day) whose dates a day of it has gets that
     day's attorneys and ticks (the user's, Job.att_touched), the firms it doesn't order, the speeds and the Excerpts...
-    rows (as places without a Min-U-Script cover, when the record counted it: settle_old_places); No. of copies follows.
-    An invoiced day is left as it is. Returns the jobs changed; anything not as expected is left out."""
+    rows (as places without a Min-U-Script cover, when the record counted it: settle_old_places), and the record's
+    documents but those read into its other days (Job.old_sources: a trial's record names every day's);
+    No. of copies follows. An invoiced day is left as it is. Returns the jobs changed; anything not as expected is left
+    out."""
     rows = origin.get("orders")
     if not isinstance(rows, list):
         return []
     known = set(Attorney.__dataclass_fields__)
     changed: list[Job] = []
+    sources = _paths_of(origin.get("sources"))
     for row in rows:
         if not isinstance(row, dict) or not isinstance(row.get("dates"), str) or not row["dates"]:
             continue
@@ -1805,6 +1884,8 @@ def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
             job.not_ordered = {k for k in row["not_ordered"] if isinstance(k, str) and k}
         if isinstance(row.get("speeds"), dict):
             job.speeds = {k: v for k, v in row["speeds"].items() if isinstance(k, str) and isinstance(v, str) and v}
+        others = {d.key().lower() for j in jobs if j is not job for d in j.docs}
+        job.old_sources = [p for p in _paths_of(row.get("old_sources")) or sources if p.lower() not in others]
         runs = row.get("portions")
         if isinstance(runs, list) and all(isinstance(r, list) and len(r) in (2, 3) and isinstance(r[0], int)
                                           and isinstance(r[1], list) for r in runs):
@@ -1812,9 +1893,9 @@ def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
                                         {k: v for k, v in r[2].items() if isinstance(k, str) and isinstance(v, str)
                                          and v} if len(r) > 2 and isinstance(r[2], dict) else None) for r in runs]
             job.old_places = counts_covers(origin)
-            job.old_total = int(job.portions[-1][0]) if job.portions else 0  # (the day's own: the record has no count)
-            job.old_sources = [p for p in origin.get("sources") or [] if isinstance(p, str)]
-            settle_old_places(job)
+            # (the day's own: the record has no count, its rows end on the day's pages)
+            job.old_total = job.old_count = int(job.portions[-1][0]) if job.portions else 0
+        settle_old_places(job)
         job.refresh_copies(s)
         changed.append(job)
     return changed
@@ -1919,9 +2000,10 @@ def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
     read again; the attorneys and proceeding types come back as the user left them (ticks included), the day's
     invoice choices too, and split_rule, the rule it was billed by (billed_split_rule, which needs the records).
     The agreement and delivery dates are today's again. The takes the user corrected are not here: they belong to
-    the documents, and are given to them as they are read again (origin_fixes). Rows kept by a record that counted a
-    Min-U-Script cover among its pages are moved once its documents are read (Job.old_places, Job.old_total,
-    Job.old_sources, settle_old_places). Anything in `origin` that isn't as expected is left out."""
+    the documents, and are given to them as they are read again (origin_fixes). The record's list of documents and
+    what it counted are kept until its documents are read (Job.old_sources, Job.old_total, Job.old_count,
+    settle_old_places), and rows kept by a record that counted a Min-U-Script cover among its pages are moved then
+    (Job.old_places). Anything in `origin` that isn't as expected is left out."""
     job = Job()
     snap = origin.get("case") if isinstance(origin.get("case"), dict) else {}
     choices = origin.get("job") if isinstance(origin.get("job"), dict) else {}
@@ -1978,11 +2060,14 @@ def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
     one_row_per_firm(job)
     job.own = tuple(sorted(my_initials(s.profile.name, s.profile.initials)))
     job.old_places = counts_covers(origin)
-    if job.old_places:
-        # (the count it kept, typed or not; a number really typed changes nothing: its rows are never moved)
-        rows_end = int(job.portions[-1][0]) if job.portions else 0
-        job.old_total = to_int(job.case.get("est_pages"), 0) or rows_end
-        job.old_sources = [p for p in origin.get("sources") or [] if isinstance(p, str)]
+    # (a record made while a document was away says what the record before it said: _kept_from_record, job_origin)
+    job.old_sources = _paths_of(choices.get("old_sources")) or _paths_of(origin.get("sources"))
+    est = job.case.fields["est_pages"]
+    kept = choices.get("old_count")
+    job.old_count = (kept if isinstance(kept, int) and not isinstance(kept, bool) and kept > 0 else
+                     to_int(est.value, 0) if est.source == SRC_PDF else 0)
+    rows_end = int(job.portions[-1][0]) if job.portions else 0
+    job.old_total = max(rows_end, job.old_count or to_int(est.value, 0))
     return job
 
 
@@ -2242,9 +2327,11 @@ def group(docs: list[Doc], s: Settings, jobs: list[Job] | None = None) -> list[J
                 # the user's invoice and run sheet choices of either job are kept
                 job.parties = job.parties or other.parties
                 job.invoice_detail |= other.invoice_detail
-                # (rows taken from a job still in old places, its transcripts not read: they are still to be moved)
-                if other.old_places and job.portions is None and not job.old_places:
-                    job.old_places, job.old_total, job.old_sources = True, other.old_total, other.old_sources
+                # (rows taken from a job opened again, its transcripts not read: what its record said goes with them,
+                # and rows still in old places are still to be moved)
+                if job.portions is None and not job.old_places and (other.old_places or not job.old_sources):
+                    job.old_places, job.old_total, job.old_count, job.old_sources = (
+                        other.old_places, other.old_total, other.old_count, other.old_sources)
                 for name in ("invoice_email", "invoice_index", "index_on_typed", "invoice_show", "portions",
                              "runsheet_to"):
                     if getattr(job, name) is None:
@@ -2668,7 +2755,8 @@ def follow_moves(jobs: list[Job], moves: list[tuple[Path, Path]]) -> None:
     """The folders `moves` ((the folder, its new path)) were renamed: these jobs' documents read from them, what
     is kept by a document's path (Doc.key(): Whose pages..., Job.page_basis and Job.front_owner, which would
     otherwise be lost and the pages billed otherwise; the documents kept together though their index numbers
-    differ, Job.index_numbers_ok) and the run sheet chosen for them (Job.runsheet_to) follow.
+    differ, Job.index_numbers_ok; the documents of a job's record, Job.old_sources) and the run sheet chosen for them
+    (Job.runsheet_to) follow.
     Generate all's copies of the jobs have dicts of their own: they are given here too (MainWindow._run_batch)."""
     for src, dst in moves:
         for d in {id(d): d for j in jobs for d in j.docs}.values():
@@ -2677,6 +2765,7 @@ def follow_moves(jobs: list[Job], moves: list[tuple[Path, Path]]) -> None:
             j.page_basis = {moved_path(k, src, dst): v for k, v in j.page_basis.items()}
             j.front_owner = {moved_path(k, src, dst): v for k, v in j.front_owner.items()}
             j.index_numbers_ok = [moved_path(k, src, dst) for k in j.index_numbers_ok]
+            j.old_sources = [moved_path(k, src, dst) for k in j.old_sources]
             if j.runsheet_to:
                 j.runsheet_to = moved_path(j.runsheet_to, src, dst)
 
