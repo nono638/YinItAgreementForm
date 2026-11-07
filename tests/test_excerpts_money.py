@@ -393,6 +393,19 @@ def test_runs_of_a_day_billing_nobody_on_the_first_set(qt, themed, tmp_path, s):
     w.close()
 
 
+def test_the_index_is_judged_on_the_days_of_the_invoices_priced(tmp_path, s):
+    """Day 1 bills DS's pages alone, so the user's invoice has only day 2's 30 total pages: no index, under 50. Judged
+    over both days, each run's price said an index that invoice hasn't."""
+    s.invoice_include_index, s.invoice_index_threshold, s.invoice_index_rule = True, 50, "total"
+    jobs = two_reporters(tmp_path, s, pages=(30, 30), bills=("ds", "me"))
+    days, firms = case_days(jobs), firms_of(jobs)
+    runs = [r for d in days for r in runs_of(d, firms)]
+    p = prices(days, runs, s)
+    invoice = dict(p.firms)[A]
+    assert {sp: sum(p.runs[id(r)][sp] for r in runs) for sp in invoice} == invoice == YOUR_10
+    assert each_invoice(jobs, s)[0] == ("yours", "Alex B. Counsel", YOUR_10)
+
+
 def test_a_job_of_several_days_billing_another_reporter(qt, themed, tmp_path, s):
     """A job of several days, ordered whole, one row: as the set priced bills it, DS's on a day of the user's."""
     s.profile.initials = "pr"

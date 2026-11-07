@@ -550,7 +550,7 @@ def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None
     # (the job's split rule once it was billed: batch.Job.split_rule)
     upfront, rule = courthouses.speed_upfront(), courthouses.split_rule(opts.split_rule or s.invoice_split_rule)
     names = {a.key(): a.label() for a in firms}
-    pages_in = {id(r): billed_in(r.day, r, theirs[id(r.day)]) for r in runs if id(r.day) in theirs}
+    pages_in = {id(r): billed_in(r.day, r, theirs.get(id(r.day))) for r in runs}
 
     def shares_of(run: Run, key: str | None = None) -> list[Share]:
         """A run's pages for quote_shares, each share split as many ways as firms ordered the run; for firm
