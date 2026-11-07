@@ -129,24 +129,49 @@ class Row:
         """The take's last page number by the run sheet's End formula, or None without a first page or page count."""
         return self.start + self.pages - 1 if self.start is not None and self.pages else None
 
+    def first_read(self) -> int | None:
+        """The first printed number read on its pages (its Start is blank when its own first page has none), else its
+        Start: where it goes among the day's takes."""
+        return next((n for n in self.numbers if n is not None), self.start)
+
+    def _span(self) -> tuple[int, int] | None:
+        """The lowest and highest numbers on its pages: as read (a take whose numbers skip ends past its End formula's,
+        and one that starts again runs back); on a row read back from a run sheet, or a scan's (the one number on its
+        first page), its Start and the End formula's. None without any. A Start of 0 is none: a run sheet written
+        before the 0 printed on a page gave way to its real number has it."""
+        read = [n for n in self.numbers if n]
+        if read and len(self.numbers) == self.pages:
+            return min(read), max(read)
+        return (self.start, self.end()) if self.start and self.end() is not None else None
+
     def same_take(self, other: "Row") -> bool:
-        """Already on the run sheet: the same day and pages that overlap, or (without page numbers) the
-        same day, reporter and page count. A first page of 0 is none: a run sheet written before the 0 printed on a
-        page gave way to its real number has it. Without this, and without the cover's page counted in an earlier
-        run sheet's first take (no first page, one page more: _with_cover), generating a day again adds its first
-        take a second time."""
+        """Already on the run sheet: the same day and pages that overlap, or (without page numbers) the same day,
+        reporter and page count. Takes of one transcript are never the same take, whatever numbers they print: a
+        number printed twice where the reporter changes, a day whose numbers start again and a take whose first number
+        wasn't read all overlap, and the take was dropped from the run sheet with no word said. On a run sheet (its
+        rows name no transcript), two reporters' takes starting apart with only one number in common are that same
+        number printed twice, not one take (an earlier version left the second off, and it is added now). Without the
+        rest, and without the cover's page counted in an earlier run sheet's first take (no first page, one page more:
+        _with_cover), generating a day again adds its first take a second time."""
         if self.day != other.day:
             return False
-        if self.start and other.start and None not in (self.end(), other.end()):
-            return self.start <= other.end() and other.start <= self.end()
+        if self.doc and self.doc == other.doc and self.at != other.at:
+            return False
+        mine, theirs = self._span(), other._span()
+        if mine and theirs:
+            if mine[0] > theirs[1] or theirs[0] > mine[1]:
+                return False
+            only_one = min(mine[1], theirs[1]) == max(mine[0], theirs[0]) and mine[0] != theirs[0]
+            return not only_one or self.reporter.lower() == other.reporter.lower()
         return ((self.reporter.lower(), self.pages) == (other.reporter.lower(), other.pages)
                 or self._with_cover(other) or other._with_cover(self))
 
     def _with_cover(self, old: "Row") -> bool:
         """`old`, without a first page, is this first take as a run sheet written before the Min-U-Script cover stopped
-        counting has it: its cover among its pages."""
+        counting has it: its cover among its pages. Under its initials too ("DS", now "Dana"): that count stopped at
+        the cover, so a title page naming the reporter on the page after it wasn't read."""
         return (self.after_cover and not old.start and bool(self.pages) and old.pages == self.pages + 1
-                and self.reporter.lower() == old.reporter.lower())
+                and old.reporter.lower() in (self.reporter.lower(), self.initials))
 
 
 @dataclass
@@ -651,7 +676,10 @@ def _in_order(old: list[Row], new: list[Row]) -> list[Row]:
     """The rows of the run sheet: the old ones where they were (in the order the user keeps them), each new one
     before the first old row that comes later by date, then first page. Old rows without a date or first page
     are passed over."""
-    key = lambda r: (r.day or date.max, r.start if r.start is not None else float("inf"))
+    def key(r: Row) -> tuple:
+        """Its day, then its first number read (a blank Start would send it to the end of its day)."""
+        first = r.first_read()
+        return r.day or date.max, first if first is not None else float("inf")
     rows = list(old)
     olds = {id(r) for r in old}
     for n in sorted(new, key=key):
