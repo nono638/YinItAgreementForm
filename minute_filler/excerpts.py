@@ -38,7 +38,7 @@ from .invoice import ORDERED_BY_NOBODY, default_speed, firm_invoices, index_mode
 from .invoice_calc import Share, index_days, offered, quote_ordered, quote_shares
 from .models import Attorney
 from .settings import Settings
-from .takes import numbers_known, place_words, run_numbers
+from .takes import numbers_known, place_words, run_numbers, run_numbers_known
 
 _BY_PLACE = re.compile(r"(?i)^\s*place\b")  # a run typed by its place in the day, whatever the day's numbers: "place 40-44"
 
@@ -78,7 +78,7 @@ class Day:
             return number_spans(self.printed) or "(not printed)"
         if self.numbered:
             nums = self.printed[a - 1:b]
-            if numbers_known(nums):
+            if run_numbers_known(nums):
                 return run_numbers(nums).text
         elif not self.printed and (a, b) == (1, self.pages) and numbers_known(self.read):
             return run_numbers(self.read).text
@@ -97,6 +97,15 @@ class Day:
         """A run this day takes as typed, for the Page numbers cell's tooltip: its first 20 pages (as_typed)."""
         return self.as_typed(1, min(self.pages, 20))
 
+    def _place_shown(self, text: str, nums: list[int]) -> str:
+        """The place of the run this text is the cell's own words for ("1–39, 10–29", typed again as it shows, which
+        parse can't take: place 1-59); "" when it isn't one."""
+        said = re.sub(r"\s+", "", text or "").replace("-", "–")
+        ends = [(a, b) for a, n in enumerate(self.printed, 1) if n == nums[0]
+                for b, m in enumerate(self.printed, 1) if m == nums[-1] and b >= a]
+        return next((f"place {a}-{b}" for a, b in ends
+                     if run_numbers(self.printed[a - 1:b]).text.replace(" ", "") == said), "")
+
     def place(self, a: int, b: int) -> str:
         """Pages a..b by their place in the day: '1–20 of 85 total pages' (every reporter's: the pages split are
         every page of the day's transcripts), '1–20 of 85 pages typed' when the Pages field was typed in (the
@@ -112,7 +121,8 @@ class Day:
         which page: _by_number). ValueError, saying why, when it isn't one of its pages."""
         nums = [int(x) for x in re.findall(r"\d+", text or "")]
         if not nums or len(nums) > 2:
-            raise ValueError("type the run as first-last page, e.g. 141-170")
+            shown = (self._place_shown(text, nums) if nums else "") or (self.example() if self.pages else "141-170")
+            raise ValueError(f"type the run as first-last page, e.g. {shown}")
         a, b = sorted((nums[0], nums[-1]))
         if self.numbered and not _BY_PLACE.match(text):
             return self._by_number(a, b)
@@ -137,20 +147,23 @@ class Day:
             raise ValueError(f"{self.label}'s printed page numbers are {read[0][1]}–{read[-1][1]}")
         found = [s for s in stretches if any(a <= n <= b for _, n in s)]
         if not found:  # (every number typed falls among numbers the transcript skips)
-            unread = next((i for i, n in enumerate(self.printed, 1) if n is None), None)
+            # (the unread pages it could be on: those between the numbers around it, when one stretch has such a gap)
+            gaps = [(p + 1, q - 1) for s in stretches for (p, x), (q, y) in zip(s, s[1:])
+                    if x < a and b < y and q - p > 1]
             raise ValueError((f"no page of {self.label} has a printed page number in {a}–{b}" if a != b else
                               f"no page of {self.label} has the printed page number {a}")
-                             + (f" (a page whose number wasn't read goes by its place: place {unread})"
-                                if unread else ""))
+                             + (f" (a page whose number wasn't read goes by its place: {place_words(*gaps[0])})"
+                                if len(gaps) == 1 else ""))
         first, last = (next(place for place, n in found[0] if n >= a),
                        max(place for place, n in found[0] if n <= b))
         if len(found) == 1 and found[0][0][1] <= a and b <= found[0][-1][1]:
             self._ends_read(found[0], a, b, first, last)
             return first, last
         typed = f"{a}–{b}" if a != b else str(a)
+        place = f"place {first}-{last}" if first != last else f"place {first}"
         raise ValueError(f"{self.label}'s printed page numbers start again ({run_numbers(self.printed).text}), and "
                          f"{typed} is {'on more than one stretch' if len(found) > 1 else 'not all on one stretch'} of "
-                         f"them: type the run by its place in the day instead, e.g. place {first}-{last}")
+                         f"them: type the run by its place in the day instead, e.g. {place}")
 
     def _ends_read(self, stretch: list[tuple[int, int]], a: int, b: int, first: int, last: int) -> None:
         """ValueError, naming the places to type instead, when page number a or b may be on an unread page of this

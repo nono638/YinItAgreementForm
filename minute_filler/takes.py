@@ -85,6 +85,14 @@ def numbers_known(printed: list, pages: int | None = None) -> bool:
     return len(set(read)) >= max(1, math.ceil(pages / 2), min(len(read), 2))
 
 
+def run_numbers_known(printed: list) -> bool:
+    """A run of the pages of a day whose numbers are known (numbers_known) can be shown by the numbers read on it:
+    different numbers on at least half of its pages. Two numbers read needn't be two numbers here: that tells of a day
+    (a line number taken for the page's), and in a day known, 164 printed twice where a reporter changes is those two
+    pages, as it is typed."""
+    return len({n for n in printed if n is not None}) >= max(1, math.ceil(len(printed) / 2))
+
+
 @dataclass(frozen=True)
 class RunNumbers:
     """Page numbers as read, in the stretches they run in (run_numbers)."""

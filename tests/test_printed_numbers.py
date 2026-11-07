@@ -13,7 +13,8 @@ from datetime import date
 import pymupdf
 import pytest
 
-from minute_filler.batch import (Doc, Job, _printed_span, _run_words, billed_split_rule, counts_covers, cover_note,
+from minute_filler.batch import (Doc, Job, _printed_span, _run_words, _runs_words, billed_split_rule, counts_covers,
+                                 cover_note,
                                  documents_not_here, fill_jobs, fixes_without_cover, group, job_from_origin, job_origin,
                                  joint_origin, origin_fixes, put_back_orders, read_docs, record_documents, remerge,
                                  settle_old_places, trial_orders)
@@ -388,7 +389,7 @@ def test_a_day_whose_numbers_fall_takes_a_run_only_where_it_can_say_which_pages(
     d = day_of(FALLS)
     assert d.numbered and d.falls() and d.span(1, d.pages) == "1–39, 10–29, 60–97, 10–11, 100–111"
     assert d.span(39, 40) == "39, 10"  # (a run over the place they fall shows both, as read)
-    with pytest.raises(ValueError, match="more than one stretch.*place 15-15"):
+    with pytest.raises(ValueError, match="more than one stretch.*place 15$"):
         d.parse("15")  # (on two pages: the first found would bill the wrong one)
     with pytest.raises(ValueError, match="more than one stretch.*place 35-39"):
         d.parse("35-65")  # (35-39 before they start again, 60-65 after)
@@ -1597,7 +1598,7 @@ def test_a_run_as_it_can_be_typed(a, b, want):
 def test_a_run_whose_shown_numbers_mean_other_pages_is_offered_by_place():
     d = day_of(TWICE)
     assert d.as_typed(35, 35) == "place 35"  # (164 is both pages 35 and 36)
-    assert d.as_typed(35, 36) == "place 35–36"  # (one number twice is no number known)
+    assert d.as_typed(35, 36) == "164"  # (a run in a day known: typed, 164 is those two pages)
     assert d.example() == "130–149"
 
 
@@ -2815,3 +2816,90 @@ def test_nor_with_the_dashes_a_typist_uses(words):
 ])
 def test_what_a_cover_says_is_still_a_cover(tmp_path, words):
     assert ingest_file(page_numbered_transcript(tmp_path / "Roe.pdf", 5, cover=words)).count.cover == 1
+
+
+# ------------------------------------------------------------------ a run inside a day whose numbers are known
+def test_a_run_of_one_number_printed_twice_shows_that_number():
+    """"Two numbers read must be two numbers" is a test of a day, not of a run in a day known: 164 printed twice showed
+    "place 35–36", and the invoice "pp. 130–134, counted pages 35–36", though typing 164 gives those two pages."""
+    d = day_of(TWICE)
+    assert d.span(35, 36) == "164" and d.parse("164") == (35, 36) and d.as_typed(35, 36) == "164"
+    assert _run_words(TWICE, 35, 36) == "p. 164" and _printed_span(TWICE, 35, 36) == "p. 164"
+    assert _runs_words(TWICE, [(1, 5), (35, 36)]) == "pp. 130–134, 164"
+    assert d.span(34, 36) == "163–164" and _run_words(TWICE, 34, 36) == "pp. 163–164"
+
+
+@pytest.mark.parametrize("printed, a, b, shown", [
+    ([1, 1], 1, 2, "place 1–2"),  # (a day of one number stays by place)
+    ([1, 1, 1], 1, 2, "place 1–2"),
+    ([154, None], 1, 2, "154"),  # (one read of two is half)
+    ([100, 101, 102, None, None, None], 3, 6, "place 3–6"),  # (too few of its own)
+    ([100, 101, 102, None, None, None], 3, 4, "102"),
+])
+def test_what_a_run_shows_as_its_numbers(printed, a, b, shown):
+    assert day_of(printed).span(a, b) == shown
+
+
+# ------------------------------------------------------------------ what a refused run says
+@pytest.mark.parametrize("printed, typed, hint", [
+    ([100, None, 102, 103, None, 105], "104", "place 5"),  # (it said place 2, the page between 100 and 102)
+    ([100, None, None, 103, None, 105], "104", "place 5"),
+    ([100, None, 102, 103, None, 105], "101", "place 2"),
+    ([1, 2, None, 4, 5, 6, 7, 8, 1, 2, None, 4], "3", None),  # (a gap on each stretch: nothing says which)
+])
+def test_a_hint_names_the_gap_the_number_could_be_in(printed, typed, hint):
+    with pytest.raises(ValueError) as refused:
+        day_of(printed).parse(typed)
+    if hint:
+        assert str(refused.value).endswith(f"goes by its place: {hint})")
+        d = day_of(printed)
+        place = int(hint.split()[1])
+        assert d.parse(hint) == (place, place) and d.printed[place - 1] is None
+    else:
+        assert "goes by its place" not in str(refused.value)
+
+
+def test_no_hint_where_no_page_was_unread_around_the_number():
+    with pytest.raises(ValueError) as refused:
+        day_of([None, 100, 101, 103]).parse("102")  # (the unread page is before 100)
+    assert "place" not in str(refused.value)
+
+
+def test_a_hint_gives_the_whole_gap():
+    d = day_of([100, None, None, 103, 104, 105, 106, 107])
+    with pytest.raises(ValueError, match=r"goes by its place: place 2–3\)$"):
+        d.parse("101")
+    with pytest.raises(ValueError, match=r"goes by its place: place 2–3\)$"):
+        d.parse("101-102")
+    assert d.parse("place 2–3") == (2, 3)
+
+
+def test_a_place_of_one_page_is_said_as_one():
+    with pytest.raises(ValueError, match=r"e\.g\. place 15$"):
+        day_of(FALLS).parse("15")
+    assert day_of(FALLS).parse("place 15") == (15, 15)
+
+
+def test_a_cell_typed_again_as_it_shows_is_told_its_place():
+    """It said "e.g. 141-170", which no page of this day prints."""
+    d = day_of(FALLS)
+    with pytest.raises(ValueError, match=r"e\.g\. place 1-59$"):
+        d.parse("1–39, 10–29")
+    with pytest.raises(ValueError, match=r"e\.g\. place 1-111$"):
+        d.parse(d.span(1, 111))
+    with pytest.raises(ValueError, match=r"e\.g\. place 1-59$"):
+        d.parse(" 1-39 ,  10 - 29 ")
+    assert d.parse("place 1-59") == (1, 59)
+
+
+def test_several_numbers_that_arent_a_run_shown_get_the_day_s_example():
+    with pytest.raises(ValueError, match=r"first-last page, e\.g\. place 1–20$"):
+        day_of(FALLS).parse("3, 5, 7")
+    with pytest.raises(ValueError, match=r"first-last page, e\.g\. 819–838$"):
+        day_of(range(819, 939)).parse("819, 820, 821")
+    with pytest.raises(ValueError, match=r"first-last page, e\.g\. place 1–6$"):
+        day_of([None] * 6).parse("")
+    with pytest.raises(ValueError, match=r"first-last page, e\.g\. place 1–6$"):
+        day_of([154] + [None] * 5).parse("1, 2, 3")
+    with pytest.raises(ValueError, match=r"first-last page, e\.g\. 141-170$"):
+        day_of([]).parse("")  # (no pages to give an example of)

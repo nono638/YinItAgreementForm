@@ -82,7 +82,7 @@ from .rates import speed_key
 from .records import recorded_cases
 from .runsheet import (NO_RUNSHEET, RunSheetOpts, cover_pages, matches, name_rows, page_order, read_info, refresh_orders,
                        rows_from, title_page_texts, transcript_pages)
-from .takes import counted_words, fix_marks, my_initials, numbers_known, page_owners, run_numbers
+from .takes import counted_words, fix_marks, my_initials, numbers_known, page_owners, run_numbers, run_numbers_known
 from .settings import OUTPUT_FOLDERS, OUTPUTS, SUBFOLDERS, Settings
 
 BATCH_EXT = {".pdf", ".eml", ".docx", ".txt", ".htm", ".html"} | IMAGE_EXT  # taken from a dropped folder
@@ -1555,9 +1555,9 @@ def _join(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
 
 def _printed_span(printed: list, first: int, last: int) -> str:
     """'pp. 120–140': the numbers read on pages first to last of the day ('pp. 106–107, 1–3' where they start
-    again), when they can stand for the day and for these pages (takes.numbers_known); ""."""
+    again), when they can stand for the day (takes.numbers_known) and for these pages (takes.run_numbers_known); ""."""
     nums = printed[first - 1:last] if printed else []
-    return run_numbers(nums).pp() if numbers_known(printed) and numbers_known(nums) else ""
+    return run_numbers(nums).pp() if numbers_known(printed) and run_numbers_known(nums) else ""
 
 
 def _run_words(printed: list, first: int, last: int) -> str:
