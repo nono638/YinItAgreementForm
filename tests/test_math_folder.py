@@ -33,6 +33,12 @@ def lost(n: int) -> str:
     return f"The math of {n} invoice{'' if n == 1 else 's'} could not be saved (the log says why)."
 
 
+def since(n: int) -> str:
+    """The note for n invoices made with Don't save it, when the list has since been changed."""
+    which = "this invoice" if n == 1 else "these invoices"
+    return f"The math of {which} was not saved. The list now says to save it, from the next Generate."
+
+
 @pytest.fixture
 def s(tmp_path):
     s = pat_settings()
@@ -399,6 +405,17 @@ def test_the_note_when_save_the_math_says_dont_save_it(s):
     assert math_note("off", [], []) == math_note("both", [], []) == ""  # (no invoice made: nothing to say of it)
 
 
+def test_the_note_when_the_list_has_changed_since_they_were_made(s):
+    """The short form, the list no longer saying what the long one quotes; only of what wasn't saved."""
+    assert math_note("off", made_of(s, 1), [], "both") == since(1)
+    assert math_note("off", made_of(s, 2), [], "each") == since(2)
+    assert math_note("off", made_of(s, 2), [], "off") == OFF_MANY
+    assert math_note("off", [], [], "both") == ""
+    files = [Path(f"Invoice 2026-000{i} - the math.pdf") for i in range(3)]
+    assert math_note("both", made_of(s, 2), files, "off") == ""  # (saved: nothing to say, whatever the list says now)
+    assert math_note("both", made_of(s, 2), files[:2], "off") == SOME  # (one couldn't be: that is still so)
+
+
 @pytest.mark.parametrize("save, invoices, saved, note", [
     ("each", 2, 2, ""), ("each", 2, 1, lost(1)), ("each", 2, 0, lost(2)), ("each", 1, 0, lost(1)),
     ("both", 1, 1, ""),  # (one invoice alone gets its own only)
@@ -521,7 +538,8 @@ def test_the_box_tells_of_the_list_as_the_preview_left_it(tmp_path, monkeypatch,
 def test_the_list_changed_in_the_maths_window_after_saving(tmp_path, monkeypatch, make_window, qt, everything, was,
                                                            now):
     """The window showing the math comes before the box: Don't save it chosen there says nothing of these invoices,
-    whose math was saved; turned on there, the box doesn't then say the list says Don't save it."""
+    whose math was saved; turned on there, the box still says these invoices have none (all the window said of it,
+    "This time: not saved.", has closed), and that the list now saves it, not that it says Don't save it."""
     from minute_filler.gui.preview import MathDialog
     win = maths_window(tmp_path, monkeypatch, make_window, qt, everything, save=was)
     win.s.show_math = True
@@ -530,6 +548,37 @@ def test_the_list_changed_in_the_maths_window_after_saving(tmp_path, monkeypatch
                         lambda dlg: dlg.saves.choice.setCurrentIndex(dlg.saves.choice.findData(now)) or 0)
     text = make_all(win, everything, boxes)
     assert win.s.save_math == now and "Save the math says" not in text and "could not be saved" not in text
+    if was == "off":
+        assert since(1) in text
+    else:
+        assert "not saved" not in text
+
+
+@pytest.mark.parametrize("preview", [False, True])
+def test_the_list_changed_while_generate_all_runs_is_said_in_the_box(tmp_path, monkeypatch, make_window, qt, preview):
+    """No window of the math follows (previews off with Show the math off, or it was in the preview): the link under
+    Who pays what opened during the run, and saving turned on there. The run goes on with its own copy of the
+    settings, which says Don't save it, so none is saved, and only the box can say so."""
+    from minute_filler.gui.preview import MathDialog, PreviewDialog
+    from test_extras import wait
+    win = maths_window(tmp_path, monkeypatch, make_window, qt, True, preview, "off")
+    win.s.show_math = preview
+    boxes = box_texts(win, monkeypatch)
+    monkeypatch.setattr(PreviewDialog, "exec", lambda dlg: PreviewDialog.Accepted)
+    monkeypatch.setattr(MathDialog, "exec",
+                        lambda dlg: dlg.saves.choice.setCurrentIndex(dlg.saves.choice.findData("both")) or 0)
+    real = win._run_batch
+
+    def run_then_the_link(*a, **k):  # (the saving itself begun: changed before it, in a preview, it is saved)
+        real(*a, **k)
+        assert win._batch_running()
+        win._show_live_math()
+    monkeypatch.setattr(win, "_run_batch", run_then_the_link)
+    win.fill_all_jobs()
+    wait(win, lambda: boxes)
+    assert win.s.save_math == "both"
+    assert since(1) in boxes[-1] and "Save the math says" not in boxes[-1]
+    assert not [p for j in win.jobs for p in j.saved if is_math_file(p)]
 
 
 # ------------------------------------------------------------------ the two lists and the wheel

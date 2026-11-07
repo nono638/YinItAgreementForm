@@ -999,10 +999,12 @@ def math_pdfs(save: str, invoices: int) -> int:
                                                             else 0)
 
 
-def math_note(save: str, made: list, paths: list) -> str:
+def math_note(save: str, made: list, paths: list, now: str | None = None) -> str:
     """What the box at the end of Generate or Generate all says about the math of the invoices it made, "" when it
     is all saved: nothing else tells the user there is none. save: Settings.save_math as they were made; made: the
-    (FirmInvoice, number) of each invoice (generate's `math`); paths: the files saved. The PDFs due are counted by
+    (FirmInvoice, number) of each invoice (generate's `math`); paths: the files saved; now: Settings.save_math at the
+    box, which the math's window or its links may have changed since: made with Don't save it, the note says so in
+    a shorter form when the list no longer does. The PDFs due are counted by
     FirmInvoice.group, as save_math goes by reporter within a Generate: firm_invoices makes one group for each
     reporter's set. A number is said only when it is known: with "each" every missing PDF is one invoice's, and when
     none was saved it is all of them; otherwise one PDF may be of one invoice or of all of them."""
@@ -1013,8 +1015,10 @@ def math_note(save: str, made: list, paths: list) -> str:
     if not n:
         return ""
     if save == "off":
-        return (f"The math of {'this invoice' if n == 1 else 'these invoices'} was not saved (Settings → Invoice → "
-                f"Save the math says {MATH_SAVES['off']}).")
+        which = "this invoice" if n == 1 else "these invoices"
+        if now not in (None, "off"):
+            return f"The math of {which} was not saved. The list now says to save it, from the next Generate."
+        return f"The math of {which} was not saved (Settings → Invoice → Save the math says {MATH_SAVES['off']})."
     due = sum(math_pdfs(save, k) for k in Counter(f.group for f, _ in made).values())
     saved = len({str(p) for p in paths if is_math_file(p)})
     if saved >= due:

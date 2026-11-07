@@ -5939,11 +5939,12 @@ class MainWindow(QMainWindow):
 
     def _math_note(self, save: str, made: list, paths: list) -> str:
         """What the box at the end of Generate or Generate all says about the math (invoice_math.math_note; save:
-        Settings.save_math as the files were made, made: generate's `math`, paths: the files saved). It doesn't say
-        the list says Don't save it once the list says otherwise: the math's window just said "not saved", and
-        the list there was changed."""
+        Settings.save_math as the files were made, made: generate's `math`, paths: the files saved). None saved is
+        said even when the list has since been changed, in the math's window or from its links during Generate all:
+        nothing else need have said it (no such window follows a preview, nor Show the math off), and what that
+        window says of it has closed."""
         from ..invoice_math import math_note
-        return "" if save == "off" and self.s.save_math != "off" else math_note(save, made, paths)
+        return math_note(save, made, paths, self.s.save_math)
 
     def _preview(self, case: CaseInfo, outputs: list[str], opts, ordered: dict | None = None,
                  speeds: dict | None = None, day: date | None = None) -> bool:
