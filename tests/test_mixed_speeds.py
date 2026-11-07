@@ -546,11 +546,11 @@ def test_the_excerpts_window_sets_the_speeds(window, qt, tmp_path):
     w._firm_speed_chosen(A, "Daily")
     w._firm_speed_chosen(B, "Immediate")
     wait(window, qt, lambda: job.speeds == {A: "Daily", B: "Immediate"})
-    wait(window, qt, lambda: w.table.item(0, FIRST_FIRM).text().startswith("Daily · "))
-    assert w.table.item(0, FIRST_FIRM).text() == "Daily · $172.50"
-    assert w.table.item(0, FIRST_FIRM + 1).text() == "Immediate · $217.50"
+    wait(window, qt, lambda: w.table.item(0, FIRST_FIRM).text() == "$172.50 · shared")  # (the heading says Daily)
+    assert w.table.item(0, FIRST_FIRM + 1).text() == "$217.50 · shared"
+    assert [w.firm_speed_boxes[k].short_text() for k in (A, B)] == ["Daily", "Immediate"]
     assert "(one original, at Immediate)" in w.summary.text()
-    # every run at the speeds ordered: no "Prices for" boxes, no "Each pays · <speed>" columns
+    # every run at the speeds ordered: no "Show prices for" boxes, no "Each pays · <speed>" columns
     heads = [w.table.horizontalHeaderItem(c).text() for c in range(w.table.columnCount())]
     assert not any(h.startswith("Each pays") for h in heads) and w.speeds_label.isHidden()
     w.table.item(0, PAGES).setText("101-110")  # two runs, both firms on each (printed pages 101-130)
@@ -558,8 +558,8 @@ def test_the_excerpts_window_sets_the_speeds(window, qt, tmp_path):
     w.table.selectRow(1)
     w._set_run_speed(B, "Daily")  # (its right-click: Smith Law on pages 111-130 at Daily)
     assert job.portions == [(10, [A, B]), (30, [A, B], {B: "Daily"})]
-    # the boxes of the row shown before are gone at once: two showings in a row once left a box of the first,
-    # never laid out, over the window (640 x 480 at its top left) until Qt's event loop deleted it
+    # the firms' boxes are the only ones showing: two showings in a row once left a box of the first, never laid
+    # out, over the window (640 x 480 at its top left) until Qt's event loop deleted it
     w.show()
     qt.QApplication.processEvents()
     from minute_filler.gui.widgets import QuietCombo
@@ -572,7 +572,7 @@ def test_the_excerpts_window_sets_the_speeds(window, qt, tmp_path):
     w._set_run_speed(B, None)
     assert job.portions == [(10, [A, B]), (30, [A, B])]  # (the runs alike again; kept as two runs)
     # a firm's invoice at the speed it committed to is listed under the table even with that speed's prices
-    # unticked under "Prices for" (they are for firms that choose)
+    # unticked under "Show prices for" (they are for firms that choose)
     window.s.excerpt_hidden_speeds = ["Expedite"]
     w._firm_speed_chosen(A, "Expedite")
     wait(window, qt, lambda: job.speeds.get(A) == "Expedite" and "Alex B. Counsel: Expedite $" in w.summary.text())

@@ -162,11 +162,12 @@ def test_the_firm_tags_follow_the_zoom(window, qt, tmp_path):
         window.set_zoom(1.0)
 
 
-def test_the_excerpts_window_tags_firms_as_the_main_window_does(window, qt, tmp_path, monkeypatch):
+def test_the_excerpts_window_tags_firms_as_the_main_window_does(window, qt, tmp_path):
     """Day 1 lists Counsel & Counsel first, day 2 Smith Law first; day 1 unticked (not on day 2's invoice): the
     Excerpts window of day 2 tags the firms as the main window does, by the whole trial (it went by day 2 alone,
     the tags swapped)."""
     import minute_filler.gui.badges as badges
+    from minute_filler.gui.excerpts import FIRST_FIRM
     window.add_files([str(transcript_pdf(tmp_path / "d1.pdf", pages=30)),
                       str(transcript_pdf(tmp_path / "d2.pdf", pages=24, date="June 4, 2026"))], batch=True)
     wait_for(window, lambda: len(window.jobs) == 2 and all(j.docs for j in window.jobs))
@@ -183,12 +184,11 @@ def test_the_excerpts_window_tags_firms_as_the_main_window_does(window, qt, tmp_
     window._show_job()
     main = window._marks(d2)
     assert {k: m.shade for k, m in main.items()} == {counsel().key(): 0, smith().key(): 1}
-    drawn = []
-    real = badges.badge_icon
-    monkeypatch.setattr(badges, "badge_icon", lambda mark, *a: drawn.append(mark) or real(mark, *a))
     window._who_ordered(d2)
     ex = window.excerpts
-    assert drawn == [main[a.key()] for a in ex.firms]
+    t = ex.table
+    colours = [t.horizontalHeaderItem(FIRST_FIRM + c).data(badges.STRIPE_ROLE) for c in range(len(ex.firms))]
+    assert colours == [badges.tag_color(main[a.key()]).name() for a in ex.firms]
     ex.close()
 
 

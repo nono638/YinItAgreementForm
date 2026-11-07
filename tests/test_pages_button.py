@@ -71,6 +71,25 @@ def test_the_question_mark_shows_the_steps_and_opens_the_manual(window, monkeypa
     assert opened == ["exc-table"]
 
 
+def test_f1_in_the_window_opens_the_help_on_what_has_the_focus(window, monkeypatch, qt):
+    """F1 did nothing in the window: it opens its topic, the counts' controls and the speed boxes their own."""
+    from PySide6.QtGui import QShortcut
+    from minute_filler.gui import help_window
+    from minute_filler.gui.excerpts import ExcerptsWindow
+    from minute_filler.gui.firm_columns import FirmSpeedBox
+    opened = []
+    monkeypatch.setattr(help_window, "open_help", lambda topic="", owner=None: opened.append(topic))
+    w = ExcerptsWindow(window.s, lambda: None, window)
+    f1 = next(x for x in w.findChildren(QShortcut) if x.key().toString() == "F1" and x.parent() is w)
+    box = FirmSpeedBox(w.table.horizontalHeader().viewport())
+    box.setProperty("help_topic", "exc-speeds")
+    for focus, topic in ((None, "exc-table"), (w.table, "exc-table"), (w.only_mine, "exc-your-pages"),
+                         (w.columns, "exc-your-pages"), (box, "exc-speeds")):
+        monkeypatch.setattr(w, "focusWidget", lambda f=focus: f)
+        f1.activated.emit()
+        assert opened.pop() == topic
+
+
 def test_the_window_has_its_own_question_mark(window, monkeypatch, qt):
     from minute_filler.gui.excerpts import ExcerptsWindow
     w = ExcerptsWindow(window.s, lambda: None, window)

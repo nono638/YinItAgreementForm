@@ -1,11 +1,12 @@
 """Excerpts as one table for the whole case (2.0.0): runs of pages typed in the transcript's own numbers, a box
-per firm, and the prices as they change. Also removing excerpts (Remove run or Delete, Remove this day's excerpts,
-Remove all excerpts, the right-click menu: the pages go to a run beside), each run's date and weekday, and a colour
-for each set of firms ordering together. The example: firm A orders the whole trial, firm B an excerpt of day 1,
+per firm, and the prices as they change. Also removing excerpts (Remove run or Delete, Make this day whole,
+Make every day whole, the right-click menu: the pages go to a run beside), each run's date and weekday, and each
+firm's colour (how the table looks and clicks: tests/test_excerpts_look.py). The example: firm A orders the whole trial, firm B an excerpt of day 1,
 firm C part of B's excerpt and a stretch of day 2; pages ordered by two firms are shared two ways, by three
 firms three ways. Prices are from the bundled "Sample Rates" sheet (Regular: original $4.30, copy, e-mailed copy
 and index $1.00 a page). All names are made up."""
 import os
+import re
 import time
 from decimal import Decimal
 
@@ -24,6 +25,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 def firm(name, firm_name):
     return Attorney(name=name, firm=firm_name, checked=True)
+
+
+def without_squares(summary):
+    """The lines under the table without the firms' squares (badges.badge_html)."""
+    return re.sub(r"<span style='color:#\w+'>&#9632;</span>&nbsp;", "", summary)
 
 
 A, B, C = (firm("Alex B. Counsel", "Counsel & Counsel"), firm("Dana Smith", "Smith Law"),
@@ -317,7 +323,8 @@ def test_the_excerpts_window_follows_the_table_and_the_main_window(window, tmp_p
     w = window.excerpts
     assert w.isVisible() and [r.day.label for r in w.runs] == ["6/3/2026", "6/4/2026"]
     heads = [w.table.horizontalHeaderItem(c).text() for c in range(w.table.columnCount())]
-    assert heads[:6] == ["Date", "Weekday", "Page numbers", "Place in the day", "Alex B. Counsel", "Dana Smith"]
+    assert heads[:6] == ["Date", "Weekday", "Page numbers\n(type here)", "Place in the day", "Alex B. Counsel",
+                         "Dana Smith"]
     assert "Each pays · Regular" in heads and w.table.isColumnHidden(PLACE)  # the place is off by default
     w.table.item(0, PAGES).setText("121-140")  # Dana's excerpt of day 1: typed in the printed numbers
     assert [w.table.item(r, PAGES).text() for r in range(3)] == ["101–120", "121–140", "101–120"]
@@ -328,9 +335,9 @@ def test_the_excerpts_window_follows_the_table_and_the_main_window(window, tmp_p
     w.table.item(0, FIRST_FIRM + 1).setCheckState(Qt.Unchecked)  # Dana didn't order pages 101-120
     assert window.jobs[0].portions == [(20, [A.key()]), (40, [A.key(), B.key()])]
     assert "Alex B. Counsel only: 20 of your pages billed (20 total pages)" in w.summary.text()  # (day 2: both)
-    assert "Alex B. Counsel + Dana Smith: 40 of your pages billed (40 total pages)" in w.summary.text()
+    assert "Alex B. Counsel + Dana Smith: 40 of your pages billed (40 total pages)" in without_squares(w.summary.text())
     assert "each of the 2 pays" in w.summary.text() and " pp." not in w.summary.text()
-    assert "(÷ 2)" in w.table.item(1, w.table.columnCount() - 1).text()
+    assert "(÷2)" in w.table.item(1, w.table.columnCount() - 1).text()
     w.table.item(1, PAGES).setText("90-95")  # not a page of the day: said, and nothing changes
     assert "101–140" in w.problem.text() and window.jobs[0].portions == [(20, [A.key()]), (40, [A.key(), B.key()])]
     # a change in the main window shows in the table at once
@@ -404,11 +411,13 @@ def test_a_cell_typed_while_the_main_window_changed_the_runs(window, tmp_path):
 
 
 @pytest.mark.usefixtures("split_orders_choose")
-def test_the_colours_of_the_excerpts_table_are_the_sets_of_firms_ordering_together(window, tmp_path):
-    """The boxes were tinted with no explanation (and glaring on the dark theme): each set of firms ordering
-    together now has a colour, the same in the table and on its line under it; and the weekday is read."""
+def test_the_colours_of_the_excerpts_table_are_the_firms(window, tmp_path):
+    """A colour per set of firms ordering together told nothing the ticks didn't, and glared on the dark theme: each
+    firm has its colour, as in the main window, in its heading and down its column, whatever it ordered, and beside
+    its name under the table; no cell is tinted. And the weekday is read."""
     from PySide6.QtCore import Qt
-    from minute_filler.gui.excerpts import FIRST_FIRM, GROUP_COLORS, PAGES, weekdays
+    from minute_filler.gui.badges import STRIPE_ROLE, badge_html, tag_color
+    from minute_filler.gui.excerpts import FIRST_FIRM, PAGES, weekdays
     assert weekdays("9/28/2026") == "Monday" and weekdays("6/3/2026, 6/4/2026") == "Wed, Thu"
     assert weekdays("(no date)") == "" and weekdays("13/45/2026") == ""
     window.add_files([str(transcript_pdf(tmp_path / "Day 1.pdf", 40))])
@@ -420,14 +429,17 @@ def test_the_colours_of_the_excerpts_table_are_the_sets_of_firms_ordering_togeth
     w = window.excerpts
     w.table.item(0, PAGES).setText("121-140")
     w.table.item(0, FIRST_FIRM + 1).setCheckState(Qt.Unchecked)  # Alex alone, then Alex + Dana
-    alone, both = w.table.item(0, FIRST_FIRM).background().color(), w.table.item(1, FIRST_FIRM).background().color()
-    assert alone.name() != both.name() and {alone.name(), both.name()} <= set(GROUP_COLORS)
-    assert alone.alpha() < 255  # see-through: readable on either theme
-    assert w.table.item(1, FIRST_FIRM + 1).background().color().name() == both.name()  # Dana's box: the same
-    assert w.table.item(0, FIRST_FIRM + 1).background().style() == Qt.NoBrush  # not ordered: no colour
+    marks = window._marks(window.cur)
+    for c, a in enumerate(w.firms, FIRST_FIRM):
+        colour = tag_color(marks[a.key()]).name()
+        assert w.table.horizontalHeaderItem(c).data(STRIPE_ROLE) == colour
+        for r in range(2):
+            assert w.table.item(r, c).data(STRIPE_ROLE) == colour  # (ticked or not)
+            assert w.table.item(r, c).background().style() == Qt.NoBrush
     text = w.summary.text()
-    assert f'color:{alone.name()}">■</span> Alex B. Counsel only' in text
-    assert f'color:{both.name()}">■</span> Alex B. Counsel + Dana Smith' in text
+    alex, dana = (badge_html(marks[a.key()], a.label()) for a in w.firms)
+    assert f"{alex} only:" in text and f"{alex} + {dana}:" in text
+    assert f"{alex}: Regular $" in text and f"{dana}: Regular $" in text
     w.close()
 
 
@@ -499,8 +511,8 @@ def test_delete_while_a_run_is_typed_leaves_the_runs(window, tmp_path):
     w.close()
 
 
-def test_remove_all_excerpts(window, tmp_path, monkeypatch):
-    """Remove all excerpts, after asking: every day of the case is one run again, ordered by every firm that
+def test_make_every_day_whole(window, tmp_path, monkeypatch):
+    """Make every day whole, after asking: every day of the case is one run again, ordered by every firm that
     ordered any of it; the table is shown and the main window told once."""
     from PySide6 import QtWidgets
     from PySide6.QtCore import Qt
@@ -514,13 +526,13 @@ def test_remove_all_excerpts(window, tmp_path, monkeypatch):
     asked, told = [], []
     inner = w.changed
     w.changed = lambda: told.append(1) or inner()
-    button = next(x for x in w.findChildren(QtWidgets.QPushButton) if x.text() == "Remove all excerpts")
+    button = next(x for x in w.findChildren(QtWidgets.QPushButton) if x.text() == "Make every day whole")
     answer = QtWidgets.QMessageBox.No
     monkeypatch.setattr(QtWidgets.QMessageBox, "question",
                         lambda parent, title, text, *x, **k: asked.append(text) or answer)
     button.click()  # No: nothing changes
     assert asked == ["Every day of the case becomes one run, ordered by every firm that ordered any of it. "
-                     "Remove all excerpts?"]
+                     "Make every day whole?"]
     assert len(w.runs) == 4 and window.jobs[0].portions is not None and told == []
     answer = QtWidgets.QMessageBox.Yes
     w.table.selectRow(3)
@@ -529,13 +541,13 @@ def test_remove_all_excerpts(window, tmp_path, monkeypatch):
     assert pages_shown(w) == ["101–140", "101–120"] and w.table.currentRow() == 1  # (still on day 2)
     assert [list(j.ticked_keys()) for j in window.jobs] == [[a, b], [a, b]]
     button.click()  # nothing left to remove: not asked
-    assert len(asked) == 2 and "no excerpts to remove" in w.problem.text()
+    assert len(asked) == 2 and "Every day is whole already" in w.problem.text()
     w.close()
 
 
 def test_the_right_click_menu_of_a_run(window, tmp_path, monkeypatch):
-    """A right-click chooses the run's row and offers Split run, Remove run (not for a day's only run), Remove
-    this day's excerpts and Remove all excerpts. When the table is read afresh while the menu is open and the
+    """A right-click chooses the run's row and offers Split run…, Remove run (not for a day's only run), Make this
+    day whole and Make every day whole. When the table is read afresh while the menu is open and the
     run is gone, nothing is done."""
     from minute_filler.gui.excerpts import PAGES
     w = two_days_open(window, tmp_path)
@@ -565,8 +577,8 @@ def test_the_right_click_menu_of_a_run(window, tmp_path, monkeypatch):
     w.table.selectRow(0)
     right_click(2)  # day 2's only run: chosen, and it can't be removed
     assert w.table.currentRow() == 2
-    assert shown[-1] == [("Split run", True), ("Remove run", False), ("Remove this day's excerpts", True),
-                         ("Remove all excerpts", True)]
+    assert shown[-1] == [("Split run…", True), ("Remove run", False), ("Make this day whole", True),
+                         ("Make every day whole", True)]
     assert len(w.runs) == 3
     meanwhile.append(lambda: (setattr(window.jobs[0], "portions", None), w.load([d.job for d in w.days])))
     right_click(1)  # the main window made day 1 one run while the menu was open
@@ -580,8 +592,8 @@ def test_the_right_click_menu_of_a_run(window, tmp_path, monkeypatch):
     w.close()
 
 
-def test_remove_all_excerpts_after_the_table_was_read_again(window, tmp_path, monkeypatch):
-    """A read that ended while "Remove all excerpts?" was asked showed the days afresh: the days found before the
+def test_make_every_day_whole_after_the_table_was_read_again(window, tmp_path, monkeypatch):
+    """A read that ended while "Make every day whole?" was asked showed the days afresh: the days found before the
     question matched none of them, and nothing was removed (nor said)."""
     from PySide6 import QtWidgets
     from PySide6.QtCore import Qt

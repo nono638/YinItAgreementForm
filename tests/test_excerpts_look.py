@@ -1,0 +1,910 @@
+"""How Who ordered which pages looks and clicks (gui/firm_columns.py, gui/excerpts.py): a band of each firm's colour
+over its name, a stripe of it down its column, the speed list in its heading, a click anywhere in a cell ticking
+it, and what the cells say. What the table's prices are made of: tests/test_excerpts.py, tests/test_mixed_speeds.py.
+Prices are from the bundled "Sample Rates" sheet: at Expedite, an original of $5.40, a copy and an e-mailed copy of
+$1.10 a page, so $7.60 a page alone and $4.90 a page shared by two. All names are made up."""
+import os
+from decimal import Decimal
+
+import pytest
+
+from helpers import pat_settings, transcript_pdf
+from minute_filler.batch import group, read_docs
+from minute_filler.excerpts import Run, case_days, firms_of, prices, runs_of, store
+from minute_filler.models import Attorney
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+DANA = dict(name="Dana Smith", firm="Smith Law", party="Plaintiff")
+ALEX = dict(name="Alex B. Counsel", firm="Counsel & Counsel", party="Defendant")
+KIM = dict(name="Kim Park", firm="Park PC", party="Defendant")
+D, A, K = (Attorney(**x).key() for x in (DANA, ALEX, KIM))
+
+
+@pytest.fixture
+def s(tmp_path):
+    s = pat_settings()
+    s.output_dir, s.records_dir = str(tmp_path / "out"), str(tmp_path / "records")
+    s.invoice_speeds = ["Regular", "Expedite"]
+    s.invoice_include_index = False
+    return s
+
+
+@pytest.fixture
+def themed(qt):
+    """The app in the light theme (a window without it measures narrower than on screen); the zoom and the style sheet
+    left as they were."""
+    from minute_filler.gui import zoom
+    from minute_filler.gui.theme import apply_theme
+    app = qt.QApplication.instance()
+    style, palette = app.styleSheet(), app.palette()
+    apply_theme(app, "light")
+    yield apply_theme
+    zoom.set_zoom(1.0)
+    app.setStyleSheet(style)
+    app.setPalette(palette)
+
+
+def days_of(tmp_path, s, pages=(30,), firms=(DANA, ALEX, KIM), ticked=(D, A)):
+    """Jobs of a transcript per number in `pages`, one day each (at Expedite, as on the agreement form), with these
+    firms, those in `ticked` ordering every page."""
+    when = ("June 3, 2026", "June 4, 2026", "June 5, 2026")
+    docs, errors = read_docs([str(transcript_pdf(tmp_path / f"Day {i}.pdf", n, date=when[i]))
+                              for i, n in enumerate(pages)], s)
+    assert not errors
+    jobs = group(docs, s)
+    for j in jobs:
+        j.case.attorneys = [Attorney(**x, checked=Attorney(**x).key() in ticked) for x in firms]
+        j.case.set("delivery", "Expedite")
+        j.att_touched = True
+    return jobs
+
+
+def pump(qt, times=8):
+    for _ in range(times):
+        qt.QApplication.processEvents()
+
+
+def open_window(qt, jobs, s, told=None):
+    """The window on these days, shown off screen."""
+    from minute_filler.gui.excerpts import ExcerptsWindow
+    w = ExcerptsWindow(s, (lambda: told.append(1)) if told is not None else (lambda: None))
+    w.load(jobs)
+    w.show()
+    pump(qt)
+    return w
+
+
+def split(w, day, *rows):
+    """A day's runs from (first place, last place, firms) rows, kept and shown."""
+    d = next(x for x in w.days if x is day)
+    store(d, [Run(d, a, b, list(keys)) for a, b, keys in rows], w.firms, w.s)
+    w.load(w.group)
+
+
+def cell(w, r, key):
+    """The cell of firm `key` in row r."""
+    from minute_filler.gui.excerpts import FIRST_FIRM
+    return w.table.item(r, FIRST_FIRM + [a.key() for a in w.firms].index(key))
+
+
+def section_of(w, key):
+    """The heading's section of firm `key`."""
+    from minute_filler.gui.excerpts import FIRST_FIRM
+    return FIRST_FIRM + [a.key() for a in w.firms].index(key)
+
+
+def colour_of(w, key):
+    from minute_filler.gui.badges import tag_color
+    return tag_color(w._marks[key]).name()
+
+
+# ------------------------------------------------------------------ the band and the stripe
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_each_firm_has_its_colour_in_a_band_with_no_shade_behind_its_name(qt, themed, tmp_path, s, theme):
+    """Over the firm's name, drawn in the heading (a firm's name on a pale shade read as a field to check: the user,
+    2026-10-22, so only the band is coloured), and the other headings none. Past the last column, the strip goes on."""
+    from minute_filler.gui.firm_columns import BAND, GAP
+    from minute_filler.gui.theme import DARK, LIGHT
+    from minute_filler.gui.zoom import z
+    themed(qt.QApplication.instance(), theme)
+    tokens = LIGHT if theme == "light" else DARK
+    w = open_window(qt, days_of(tmp_path, s), s)
+    head = w.table.horizontalHeader()
+    picture = head.grab().toImage()
+    seen = set()
+    for key in (D, A, K):
+        logical = section_of(w, key)
+        x = head.sectionViewportPosition(logical)
+        middle = x + head.sectionSize(logical) // 2
+        assert picture.pixelColor(middle, z(BAND) // 2).name() == colour_of(w, key)
+        # (no shade on the name's row)
+        assert picture.pixelColor(x + 2, z(BAND) + z(GAP) + 2).name() == tokens["header_bg"]
+        seen.add(colour_of(w, key))
+    assert len(seen) == 3
+    assert picture.pixelColor(head.sectionViewportPosition(0) + 2, 2).name() == tokens["header_bg"]  # Date: no band
+    assert picture.pixelColor(head.length() + 5, 10).name() == tokens["header_bg"]
+    w.close()
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_the_stripe_keeps_its_colour_on_a_selected_row(qt, themed, tmp_path, s, theme):
+    """Down each firm's column, ticked or not; on a selected row Qt tints what a style draws (the square went brown
+    that way in 2.14.1), and this is drawn over it."""
+    themed(qt.QApplication.instance(), theme)
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    split(w, w.days[0], (1, 10, [D, A]), (11, 30, [A]))
+    w.table.selectRow(0)
+    pump(qt)
+    picture = w.table.viewport().grab().toImage()
+    for r in (0, 1):  # (row 0 selected, Dana ticked; row 1 not, Dana unticked)
+        for key in (D, A, K):
+            rect = w.table.visualItemRect(cell(w, r, key))
+            assert picture.pixelColor(rect.left() + 1, rect.center().y()).name() == colour_of(w, key), (r, key)
+    w.close()
+
+
+def test_a_firm_without_a_mark_has_no_band_or_stripe_and_still_works(qt, themed, tmp_path, s):
+    """The colour is a help: with no marks the columns work as ever, with nothing painted."""
+    from minute_filler.gui.badges import STRIPE_ROLE
+    from minute_filler.gui.excerpts import ExcerptsWindow, FIRST_FIRM
+    jobs = days_of(tmp_path, s)
+    w = ExcerptsWindow(s, lambda: None, marks=lambda job: {})
+    w.load(jobs)
+    w.show()
+    pump(qt)
+    assert w.table.horizontalHeaderItem(FIRST_FIRM).data(STRIPE_ROLE) is None
+    assert w.table.item(0, FIRST_FIRM).data(STRIPE_ROLE) is None
+    assert w.table.horizontalHeader().grab().toImage().pixelColor(
+        w.table.horizontalHeader().sectionViewportPosition(FIRST_FIRM) + 40, 2).name() != "#ea580c"
+    assert "Dana Smith" in w.summary.text() and "&#9632;" not in w.summary.text()
+    w.close()
+
+
+def test_a_price_to_commit_to_stays_amber_on_a_selected_row(qt, themed, tmp_path, s):
+    """The style sheet's item:selected sets one colour for the text of a selected row: the amber went."""
+    from PySide6.QtGui import QColor
+    from minute_filler.gui.excerpts import AMBER
+    s.split_speeds = "ask"
+    w = open_window(qt, days_of(tmp_path, s), s)
+    assert cell(w, 0, D).text() == "Expedite? · $147.00 (÷2)"
+    w.table.selectRow(0)
+    pump(qt)
+    picture = w.table.viewport().grab().toImage()
+    rect = w.table.visualItemRect(cell(w, 0, D))
+    amber = QColor(AMBER)
+    pixels = [picture.pixelColor(x, y) for x in range(rect.left(), rect.right())
+              for y in range(rect.top(), rect.bottom())]
+    assert any(abs(c.red() - amber.red()) + abs(c.green() - amber.green()) + abs(c.blue() - amber.blue()) < 12
+               for c in pixels)
+    w.close()
+
+
+@pytest.mark.parametrize("level", [1.0, 1.6])
+def test_a_cells_text_clears_its_box_selected_or_not_at_any_zoom(qt, themed, tmp_path, s, level):
+    """On a selected row the style puts the text in one place whatever the zoom, and at 160 % the box had grown over
+    it: "$117.60" under the tick."""
+    from minute_filler.gui import zoom
+    from minute_filler.gui.theme import LIGHT
+    zoom.set_zoom(level)
+    themed(qt.QApplication.instance(), "light")
+    w = open_window(qt, days_of(tmp_path, s, pages=(30, 30)), s)
+    w.table.selectRow(1)
+    pump(qt)
+    picture = w.table.viewport().grab().toImage()
+    for r, background in ((0, LIGHT["card"]), (1, LIGHT["sel"])):
+        rect = w.table.visualItemRect(cell(w, r, D))
+        y = rect.center().y()
+        right = max(x for x in range(rect.left() + 8, rect.left() + zoom.z(50))
+                    if picture.pixelColor(x, y).name() == LIGHT["accent"])  # (the box's blue: its right edge)
+        assert picture.pixelColor(right + 2, y).name() == background
+        gap = [picture.pixelColor(right + dx, yy).name() for dx in range(2, 5)
+               for yy in range(rect.top() + 2, rect.bottom() - 1)]
+        assert set(gap) == {background}, (r, set(gap))
+    w.close()
+
+
+# ------------------------------------------------------------------ clicks
+@pytest.fixture
+def clicking(qt, themed, tmp_path, s):
+    """A window on one day, Dana and Alex ordering it, and the times the main window was told of a change."""
+    told = []
+    w = open_window(qt, days_of(tmp_path, s), s, told)
+    w.activateWindow()
+    w.table.setFocus()
+    pump(qt)
+    yield w, told
+    w.close()
+
+
+def click_at(qt, w, row, key, button=None, x=None):
+    """A click in a firm's cell, at x from its left (default: well to the right of the box)."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    rect = w.table.visualItemRect(cell(w, row, key))
+    at = QPoint(rect.right() - 6 if x is None else rect.left() + x, rect.center().y())
+    QTest.mouseClick(w.table.viewport(), button or Qt.LeftButton, Qt.NoModifier, at)
+    pump(qt)
+
+
+def test_a_click_anywhere_in_a_firms_cell_ticks_it_once(qt, clicking):
+    w, told = clicking
+    click_at(qt, w, 0, D)  # off the box
+    assert w.runs[0].keys == [A] and told == [1]
+    click_at(qt, w, 0, D, x=12)  # on the box: once too, not twice
+    assert sorted(w.runs[0].keys) == sorted([D, A]) and told == [1, 1]
+    click_at(qt, w, 0, K)  # a firm unticked: ticked
+    assert K in w.runs[0].keys
+
+
+def test_a_right_click_on_a_cell_is_the_runs_menu_and_ticks_nothing(qt, clicking, monkeypatch):
+    from PySide6.QtCore import Qt
+    w, told = clicking
+    click_at(qt, w, 0, D, Qt.RightButton)
+    click_at(qt, w, 0, D, Qt.MiddleButton)
+    assert sorted(w.runs[0].keys) == sorted([D, A]) and told == []
+
+
+def test_the_date_chooses_the_row_without_ticking(qt, clicking):
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+    from minute_filler.gui.excerpts import DATE
+    w, told = clicking
+    rect = w.table.visualItemRect(w.table.item(0, DATE))
+    QTest.mouseClick(w.table.viewport(), Qt.LeftButton, Qt.NoModifier, QPoint(rect.center().x(), rect.center().y()))
+    pump(qt)
+    assert w.table.currentRow() == 0 and w._chosen() is w.runs[0] and told == []
+
+
+def test_a_drag_from_cell_to_cell_ticks_nothing(qt, clicking):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    w, told = clicking
+    start = w.table.visualItemRect(cell(w, 0, D)).center()
+    end = w.table.visualItemRect(cell(w, 0, K)).center()
+    QTest.mousePress(w.table.viewport(), Qt.LeftButton, Qt.NoModifier, start)
+    QTest.mouseMove(w.table.viewport(), end)
+    QTest.mouseRelease(w.table.viewport(), Qt.LeftButton, Qt.NoModifier, end)
+    pump(qt)
+    assert sorted(w.runs[0].keys) == sorted([D, A]) and told == []
+
+
+def test_a_double_click_leaves_the_tick_as_it_was(qt, clicking):
+    """As the system sends one: a click, the table shown again, a double click and its release. Two ticks and no
+    change, rather than a firm dropped by a double click meant to choose the row."""
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtTest import QTest
+    w, told = clicking
+    at = w.table.visualItemRect(cell(w, 0, D)).center()
+    QTest.mouseClick(w.table.viewport(), Qt.LeftButton, Qt.NoModifier, at)
+    viewport = w.table.viewport()
+    point = QPointF(at)
+    global_at = QPointF(viewport.mapToGlobal(at))
+    qt.QApplication.sendEvent(viewport, QMouseEvent(QEvent.MouseButtonDblClick, point, global_at, Qt.LeftButton,
+                                                    Qt.LeftButton, Qt.NoModifier))
+    QTest.mouseRelease(viewport, Qt.LeftButton, Qt.NoModifier, at)
+    pump(qt)
+    assert sorted(w.runs[0].keys) == sorted([D, A]) and len(told) == 2
+
+
+def test_space_ticks_and_stays_on_its_cell_so_a_second_one_unticks(qt, clicking):
+    """The table shown again went to the row's first column, where a second Space did nothing."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    w, told = clicking
+    column = section_of(w, K)
+    w.table.setCurrentCell(0, column)
+    pump(qt)
+    QTest.keyClick(w.table, Qt.Key_Space)
+    assert K in w.runs[0].keys and (w.table.currentRow(), w.table.currentColumn()) == (0, column)
+    QTest.keyClick(w.table, Qt.Key_Space)
+    assert K not in w.runs[0].keys and (w.table.currentRow(), w.table.currentColumn()) == (0, column)
+    assert told == [1, 1]
+
+
+def test_a_page_numbers_cell_still_opens_to_type_in(qt, clicking):
+    """(The one delegate is table-wide: a double click on Page numbers still edits it.)"""
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QAbstractItemView
+    from minute_filler.gui.excerpts import PAGES
+    w, told = clicking
+    viewport = w.table.viewport()
+    at = w.table.visualItemRect(w.table.item(0, PAGES)).center()
+    QTest.mouseClick(viewport, Qt.LeftButton, Qt.NoModifier, at)
+    qt.QApplication.sendEvent(viewport, QMouseEvent(QEvent.MouseButtonDblClick, QPointF(at),
+                                                    QPointF(viewport.mapToGlobal(at)), Qt.LeftButton, Qt.LeftButton,
+                                                    Qt.NoModifier))
+    pump(qt)
+    assert w.table.state() == QAbstractItemView.EditingState and told == []
+
+
+# ------------------------------------------------------------------ the speed boxes
+def aligned(w) -> bool:
+    """Every firm's box is over its section, inside it, the 4 px at the edges left to resize it, and shown."""
+    from minute_filler.gui.firm_columns import BAND, BOX_INSET, GAP
+    from minute_filler.gui.zoom import z
+    head = w.table.horizontalHeader()
+    for a in w.firms:
+        box = w.firm_speed_boxes[a.key()]
+        logical = section_of(w, a.key())
+        x, size = head.sectionViewportPosition(logical), head.sectionSize(logical)
+        g = box.geometry()
+        if box.isHidden() or box.parent() is not head.viewport():
+            return False
+        if (g.left(), g.width()) != (x + z(BOX_INSET), size - 2 * z(BOX_INSET)):
+            return False
+        # (under the band and the name: the heading asks for the height, FirmHeader.sizeHint)
+        if g.bottom() >= head.viewport().height() or g.top() < z(BAND) + z(GAP) + head.fontMetrics().height():
+            return False
+    return True
+
+
+def assert_labels_fit(box):
+    """Each of a speed box's closed labels fits in it uncut, at its width now."""
+    from PySide6.QtWidgets import QStyle, QStyleOptionComboBox
+    opt = QStyleOptionComboBox()
+    box.initStyleOption(opt)
+    room = box.style().subControlRect(QStyle.CC_ComboBox, opt, QStyle.SC_ComboBoxEditField, box).width()
+    for i in range(box.count()):
+        box.setCurrentIndex(i)
+        assert box.fontMetrics().horizontalAdvance(box.short_text()) <= room, box.short_text()
+
+
+def test_the_boxes_follow_their_columns(qt, themed, tmp_path, s):
+    from minute_filler.gui.excerpts import PAGES, PLACE
+    w = open_window(qt, days_of(tmp_path, s), s)
+    assert aligned(w)
+    w.resize(620, 500)
+    pump(qt)
+    assert aligned(w)
+    w.place.setChecked(True)
+    pump(qt)
+    assert not w.table.isColumnHidden(PLACE) and aligned(w)
+    w.place.setChecked(False)
+    pump(qt)
+    assert aligned(w)
+    w.table.setColumnWidth(PAGES, 260)
+    pump(qt)
+    assert aligned(w)
+    bar = w.table.horizontalScrollBar()
+    assert bar.maximum() > 0
+    bar.setValue(bar.maximum())
+    pump(qt)
+    assert aligned(w)
+    assert w.firm_speed_boxes[D].x() < w.table.horizontalHeader().sectionViewportPosition(0) + 500  # (it moved left)
+    bar.setValue(0)
+    pump(qt)
+    assert aligned(w)
+    w.close()
+
+
+def test_a_count_hidden_under_columns_moves_no_box_off_its_firm(qt, themed, tmp_path, s):
+    w = open_window(qt, days_of(tmp_path, s), s)
+    w.count_actions["your_billed"].setChecked(False)
+    pump(qt)
+    assert aligned(w)
+    w.count_actions["your_billed"].setChecked(True)
+    pump(qt)
+    assert aligned(w)
+    w.close()
+
+
+def test_the_heading_and_the_boxes_follow_the_zoom(qt, themed, tmp_path, s):
+    from minute_filler.gui import zoom
+    w = open_window(qt, days_of(tmp_path, s), s)
+    head = w.table.horizontalHeader()
+    high, wide = head.height(), w.table.columnWidth(section_of(w, D))
+    for level, grows in ((1.3, True), (0.7, False)):
+        zoom.set_zoom(level)
+        themed(qt.QApplication.instance(), "light")
+        pump(qt)
+        w.load(w.group)
+        pump(qt)
+        assert aligned(w), level
+        assert (head.height() > high) is grows and (w.table.columnWidth(section_of(w, D)) > wide) is grows, level
+        box = w.firm_speed_boxes[D]
+        assert box.height() == box.sizeHint().height() and box.y() + box.height() <= head.height()
+        assert_labels_fit(box)
+    w.close()
+
+
+def test_the_main_windows_zoom_reaches_the_window(qt, tmp_path, make_window, s, themed):
+    """Ctrl + in the main window: the table's columns fit again, not only the style sheet's sizes."""
+    from test_show_the_math import settled
+    win = settled(make_window(s))
+    from minute_filler.gui.excerpts import ExcerptsWindow
+    from minute_filler.gui.zoom import zoom
+    jobs = days_of(tmp_path, s)
+    win.jobs, win.cur = jobs, jobs[0]
+    win.excerpts = w = ExcerptsWindow(s, lambda: None, win)
+    w.load(jobs)
+    w.show()
+    pump(qt)
+    wide, shown_for = w.table.columnWidth(section_of(w, D)), []
+    win._follow_excerpts = lambda real=win._follow_excerpts: (shown_for.append(zoom()), real())
+    win.set_zoom(1.3)
+    pump(qt)
+    assert 1.3 in shown_for
+    assert w.isVisible() and w.table.columnWidth(section_of(w, D)) > wide and aligned(w)
+    w.close()
+
+
+def test_a_rebuild_leaves_the_boxes_their_open_list_focus_and_the_scrolling(qt, themed, tmp_path, s):
+    """Anything the main window does shows the table again (a read ending, an AI answer): built afresh with the
+    table, a box closed its list under the mouse and lost the focus."""
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    w.resize(560, 500)
+    pump(qt)
+    bar = w.table.horizontalScrollBar()
+    bar.setValue(3)
+    pump(qt)
+    before = dict(w.firm_speed_boxes)
+    box = before[A]
+    removed = []
+    box.model().rowsRemoved.connect(lambda *_: removed.append(1))
+    w.activateWindow()
+    box.setFocus()
+    pump(qt)
+    assert box.hasFocus()
+    w.load(w.group)
+    pump(qt)
+    assert w.firm_speed_boxes == before and box.hasFocus() and bar.value() == 3 and aligned(w)
+    box.showPopup()
+    pump(qt)
+    assert box.view().isVisible()
+    w.load(w.group)
+    pump(qt)
+    assert box.view().isVisible() and not box.isHidden() and removed == [] and bar.value() == 3
+    box.hidePopup()
+    w.close()
+
+
+def test_a_rebuild_with_a_row_chosen_leaves_the_scrolling(qt, themed, tmp_path, s):
+    """Choosing the cell again scrolls to it: scrolled away to read the counts, the table jumped back on every change
+    in the main window."""
+    from minute_filler.gui.excerpts import DATE
+    w = open_window(qt, days_of(tmp_path, s), s)
+    split(w, w.days[0], *((i, i, [D, A]) for i in range(1, 31)))
+    w.resize(560, 300)
+    pump(qt)
+    w.table.setCurrentCell(0, DATE)
+    across, down = w.table.horizontalScrollBar(), w.table.verticalScrollBar()
+    across.setValue(3)
+    down.setValue(down.maximum())
+    pump(qt)
+    kept = across.value(), down.value()
+    assert kept[0] == 3 and kept[1] > 0
+    w.load(w.group)
+    pump(qt)
+    assert (across.value(), down.value()) == kept and (w.table.currentRow(), w.table.currentColumn()) == (0, DATE)
+    w.close()
+
+
+def test_a_firm_gone_while_a_list_is_open_doesnt_close_another_firms(qt, themed, tmp_path, s):
+    """Dana unlisted while Kim's list is open, with the first count hidden: Kim's column moves, and that count's
+    column is hidden at the number Kim's had. Her box isn't to go with it while the table is filled
+    (FirmHeader.hold)."""
+    s.excerpt_hidden_cols = ["your_billed"]
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    kim, dana = w.firm_speed_boxes[K], w.firm_speed_boxes[D]
+    kim.showPopup()
+    pump(qt)
+    jobs[0].case.attorneys = [a for a in jobs[0].case.attorneys if a.key() != D]
+    w.load(jobs)
+    pump(qt)
+    assert kim.view().isVisible() and not kim.isHidden() and dana.isHidden() and aligned(w)
+    assert w.firm_speed_boxes[K] is kim and set(w.firm_speed_boxes) == {A, K}
+    kim.hidePopup()
+    w.close()
+
+
+def test_a_firm_added_isnt_left_hidden_with_a_count_it_took_the_place_of(qt, themed, tmp_path, s):
+    """A firm added takes the column number of the first count: hidden under Columns, it stayed hidden, firm and box."""
+    s.excerpt_hidden_cols = ["your_billed"]
+    jobs = days_of(tmp_path, s, firms=(DANA, ALEX))
+    w = open_window(qt, jobs, s)
+    jobs[0].case.attorneys.append(Attorney(**KIM, checked=False))
+    w.load(jobs)
+    pump(qt)
+    assert not w.table.isColumnHidden(section_of(w, K)) and aligned(w)
+    assert w.table.isColumnHidden(section_of(w, K) + 1)  # (the count itself, one along)
+    w.close()
+
+
+def test_a_right_click_on_a_box_is_the_headings_menu(qt, themed, tmp_path, s):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QContextMenuEvent
+    w = open_window(qt, days_of(tmp_path, s), s)
+    shown = []
+    w.columns_menu.exec = lambda at: shown.append(at)
+    box = w.firm_speed_boxes[D]
+    at = QPoint(6, 6)
+    qt.QApplication.sendEvent(box, QContextMenuEvent(QContextMenuEvent.Mouse, at, box.mapToGlobal(at)))
+    pump(qt)
+    assert shown == [box.mapToGlobal(at)]
+    w.close()
+
+
+def test_a_box_says_the_speed_short_closed_and_whole_in_its_list(qt, themed, tmp_path, s):
+    """"The form's (Expedite)" took 166 px of a column that needs 110; the list keeps the whole, wider than the box
+    if need be."""
+    w = open_window(qt, days_of(tmp_path, s), s)
+    box = w.firm_speed_boxes[D]
+    assert box.currentText() == "The form's (Expedite)" and box.short_text() == "Expedite"
+    assert box.width() >= box.fontMetrics().horizontalAdvance("Expedite") + 40
+    box.showPopup()
+    pump(qt)
+    assert box.view().width() >= box.view().sizeHintForColumn(0)
+    assert box.view().width() > box.width()
+    box.hidePopup()
+    w.close()
+
+
+def test_a_closed_box_draws_the_short_label_and_an_arrow(qt, themed, tmp_path, s):
+    """The form's speed and that speed chosen look the same closed: "Expedite". A style-sheet box has no arrow, and
+    in a heading looked like a field to type in; a firm that ordered nothing has no list, so no arrow."""
+    from minute_filler.gui.zoom import z
+    w = open_window(qt, days_of(tmp_path, s), s)
+    box = w.firm_speed_boxes[D]
+    form = box.grab().toImage()
+    assert box.currentText() == "The form's (Expedite)"
+    box.setCurrentIndex(box.findData("Expedite"))
+    assert form == box.grab().toImage()
+    box.setCurrentIndex(box.findData("Regular"))
+    assert form != box.grab().toImage()
+
+    def dark_pixels(b):
+        """Pixels of the text's colour where the arrow goes, at the box's right end."""
+        picture = b.grab().toImage()
+        return sum(picture.pixelColor(x, y).lightness() < 100 for x in range(b.width() - z(22), b.width() - z(2))
+                   for y in range(z(6), b.height() - z(6)))
+    assert dark_pixels(box) > 0 and dark_pixels(w.firm_speed_boxes[K]) == 0
+    w.close()
+
+
+def test_choosing_in_a_box_sets_the_firms_speed(qt, themed, tmp_path, s):
+    told = []
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s, told)
+    box = w.firm_speed_boxes[D]
+    box.setCurrentIndex(box.findData("Daily"))
+    box.activated.emit(box.currentIndex())
+    pump(qt)
+    assert jobs[0].speeds[D] == "Daily" and told == [1]
+    assert w.firm_speed_boxes[D] is box and box.short_text() == "Daily"
+    w.close()
+
+
+def test_a_firm_that_ordered_nothing_has_no_speed_to_set(qt, themed, tmp_path, s):
+    """Kim ordered nothing: there is no day to set a speed on. Tick a run first, it says, and then the box works."""
+    from PySide6.QtCore import Qt
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    box = w.firm_speed_boxes[K]
+    assert not box.isEnabled() and "tick a run first" in box.toolTip() and box.short_text() == "–"
+    assert box.isVisible() and aligned(w)
+    cell(w, 0, K).setCheckState(Qt.Checked)
+    pump(qt)
+    assert w.firm_speed_boxes[K] is box and box.isEnabled() and box.findData("Daily") >= 0
+    w.close()
+
+
+# ------------------------------------------------------------------ the fit
+def firm_widths(w):
+    return [w.table.columnWidth(section_of(w, a.key())) for a in w.firms]
+
+
+def test_three_firms_fit_the_window_at_its_size(qt, themed, tmp_path, s):
+    """Prices under $1,000, the four counts shown and the Weekday: no sideways scrolling (the picture before needed
+    it)."""
+    if not os.environ.get("QT_QPA_FONTDIR"):
+        pytest.skip("needs the real fonts to measure the text (see conftest.qt)")
+    w = open_window(qt, days_of(tmp_path, s), s)
+    head = w.table.horizontalHeader()
+    assert (w.width(), head.length() <= w.table.viewport().width()) == (1000, True), head.length()
+    assert not w.table.horizontalScrollBar().maximum()
+    w.close()
+
+
+def test_the_firms_columns_are_one_width_and_a_tick_doesnt_move_them(qt, themed, tmp_path, s):
+    """What a click lands on stays under the mouse: untick the firm with the widest text and nothing shifts."""
+    from PySide6.QtCore import Qt
+    w = open_window(qt, days_of(tmp_path, s, pages=(120,)), s)
+    widths = firm_widths(w)
+    assert len(set(widths)) == 1
+    cell(w, 0, D).setCheckState(Qt.Unchecked)  # (Alex alone: a shorter text)
+    assert "(÷2)" not in cell(w, 0, A).text() and firm_widths(w) == widths
+    cell(w, 0, K).setCheckState(Qt.Checked)
+    assert firm_widths(w) == widths or firm_widths(w)[0] > widths[0]
+    w.close()
+
+
+def test_the_columns_fit_what_they_hold_and_a_long_name_is_cut(qt, themed, tmp_path, s):
+    """The widest text and the box come out whole; a name past FIRM_NAME_MAX doesn't widen every firm's column."""
+    from minute_filler.gui.excerpts import FIRM_NAME_MAX
+    from minute_filler.gui.zoom import z
+    long_firm = dict(name="", firm="Law Offices of the Very Long Firm Name Partners and Associates", party="Plaintiff")
+    w = open_window(qt, days_of(tmp_path, s, firms=(long_firm, ALEX), ticked=(Attorney(**long_firm).key(), A)), s)
+    assert firm_widths(w)[0] <= max(z(FIRM_NAME_MAX), w.table.sizeHintForColumn(section_of(w, A)) + z(10))
+    for a in w.firms:
+        column = section_of(w, a.key())
+        assert w.table.columnWidth(column) >= w.table.sizeHintForColumn(column)
+        assert_labels_fit(w.firm_speed_boxes[a.key()])
+    w.close()
+
+
+def test_a_nobody_run_doesnt_widen_its_count_column(qt, themed, tmp_path, s):
+    """"0 (nobody ordered it)" moved the column 53 px as a run's last firm was unticked."""
+    from minute_filler.gui.excerpts import FIRST_FIRM
+    w = open_window(qt, days_of(tmp_path, s), s)
+    split(w, w.days[0], (1, 10, []), (11, 30, [D, A]))
+    assert w.table.item(0, FIRST_FIRM + len(w.firms)).text() == "0 (nobody)"
+    w.close()
+
+
+# ------------------------------------------------------------------ what a cell says
+def test_a_price_alone_at_the_headings_speed(qt, themed, tmp_path, s):
+    """Alex shares pages 1-10 and has 11-30 alone: its invoice bills one speed for both, so the run alone shows what it
+    pays, with no column for each speed (a blank cell and two Each pays columns disagreed with the invoice)."""
+    w = open_window(qt, days_of(tmp_path, s), s)
+    split(w, w.days[0], (1, 10, [D, A]), (11, 30, [A]))
+    assert cell(w, 1, A).text() == "$152.00" and cell(w, 1, D).text() == ""
+    assert not w.speeds_label.isVisible() and w.table.columnCount() == 4 + 3 + 4  # (no Each pays columns)
+    assert "alone" in cell(w, 1, A).toolTip() and "$152.00" in cell(w, 1, A).toolTip()
+    w.close()
+
+
+def test_a_price_shared_at_one_speed(qt, themed, tmp_path, s):
+    w = open_window(qt, days_of(tmp_path, s), s)
+    assert cell(w, 0, D).text() == "$147.00 (÷2)" and cell(w, 0, A).text() == "$147.00 (÷2)"
+    tip = cell(w, 0, D).toolTip()
+    assert "Dana Smith pays $147.00" in tip
+    assert "the 2 firms that ordered them split the original and the judge's index" in tip
+    assert "each pays for its own copy and e-mailed copy" in tip
+    w.close()
+
+
+def test_a_price_shared_at_different_speeds_says_shared_not_a_divisor(qt, themed, tmp_path, s):
+    """÷2 would be false: the fastest firm pays what is left of the one original, not half of anything shown."""
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    jobs[0].speeds = {D: "Daily", A: "Immediate"}
+    w.load(jobs)
+    assert cell(w, 0, D).text().endswith(" · shared") and "÷" not in cell(w, 0, D).text()
+    assert cell(w, 0, D).text() != cell(w, 0, A).text() and cell(w, 0, D).text().startswith("$")
+    tip = cell(w, 0, D).toolTip()
+    assert "Ordered together at different speeds" in tip and "Split invoices" in tip and "Dana Smith pays $" in tip
+    w.close()
+
+
+def test_a_speed_other_than_the_headings_is_said_in_the_cell(qt, themed, tmp_path, s):
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    jobs[0].speeds = {D: "Expedite", A: "Expedite"}
+    split(w, w.days[0], (1, 10, [D, A]), (11, 30, [D, A]))
+    w.table.selectRow(1)
+    w._set_run_speed(D, "Daily")
+    w._set_run_speed(A, "Daily")
+    assert w.firm_speed_boxes[D].short_text() == "(varies)"
+    assert cell(w, 0, D).text() == "Expedite · $49.00 (÷2)"
+    assert cell(w, 1, D).text().startswith("Daily · $") and cell(w, 1, D).text().endswith(" (÷2)")
+    w.close()
+
+
+def test_a_speed_to_commit_to_is_amber_with_a_question_mark(qt, themed, tmp_path, s):
+    from minute_filler.gui.excerpts import AMBER
+    s.split_speeds = "ask"
+    w = open_window(qt, days_of(tmp_path, s), s)
+    it = cell(w, 0, D)
+    assert it.text() == "Expedite? · $147.00 (÷2)"
+    assert it.foreground().color().name() == AMBER and "Generate asks" in it.toolTip()
+    assert w.firm_speed_boxes[D].short_text() == "Not set"  # (not "Chooses": it must commit)
+    w.close()
+
+
+def test_a_firm_choosing_from_its_invoice_has_a_blank_cell_and_its_prices_in_each_pays(qt, themed, tmp_path, s):
+    jobs = days_of(tmp_path, s, ticked=(D,))
+    w = open_window(qt, jobs, s)
+    assert w.runs[0].keys == [D] and cell(w, 0, D).text() == "" and cell(w, 0, D).checkState()
+    assert w.firm_speed_boxes[D].short_text() == "Chooses"
+    assert w.firm_speed_boxes[D].currentText() == "Chooses on the invoice"
+    heads = [w.table.horizontalHeaderItem(c).text() for c in range(w.table.columnCount())]
+    assert heads[-2:] == ["Each pays · Regular", "Each pays · Expedite"]
+    assert w.table.item(0, len(heads) - 1).text() == "$228.00"
+    assert w.speeds_label.text() == "Show prices for:" and w.speeds_label.isVisible()
+    assert_labels_fit(w.firm_speed_boxes[D])  # (a blank cell: the box and the name are what set the width)
+    w.close()
+
+
+def test_the_divisor_is_the_one_the_price_is_divided_by(qt, themed, tmp_path, s):
+    """Parties 3 with 2 firms ticked: the price is divided three ways, and the cell said ÷2 (its firms)."""
+    jobs = days_of(tmp_path, s)
+    jobs[0].parties = 3
+    w = open_window(qt, jobs, s)
+    # (the original three ways, each its own copies: $5.40 / 3 + $2.20 = $4.00 a page)
+    assert cell(w, 0, D).text() == "$120.00 (÷3)"
+    assert "the 3 parties ordering them" in cell(w, 0, D).toolTip()
+    w.close()
+
+
+@pytest.mark.usefixtures("split_orders_choose")
+def test_each_pays_says_the_same_divisor(qt, themed, tmp_path, s):
+    jobs = days_of(tmp_path, s)
+    jobs[0].parties = 3
+    w = open_window(qt, jobs, s)
+    assert cell(w, 0, D).text() == ""  # (they choose from their invoices here)
+    text = w.table.item(0, w.table.columnCount() - 1).text()
+    assert text == "$120.00 (÷3)", text
+    w.close()
+
+
+def test_a_tooltip_doesnt_say_whose_speed_it_isnt(qt, themed, tmp_path, s):
+    """A shared run's firm with no speed set: billed at the form's, said, and where to change it (no more "above the
+    table", where the row of boxes was)."""
+    w = open_window(qt, days_of(tmp_path, s), s)
+    tip = cell(w, 0, D).toolTip()
+    assert "Billed at Expedite, the agreement form's speed" in tip and "under the firm's name" in tip
+    assert "above the table" not in tip
+    w.close()
+
+
+# ------------------------------------------------------------------ the money adds up
+@pytest.mark.parametrize("rounding", ["exact", "page"])
+def test_a_committed_firms_cells_add_up_to_its_invoice(qt, themed, tmp_path, s, rounding):
+    """Its run alone was priced by its own at every speed; its invoice bills one speed for all of it. The cells of
+    the row, read back, are what the invoice comes to, within rounding up to the cent; and that is the
+    invoice's amount when Generate makes it."""
+    from minute_filler.batch import fill_jobs
+    from minute_filler.deliver import ledger_for
+    s.invoice_rounding = rounding
+    jobs = days_of(tmp_path, s, pages=(33,))
+    w = open_window(qt, jobs, s)
+    split(w, w.days[0], (1, 11, [D, A]), (12, 33, [A]))
+    p = prices(w.days, w.runs, s)
+    due = {key: amounts for key, amounts in p.firms}
+    assert set(due[A]) == {"Expedite"}  # (one speed: no choice on its invoice)
+    total = sum((Decimal(cell(w, r, A).text().split(" ")[0].lstrip("$").replace(",", "")) for r in (0, 1)), Decimal(0))
+    assert abs(total - due[A]["Expedite"]) < Decimal("0.01"), (total, due[A])
+    fill_jobs(jobs, s, outputs=["invoice"])
+    billed = {i.bill_to: Decimal(i.amounts["Expedite"]) for i in ledger_for(s).invoices()}
+    assert billed == {"Alex B. Counsel": due[A]["Expedite"], "Dana Smith": due[D]["Expedite"]}
+    w.close()
+
+
+def test_a_lone_firm_with_a_speed_on_another_day_is_at_that_speed_as_its_invoice(tmp_path, s):
+    """prices(): a firm with a speed set on one run is billed one speed for all of it, its other runs at the form's,
+    as invoice.firm_invoices has it. A firm with no speed and no shared pages still chooses."""
+    jobs = days_of(tmp_path, s, pages=(10, 20), ticked=(A, K))
+    d1, d2 = days = case_days(jobs)
+    firms = firms_of(jobs)
+    store(d1, [Run(d1, 1, 10, [A], {A: "Daily"})], firms)
+    store(d2, [Run(d2, 1, 20, [A]), ], firms)
+    runs = [r for d in days for r in runs_of(d, firms)]
+    p = prices(days, runs, s)
+    assert id(runs[1]) in p.ordered and id(runs[1]) not in p.runs
+    assert p.ordered[id(runs[1])][A][0] == "Expedite"
+    store(d2, [Run(d2, 1, 20, [K])], firms)
+    runs = [r for d in days for r in runs_of(d, firms)]
+    p = prices(days, runs, s)
+    assert id(runs[1]) in p.runs and id(runs[1]) not in p.ordered  # (Kim alone, and nothing set: she chooses)
+
+
+# ------------------------------------------------------------------ the words
+def labels(qt, w):
+    return " ".join(x.text() for x in w.findChildren(qt.QLabel))
+
+
+def test_split_invoices_is_named_only_while_a_run_is_at_different_speeds(qt, themed, tmp_path, s):
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    assert "Each price is what that firm pays." in w.note.text()
+    assert "Split invoices" not in labels(qt, w)
+    jobs[0].speeds = {D: "Daily", A: "Immediate"}
+    w.load(jobs)
+    assert "Split invoices" in w.note.text()
+    jobs[0].speeds = {}
+    w.load(jobs)
+    assert "Split invoices" not in labels(qt, w)
+    w.close()
+
+
+def test_the_names_under_the_table_have_their_squares_and_are_escaped(qt, themed, tmp_path, s):
+    firm_only = dict(name="", firm="Counsel & Counsel", party="Defendant")
+    key = Attorney(**firm_only).key()
+    w = open_window(qt, days_of(tmp_path, s, firms=(DANA, firm_only), ticked=(D, key)), s)
+    text = w.summary.text()
+    from minute_filler.gui.badges import badge_html
+    assert f"{badge_html(w._marks[key], 'Counsel & Counsel')}" in text and "Counsel &amp; Counsel" in text
+    assert "Counsel & Counsel" not in text
+    assert "&amp;amp;" not in text
+    w.close()
+
+
+def test_the_names_of_the_buttons_and_the_page_numbers_heading(qt, themed, tmp_path, s):
+    from minute_filler.gui.excerpts import PAGES
+    w = open_window(qt, days_of(tmp_path, s), s)
+    texts = {b.text() for b in w.findChildren(qt.QPushButton)}
+    assert {"Split run…", "Remove run", "Make this day whole", "Make every day whole"} <= texts
+    assert w.table.horizontalHeaderItem(PAGES).text() == "Page numbers\n(type here)"
+    menu, _ = w._run_menu(w.runs[0])
+    assert [a.text() for a in menu.actions()][:4] == ["Split run…", "Remove run", "Make this day whole",
+                                                      "Make every day whole"]
+    assert not hasattr(w, "firm_speeds_label") and not hasattr(w, "firm_speed_row")
+    w.close()
+
+
+# ------------------------------------------------------------------ Split run…
+def answering(monkeypatch, *answers, meanwhile=None):
+    """QInputDialog.getText answers these (text, ok) in turn, after `meanwhile`; returns what it asked."""
+    from PySide6.QtWidgets import QInputDialog
+    asked, left = [], list(answers)
+
+    def get(parent, title, label, mode, text, *_a, **_k):
+        asked.append((title, label, text))
+        if meanwhile:
+            meanwhile()
+        return left.pop(0)
+    monkeypatch.setattr(QInputDialog, "getText", get)
+    return asked
+
+
+def test_split_run_asks_where_starting_from_the_middle(qt, themed, tmp_path, s, monkeypatch):
+    """It cut a run at its middle, wherever the excerpt ended."""
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    w.table.selectRow(0)
+    asked = answering(monkeypatch, ("112", True))
+    w._split()
+    assert asked == [("Split run", "Cut the run 101–130 after which page number?", w.days[0].span(15, 15))]
+    assert [(r.start, r.end, r.keys) for r in w.runs] == [(1, 12, [D, A]), (13, 30, [D, A])]
+    assert jobs[0].portions == [(12, [D, A]), (30, [D, A])]
+    assert w.table.currentRow() == 0
+    w.close()
+
+
+def test_split_run_cancelled_changes_nothing(qt, themed, tmp_path, s, monkeypatch):
+    told = []
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s, told)
+    w.table.selectRow(0)
+    answering(monkeypatch, ("112", False))
+    w._split()
+    assert len(w.runs) == 1 and told == [] and jobs[0].portions is None
+    w.close()
+
+
+@pytest.mark.parametrize("typed, why", [("500", "pages are 101–130"), ("130", "before its last page"),
+                                        ("x", "type the run")])
+def test_split_run_says_why_it_cant_cut_there(qt, themed, tmp_path, s, monkeypatch, typed, why):
+    w = open_window(qt, days_of(tmp_path, s), s)
+    w.table.selectRow(0)
+    answering(monkeypatch, (typed, True))
+    w._split()
+    assert why in w.problem.text() and len(w.runs) == 1
+    w.close()
+
+
+def test_split_run_with_the_table_changed_meanwhile(qt, themed, tmp_path, s, monkeypatch):
+    """A read ending while it asks shows the days afresh: the same run, new objects, is the one cut; gone, it says
+    so."""
+    jobs = days_of(tmp_path, s)
+    w = open_window(qt, jobs, s)
+    w.table.selectRow(0)
+    answering(monkeypatch, ("112", True), meanwhile=lambda: w.load(jobs))
+    w._split()
+    assert [(r.start, r.end) for r in w.runs] == [(1, 12), (13, 30)]
+    w.table.selectRow(0)
+
+    def cut_away():
+        jobs[0].portions = None
+        w.load(jobs)
+    answering(monkeypatch, ("105", True), meanwhile=cut_away)
+    w._split()
+    assert "changed meanwhile" in w.problem.text() and [(r.start, r.end) for r in w.runs] == [(1, 30)]
+    w.close()

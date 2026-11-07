@@ -163,6 +163,8 @@ QListWidget::indicator, QTableView::indicator, QTreeView::indicator { width: 15p
 QListWidget::indicator:checked, QTableView::indicator:checked, QTreeView::indicator:checked { background: {accent}; border: 1px solid {accent}; image: url(CHECK_ICON); }
 QTableView::indicator:indeterminate { background: {accent}; border: 1px solid {accent}; image: url(DASH_ICON); }
 QListWidget::item:selected, QTableWidget::item:selected, QTreeView::item:selected { background: {sel}; color: {text}; }
+/* (the heading's strip goes on past the last column: else a table narrower than its window has a notch there) */
+QHeaderView { background: {header_bg}; }
 QHeaderView::section { background: {header_bg}; border: none; border-bottom: 1px solid {border}; padding: 5px; color: {muted}; font-weight: 600; }
 QTabWidget::pane { border: 1px solid {border}; border-radius: 8px; background: {card}; top: -1px; }
 QTabBar::tab { padding: 7px 16px; border: none; color: {muted}; }

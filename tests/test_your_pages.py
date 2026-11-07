@@ -146,7 +146,7 @@ def test_the_window_has_the_four_counts(excerpts):
     heads = [w.table.horizontalHeaderItem(first + k).text() for k in range(len(COUNTS))]
     assert heads == ["Your pages\nbilled", "Your pages\ntranscribed", "Total pages\ntranscribed",
                      "Total pages\nbilled"]
-    assert cells(w, first) == ["3", "0 (nobody ordered it)", "2"]
+    assert cells(w, first) == ["3", "0 (nobody)", "2"]
     assert cells(w, first + 1) == ["3", "0", "2"]
     assert cells(w, first + 2) == ["5", "2", "3"]
     assert cells(w, first + 3) == ["5", "0", "3"]
@@ -163,7 +163,8 @@ def test_the_lines_under_the_table_say_your_pages_and_total_pages(excerpts):
     2026-10-30): each set of firms says both counts, as the table's Your pages billed and Total pages billed."""
     text = excerpts.summary.text()
     assert "Dana Smith (Expedite): 3 of your pages billed (5 total pages)" in text, text  # (pages 1-5, both firms)
-    assert "Alex B. Counsel only: 2 of your pages billed (3 total pages)" in text, text  # (pages 8-10)
+    # (pages 8-10, at the speed its invoice bills them: it shares others, so it has no choice of speeds)
+    assert "Alex B. Counsel (Expedite) only: 2 of your pages billed (3 total pages)" in text, text
     assert " pp." not in text
 
 

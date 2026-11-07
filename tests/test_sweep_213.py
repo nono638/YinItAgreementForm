@@ -372,7 +372,9 @@ def test_excerpts_names_the_speed_billed_without_a_question_mark(window, tmp_pat
     ex = window.excerpts
     t = ex.table
     texts = [t.item(r, c).text() for r in range(t.rowCount()) for c in range(t.columnCount()) if t.item(r, c)]
-    assert any("Expedite" in x for x in texts) and not any("?" in x for x in texts)
+    # (the speed is in the firm's heading; a cell names it only when it differs)
+    assert any(box.short_text() == "Expedite" for box in ex.firm_speed_boxes.values())
+    assert not any("?" in x for x in texts)
     ex.close()
 
 

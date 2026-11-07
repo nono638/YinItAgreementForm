@@ -6003,8 +6003,7 @@ class MainWindow(QMainWindow):
         if kind == "portions":
             why = (f"{job.portions_check()}.\n\nNo invoice is made for this day until you check it: open "
                    "Who ordered which pages… in Who ordered and tick the firms that ordered each run, or choose "
-                   "\"Remove this "
-                   "day's excerpts\".")
+                   "\"Make this day whole\".")
         elif kind == "unnamed":  # parties not named, on pages ordered at different speeds
             why = (f"{job.unnamed_problem()}.\n\nNo invoice is made for this day until every party is named or "
                    "Parties is changed (the Parties box in the Invoice card is lit up).")
@@ -7131,7 +7130,7 @@ class MainWindow(QMainWindow):
         if check:  # no prices: nothing is billed for this day until the rows are checked
             self._warn(f"⚠ {check}")
             self.inv_info.setToolTip("No invoice is made for this day until Who ordered which pages… is checked:\n"
-                                     "tick the firms that ordered each run, or choose \"Remove this day's excerpts\".")
+                                     "tick the firms that ordered each run, or choose \"Make this day whole\".")
             return None, 1
         if job.speed_problems():  # more speeds on the same pages than are billed for now: no prices either
             self._warn(f"⚠ {job.invoice_hold()}")
@@ -8495,6 +8494,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._place_pairs)  # again once the new sizes are laid out
         self._fit_minimum()
         self._refresh_jobs()
+        self._follow_excerpts()  # (its columns and its headings, whose speed boxes are sized for the zoom)
         self._set_opt("zoom", f)
         self._toast(f"Zoom {round(f * 100)} %")
 

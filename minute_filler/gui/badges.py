@@ -1,7 +1,8 @@
 """How a firm's mark (firm_marks.Mark: its side and its place among its side's firms) looks in the window: a small
-square of its colour, nothing written on it (badge_icon, beside the firm's name in a table or the Excerpts window's
-column heading; badge_html in rich text), and in a table a thin stripe of the same colour at the left edge of the
-name (StripeDelegate, STRIPE_ROLE). Plaintiffs' firms in warm colours, the defense in cool ones, the others in greys
+square of its colour, nothing written on it (badge_icon, beside the firm's name in a table; badge_html in rich text,
+as under the Excerpts window's table), and in a table a thin stripe of the same colour at the left edge of the
+name (StripeDelegate, STRIPE_ROLE; in the Excerpts window a band over the name and a stripe down the firm's column:
+gui/firm_columns.py). Plaintiffs' firms in warm colours, the defense in cool ones, the others in greys
 and greens (the user, 2026-10-21): orange against blue stays apart for the commoner colour blindness. No number or
 letter on the square (the user, 2026-10-26: 1, A, 001 had nothing to do with the firms' names and only confused),
 so the firms of one side are told apart by their colours alone, each its own (firm_marks.SHADES: the run sheet's
