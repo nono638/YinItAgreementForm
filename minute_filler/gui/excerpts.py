@@ -251,6 +251,7 @@ class ExcerptsWindow(QDialog):
         head.setContextMenuPolicy(Qt.CustomContextMenu)
         head.customContextMenuRequested.connect(lambda pos: self.columns_menu.exec(head.mapToGlobal(pos)))
         self._counts: dict = {}  # each run's counts (excerpts.count_runs), by id(run), as last shown
+        self._columns_for: list[str] = []  # the firms the table's columns were last shown for, by Attorney.key()
         # Delete removes the run chosen, only while the table itself has the focus: in a cell being typed in, Delete
         # deletes text (the editor has the focus then; _remove checks too)
         QShortcut(QKeySequence.Delete, self.table, self._remove, context=Qt.WidgetShortcut)
@@ -367,13 +368,16 @@ class ExcerptsWindow(QDialog):
             cb.setVisible(choice)
         shown = [sp for sp in p.speeds if sp not in self.s.excerpt_hidden_speeds] if choice else []
         firms = self.firms
-        heads = ["Date", "Weekday", PAGES_HEAD, "Place in the day"] + [a.label() for a in firms] + [
+        # (a job of several days is ordered whole: its cell can't be typed in)
+        typed_in = PAGES_HEAD if any(d.splittable for d in self.days) else PAGES_HEAD.split("\n")[0]
+        heads = ["Date", "Weekday", typed_in, "Place in the day"] + [a.label() for a in firms] + [
             head for _, head, _ in COUNTS] + [f"Each pays · {sp}" for sp in shown]
         self._counts = count_runs(self.runs)
         self._loading = True
         t = self.table
         header = t.horizontalHeader()
-        keep_row, keep_col = t.currentRow(), t.currentColumn()
+        keep_row, keep_col = t.currentRow(), self._same_column(t.currentColumn())
+        self._columns_for = [a.key() for a in firms]
         across, down = t.horizontalScrollBar().value(), t.verticalScrollBar().value()
         header.hold()  # (the boxes stay as they are while the sections are set again)
         t.clear()
@@ -473,6 +477,18 @@ class ExcerptsWindow(QDialog):
         elif warned and self.problem.text() == warned:  # (fixed since, by the strip or a right-click)
             self.problem.setText("")
         self._warn_falling()
+
+    def _same_column(self, column: int) -> int:
+        """Where a column of the table as last shown (self._columns_for) is with the firms now: a firm's, by its key
+        (firms come and go, and by its number Space ticked the firm beside; gone: the Date), and those after the firms
+        moved along with them. -1 stays -1 (no cell chosen)."""
+        old, new = self._columns_for, [a.key() for a in self.firms]
+        if column < FIRST_FIRM:
+            return column
+        if column >= FIRST_FIRM + len(old):
+            return column - len(old) + len(new)
+        key = old[column - FIRST_FIRM]
+        return FIRST_FIRM + new.index(key) if key in new else DATE
 
     def _warn_falling(self) -> None:
         """The warning that stays while a day's printed page numbers start again ("1–39, 10–29"): a number can be
@@ -850,6 +866,7 @@ class ExcerptsWindow(QDialog):
                 self.problem.setText(f"⚠ {e}")
                 return
             self._keep(day, runs)
+            self._select(day.job, a, PAGES)  # (the run typed, not the row of that number: Remove run acts on it)
         elif key is not None:
             keys = set(run.keys) - {key} | ({key} if on else set())
             run.keys = [a.key() for a in self.firms if a.key() in keys]
@@ -863,12 +880,16 @@ class ExcerptsWindow(QDialog):
             return None
         return self.runs[r]
 
-    def _select(self, job, page: int) -> None:
+    def _select(self, job, page: int, column: int | None = None) -> None:
         """Chooses the row of the run that holds a page of a day (its job; the table may have been read afresh
-        since, with new days and runs)."""
+        since, with new days and runs), on this column if one is given."""
         row = next((k for k, r in enumerate(self.runs) if r.day.job is job and r.start <= page <= r.end), None)
-        if row is not None and not self.table.isRowHidden(row):
+        if row is None or self.table.isRowHidden(row):
+            return
+        if column is None:
             self.table.selectRow(row)
+        else:
+            self.table.setCurrentCell(row, column)
 
     def _split(self) -> None:
         """Split run…: asks after which page to cut the run chosen, starting from its middle (as it can be typed:
