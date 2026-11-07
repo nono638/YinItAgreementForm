@@ -1395,3 +1395,111 @@ def test_split_run_with_the_table_changed_meanwhile(qt, themed, tmp_path, s, mon
     w._split()
     assert "changed meanwhile" in w.problem.text() and [(r.start, r.end) for r in w.runs] == [(1, 30)]
     w.close()
+
+
+# ------------------------------------------------------------------ one rebuild for one change
+@pytest.fixture
+def beside_main(qt, themed, tmp_path, s, make_window):
+    """The window as the main window opens it, on one day of Dana and Alex; how many times its table was rebuilt."""
+    from test_show_the_math import settled
+    win = settled(make_window(s))
+    jobs = days_of(tmp_path, s)
+    win.jobs, win.cur = jobs, jobs[0]
+    win._show_job()
+    win._who_ordered(jobs[0])
+    pump(qt)
+    w, shows = win.excerpts, []
+    show = w._show
+    w._show = lambda: (shows.append(1), show())[1]
+    yield win, w, shows
+    w.close()
+
+
+def test_a_tick_rebuilds_the_table_once(qt, beside_main):
+    """It rebuilt it, then the main window's answer rebuilt it again: seconds each on a long trial."""
+    from PySide6.QtCore import Qt
+    from minute_filler.gui.excerpts import FIRST_FIRM
+    win, w, shows = beside_main
+    w.table.item(0, FIRST_FIRM).setCheckState(Qt.Unchecked)
+    assert shows == [1]
+    assert w.runs[0].keys == [A] and cell(w, 0, D).checkState() == Qt.Unchecked and cell(w, 0, A).checkState() == Qt.Checked
+    assert "Alex B. Counsel" in w.summary.text() and "Dana Smith" not in without_tags(w.summary.text()).split("Each firm")[1]
+    assert win.cur.ticked_keys() == [A]  # (the main window told)
+
+
+def test_a_speed_from_a_heading_rebuilds_the_table_once(qt, beside_main):
+    win, w, shows = beside_main
+    box = w.firm_speed_boxes[D]
+    box.setCurrentIndex(box.findData("Daily"))
+    box.activated.emit(box.currentIndex())
+    pump(qt)
+    assert shows == [1] and win.cur.speeds[D] == "Daily" and "Daily" in w.firm_speed_boxes[D].short_text()
+
+
+def test_make_every_day_whole_rebuilds_the_table_once(qt, beside_main, monkeypatch):
+    win, w, shows = beside_main
+    d = w.days[0]
+    store(d, [Run(d, 1, 10, [A]), Run(d, 11, 30, [A, D])], w.firms, w.s)
+    w.load(w.group)
+    shows.clear()
+    monkeypatch.setattr(qt_box(), "question", lambda *a, **k: qt_box().Yes)
+    w._remove_all()
+    assert shows == [1] and [(r.start, r.end) for r in w.runs] == [(1, 30)]
+
+
+def qt_box():
+    from PySide6.QtWidgets import QMessageBox
+    return QMessageBox
+
+
+def test_a_tick_is_shown_where_the_main_window_doesnt_follow(qt, themed, tmp_path, s):
+    """A window with nothing behind it that loads it: it shows the change itself."""
+    from PySide6.QtCore import Qt
+    from minute_filler.gui.excerpts import FIRST_FIRM
+    told = []
+    w = open_window(qt, days_of(tmp_path, s), s, told)
+    shows, show = [], w._show
+    w._show = lambda: (shows.append(1), show())[1]
+    w.table.item(0, FIRST_FIRM).setCheckState(Qt.Unchecked)
+    assert told == [1] and shows == [1] and cell(w, 0, D).checkState() == Qt.Unchecked
+    w.close()
+
+
+def test_a_run_typed_is_shown_though_the_main_window_waits_for_the_cell_to_close(qt, beside_main):
+    """load() leaves the table alone while a cell is being typed in: the run typed still shows at once, and the days are
+    read again when the cell has closed."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    win, w, shows = beside_main
+    QTest.keyClick(typing(qt, w, "111-120"), Qt.Key_Return)
+    pump(qt)
+    assert [(r.start, r.end) for r in w.runs] == [(1, 10), (11, 20), (21, 30)] and w._pending is None
+    assert win.cur.portions is not None and (w._chosen().start, w._chosen().end) == (11, 20)
+
+
+def test_a_tick_still_shows_when_telling_the_main_window_fails(qt, themed, tmp_path, s):
+    """(The table isn't left saying what no longer is.)"""
+    from PySide6.QtCore import Qt
+    from minute_filler.gui.excerpts import ExcerptsWindow, FIRST_FIRM
+
+    def broken():
+        raise RuntimeError("the main window couldn't")
+    jobs = days_of(tmp_path, s)
+    w = ExcerptsWindow(s, broken)
+    w.load(jobs)
+    w.show()
+    pump(qt)
+    shows, show = [], w._show
+    w._show = lambda: (shows.append(1), show())[1]
+    with pytest.raises(RuntimeError):
+        w._tell_and_show(w._show)
+    assert shows == [1]
+    w.close()
+
+
+def test_the_window_closing_on_a_tick_shows_nothing_more(qt, beside_main):
+    """The main window has no days left to show it (ExcerptsWindow.clear): the table isn't rebuilt on nothing."""
+    win, w, shows = beside_main
+    w.changed = w.clear
+    w._tell_and_show(w._show)
+    assert shows == [] and not w.isVisible() and w.table.rowCount() == 0

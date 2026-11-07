@@ -163,6 +163,7 @@ class ExcerptsWindow(QDialog):
         self.speeds: list[str] = []
         self._loading = False
         self._pending = None  # the jobs to show once the cell being typed in is left (see load)
+        self._fills = 0  # how many times the table was read afresh or cleared (_tell_and_show)
         self._marks: dict = {}  # each firm's mark, by Attorney.key(), as last shown (a firm without one: none)
         self.firm_speed_boxes: dict[str, FirmSpeedBox] = {}  # the firms' boxes shown now, by Attorney.key()
         self._speed_box_of: dict[str, FirmSpeedBox] = {}  # every box made, kept for the next showing (firm_columns)
@@ -322,6 +323,7 @@ class ExcerptsWindow(QDialog):
         """Forgets the days shown and closes the window (their jobs are gone, or have no days to show: New job,
         a job removed, a job without a transcript)."""
         self._pending = None
+        self._fills += 1
         self.group, self.days, self.runs, self.firms = [], [], [], []
         self._counts, self._marks = {}, {}
         self._loading = True
@@ -345,6 +347,7 @@ class ExcerptsWindow(QDialog):
     def _fill(self, group: list) -> None:
         """Reads the days (those with pages), the firms and the runs of these jobs afresh and shows them."""
         self._pending = None
+        self._fills += 1
         self.group = list(group)
         self.days = [d for d in case_days(group) if d.pages > 0]
         self.firms = firms_of(group)
@@ -750,8 +753,19 @@ class ExcerptsWindow(QDialog):
         """After a speed is set: the days read again and shown (no longer saying why a run typed before it was refused),
         and the main window told."""
         self.problem.setText("")
-        self._fill(self.group)
-        self.changed()
+        self._tell_and_show(lambda: self._fill(self.group))
+
+    def _tell_and_show(self, show) -> None:
+        """A change is kept on the days: the main window is told, and the table shown. The main window's answer to
+        being told is to show the days here again (changed -> MainWindow._follow_excerpts -> load), so show() runs only
+        if it didn't: a window on its own, or a cell being typed in, when load waits for it to close. (Shown first as
+        well, every tick rebuilt the table twice, seconds each on a long trial.)"""
+        fills = self._fills
+        try:
+            self.changed()
+        finally:
+            if self._fills == fills:
+                show()
 
     def _speed_boxes(self, speeds: list[str]) -> None:
         """A box per speed offered: unticked hides its prices (kept in Settings.excerpt_hidden_speeds)."""
@@ -843,8 +857,7 @@ class ExcerptsWindow(QDialog):
         self.runs = [r for r in self.runs if r.day is not day]
         self.runs[i:i] = runs
         self.problem.setText("")
-        self._show()
-        self.changed()
+        self._tell_and_show(self._show)
 
     def _pin(self) -> None:
         """The table says who ordered each day: a firm ticked on some of its days only orders those, and isn't
@@ -1015,8 +1028,7 @@ class ExcerptsWindow(QDialog):
         self._pin()
         self.runs = runs
         self.problem.setText("")
-        self._show()
-        self.changed()
+        self._tell_and_show(self._show)
         if chosen is not None:
             self._select(*chosen)
 
