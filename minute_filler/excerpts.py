@@ -21,8 +21,10 @@ Each firm on a run ordered it at a speed (Run.speeds; the day's, Job.speeds, unl
 firm billed alone may leave it unset and choose from its invoice; firms that ordered a run together commit to
 theirs (courthouses.speed_upfront), and are priced at it (invoice_calc.quote_ordered): at different speeds, the
 run's one original is divided as the courthouse's split rule chosen in Settings says (or the one the job was
-billed by already: batch.Job.split_rule). Until a speed is
-set, such a firm is priced at the agreement form's (invoice.default_speed), as Generate's question offers.
+billed by already: batch.Job.split_rule). What is shown is what Generate bills: a firm with no speed of its own on a
+run is priced at the one Generate gives it without asking (batch.as_billed: its speed on its other pages, else that
+day's agreement form's). Where Generate asks (Settings.split_speeds "ask"), it is priced as the invoice stands until
+it is answered: at its speed where set, else the form's (invoice.default_speed).
 """
 from __future__ import annotations
 
@@ -31,7 +33,7 @@ from dataclasses import dataclass, field, replace
 from decimal import Decimal
 
 from . import courthouses
-from .batch import Job, joint_invoice, portion_row, same_entries
+from .batch import Job, as_billed, group_problem, joint_invoice, portion_row, same_entries, speed_days, speeds_to_ask
 from .invoice import ORDERED_BY_NOBODY, default_speed, firm_invoices, index_mode, index_pages
 from .invoice_calc import Share, index_days, offered, quote_ordered, quote_shares
 from .models import Attorney
@@ -421,12 +423,12 @@ def count_runs(runs: list[Run]) -> dict[int, Counts]:
 
 @dataclass
 class Prices:
-    """What the table costs. Runs priced at each speed offered (their firms choose from the invoice): each run's
-    price for each firm that ordered it and each set of firms ordering together (their pages, and what each of
-    them pays for those pages). Runs whose firms are priced at the speeds they ordered (`ordered`: a speed set,
-    a split order that commits to one, or a firm billed one speed for its other pages, its run alone too): what each
-    firm pays for the run at its speed, and each set of firms and speeds ordering together. And each firm's invoice (as invoiced: rounded as Settings -> Invoice -> Rounding
-    says)."""
+    """What the table costs, as Generate bills it. Runs priced at each speed offered (their firms choose from the
+    invoice): each run's price for each firm that ordered it and each set of firms ordering together (their pages, and
+    what each of them pays for those pages). Runs whose firms are priced at the speeds they ordered (`ordered`: a speed
+    set or one Generate sets, a split order that commits to one, or a firm billed one speed for its other pages, its
+    run alone too): what each firm pays for the run at its speed, and each set of firms and speeds ordering together.
+    And each firm's invoice (as invoiced: rounded as Settings -> Invoice -> Rounding says)."""
     speeds: list[str]
     runs: dict[int, dict[str, Decimal]] = field(default_factory=dict)  # id(run) -> speed -> each pays
     # (firm keys, pages, speed -> what each of those firms pays), fewest firms first
@@ -436,16 +438,41 @@ class Prices:
     ordered: dict[int, dict[str, tuple[str, Decimal]]] = field(default_factory=dict)
     # ((key, speed) of each firm, pages, key -> what it pays for those pages), fewest firms first
     ordered_groups: list[tuple[tuple[tuple[str, str], ...], int, dict[str, Decimal]]] = field(default_factory=list)
-    # (the speed a firm is priced at while none is set for it: the agreement form's, see invoice.default_speed)
+    # (the speed a firm is priced at while it has none, Generate still asking: the agreement form's, invoice.default_speed)
     fallback: str = ""
     committed: set[str] = field(default_factory=set)  # the firms whose invoice bills the speeds they ordered
     # the runs (by id) of each set in groups and ordered_groups, by its firm keys (or its (key, speed) pairs): the
     # window counts their pages as count_runs does, yours and every reporter's
     members: dict[tuple, list[int]] = field(default_factory=dict)
+    # (id(job), firm key) -> its speed on the day as Generate bills it (batch.as_billed): see speed_billed
+    settled: dict[tuple[int, str], str] = field(default_factory=dict)
+    # (id(job), firm key) -> the speed Generate's question starts from, where it asks (Settings.split_speeds "ask")
+    asked: dict[tuple[int, str], str] = field(default_factory=dict)
+    hold: str = ""  # why Generate makes no invoice of these days yet, as they are billed ("" when it does: find_hold)
+
+    def speed_billed(self, run: Run, key: str) -> str:
+        """The speed firm `key` is billed for the run at: the run's own, else its speed on the day, set or as Generate
+        sets it. "" = none (it chooses from its invoice, or Generate still asks)."""
+        return run.speed(key) or self.settled.get((id(run.day.job), key), "")
 
 
-def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
-    """The prices of the runs as they are (see Prices). A firm's share of a run is worked out exactly, and the
+def find_hold(days: list[Day], billed: list[Job]) -> str:
+    """Why Generate makes no invoice of these days yet, the first reason found ("" when it makes one): a day of them
+    held (Job.invoice_hold), as it is billed (billed: batch.as_billed, a speed Generate sets can be what holds it: a
+    third on the same pages, or firms at different speeds with parties not named), or a day of the case nobody is
+    ticked on (batch.group_problem). A day invoiced already holds nothing."""
+    for d, job in zip(days, billed):
+        why = "" if job.invoiced else job.invoice_hold()
+        if why:
+            return f"No invoice yet for {d.label}: {why}"
+    why = group_problem([j for j in billed if not j.invoiced])
+    return f"No invoice yet for these {len(billed)} days: {why}" if why else ""
+
+
+def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None = None) -> Prices:
+    """The prices of the runs as Generate bills them (see Prices; batch.as_billed, worked out over the days in `pool`
+    too: the other days Generate counts, MainWindow._speed_days), so the window never says another price than the
+    invoice. A firm's share of a run is worked out exactly, and the
     invoices round each firm's total up to the cent (invoice_calc.quote_shares, quote_ordered); with each price a
     page rounded to the cent (Settings.invoice_rounding "page"), a share is that price times its pages, as the
     invoice has it ($6.6125 a page -> $6.61 x 30 = $198.30, not $198.375). Only one set of
@@ -453,7 +480,9 @@ def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
     reporter Whose pages... bills (the user, when ticked), not each reporter's set (batch.joint_invoice_sets)."""
     group = [d.job for d in days]
     try:
-        case, opts = joint_invoice(group)
+        firms_of(group)  # (the same firm named alike on every day, batch.same_entries, before the days are copied)
+        billed = as_billed(group, s, pool)
+        case, opts = joint_invoice(billed)
         orders = [(d, o) for d in days for o in d.job.invoice_orders()]
     except Exception:  # (a day with nothing to bill yet)
         return Prices([])
@@ -475,33 +504,39 @@ def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
         """A share as shown: exact, or its prices a page rounded to the cent (by_page), as invoiced."""
         return q.per_party if by_page else q.total
 
-    out = Prices([sp.name for sp in speeds], fallback=default_speed(case, s))
+    out = Prices([sp.name for sp in speeds], fallback=default_speed(case, s),
+                 settled={(id(j), k): sp for j, b in zip(group, billed) for k, sp in b.speeds.items() if sp},
+                 hold=find_hold(days, billed))
+    if s.split_speeds == "ask":
+        out.asked = {(id(a.job), a.key): a.speed for a in speeds_to_ask(speed_days(group, pool), s)}
     # (the job's split rule once it was billed: batch.Job.split_rule)
     upfront, rule = courthouses.speed_upfront(), courthouses.split_rule(opts.split_rule or s.invoice_split_rule)
     names = {a.key(): a.label() for a in firms_of(group)}
 
     def shares_of(run: Run, key: str | None = None) -> list[Share]:
         """A run's pages for quote_shares, each share split as many ways as firms ordered the run; for firm
-        `key`, as quote_ordered prices them: at its speed, with the other firms' (unset: the form's)."""
+        `key`, as quote_ordered prices them: at its speed, with the other firms' (none yet, as
+        invoice.firm_invoices has it: the form's, or, where firms needn't commit, the speed being priced)."""
         n = sharers(run)
         own = dates.get(id(run.day), [])
         speed, others = "", ()
         if key is not None:
-            speed = run.speed(key) or out.fallback
-            others = tuple((names.get(o, o), run.speed(o) or out.fallback) for o in run.keys if o != key)
+            speed = out.speed_billed(run, key) or out.fallback
+            others = tuple((names.get(o, o), out.speed_billed(run, o) or (out.fallback if upfront else speed))
+                           for o in run.keys if o != key)
         if not run.day.splittable and len(own) > 1:  # (ordered whole: a share per date, each indexed or not)
             return [Share(p, n, x, speed, others) for p, x in own]
         return [Share(billed_in(run.day, run), n, any(x for _, x in own), speed, others)]
 
-    # The firms billed one speed for all their pages, as invoice.firm_invoices has it: a speed set on any of them,
-    # or a run shared with another firm where firms commit (the rest of their pages too, alone or not)
-    commit = {k for r in runs for k in r.keys if r.speed(k) or (upfront and len(r.keys) > 1)}
+    # The firms billed one speed for all their pages, as invoice.firm_invoices has it: a speed on any of them, or a
+    # run shared with another firm where firms commit (the rest of their pages too, alone or not)
+    commit = {k for r in runs for k in r.keys if out.speed_billed(r, k) or (upfront and len(r.keys) > 1)}
 
     def at_speeds(run: Run) -> bool:
         """The run's firms are priced at the speeds they ordered (as invoice.firm_invoices bills them): a speed
         is set for one of them, they ordered it together and must commit to theirs, or each is billed one speed
         for its other pages anyway (a firm alone on this run offered no choice of speeds on its invoice)."""
-        return any(run.speed(k) for k in run.keys) or (len(run.keys) > 1 and upfront) \
+        return any(out.speed_billed(run, k) for k in run.keys) or (len(run.keys) > 1 and upfront) \
             or all(k in commit for k in run.keys)
 
     for r in runs:
@@ -509,7 +544,7 @@ def prices(days: list[Day], runs: list[Run], s: Settings) -> Prices:
             continue
         if at_speeds(r):
             try:
-                out.ordered[id(r)] = {k: (r.speed(k) or out.fallback,
+                out.ordered[id(r)] = {k: (out.speed_billed(r, k) or out.fallback,
                                           amount(quote_ordered(shares_of(r, k), s.sheet(), rule, email, split,
                                                                by_page=by_page)))
                                       for k in r.keys}

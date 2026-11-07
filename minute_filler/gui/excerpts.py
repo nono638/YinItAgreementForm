@@ -26,10 +26,12 @@ run sets the speed of that run alone ("Smith Law on this run at…", _run_menu).
 is billed one speed says what the firm pays for the run (_price_cell): "$91.20" alone, "$68.60 (÷2)" sharing it
 (already that firm's share: a price with the sum still to do read wrong), "$172.50 · shared" sharing it at different
 speeds (÷ would be false: the split rule divides it), the speed first when it isn't the one in the heading
-("Daily · $172.50 (÷2)"). Firms that ordered a run together must commit to one (until then it reads
-"Expedite? · $68.60 (÷2)", priced at the agreement form's speed, in amber). Only the runs of a firm billed alone,
-choosing from its invoice, are priced at each speed offered: their cells are blank, and the "Show prices for" boxes
-and their columns are hidden while there is none.
+("Daily · $172.50 (÷2)"). What is shown is what Generate bills (excerpts.prices, over the same days as Generate:
+self.pool): a firm with no speed of its own on a run is at the one Generate gives it, its speed on its other pages,
+else that day's agreement form's. Where Generate asks instead (Settings.split_speeds "ask"), the invoice as it stands
+is shown until it is answered, the cell reading "Expedite? · $68.60 (÷2)", in amber. Only the runs of a firm billed
+alone, choosing from its invoice, are priced at each speed offered: their cells are blank, and the "Show prices for"
+boxes and their columns are hidden while there is none.
 """
 from __future__ import annotations
 
@@ -45,7 +47,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import courthouses
-from ..batch import pin_orders, speeds_to_ask
+from ..batch import pin_orders
 from ..excerpts import (
     Day, Run, carve, case_days, count_runs, firms_of, prices, remove, runs_of, sharers, store, whole_day,
 )
@@ -138,15 +140,17 @@ class ExcerptsWindow(QDialog):
     """Who ordered which pages of the case: see the module docstring. load(group) shows the days of an invoice
     (MainWindow keeps it up to date); changed() is called after each change is kept."""
 
-    def __init__(self, s, changed, parent=None, marks=None, trial=None):
+    def __init__(self, s, changed, parent=None, marks=None, trial=None, pool=None):
         """s: the settings (the rate sheet, the speeds, what this window hides); changed: called after a change
         is kept on the jobs, so the main window shows it; marks: a job -> the marks of its trial's firms, by
         Attorney.key(), as the main window shows them (MainWindow._marks: every day of the trial loaded, those
         not on this invoice too, so a firm has the same colour here); without it, those of the days shown. trial:
         the jobs shown -> every day of their trials (MainWindow._trial_of), which the table's ticks are pinned on
-        (_pin); without it, the days shown."""
+        (_pin); without it, the days shown. pool: the jobs shown -> the days Generate works their speeds out over
+        (MainWindow._speed_days: fewer than trial's, a day billed already or unticked gives no speed), which the prices
+        are too; without it, the days shown."""
         super().__init__(parent)
-        self.s, self.changed, self.marks, self.trial = s, changed, marks, trial
+        self.s, self.changed, self.marks, self.trial, self.pool = s, changed, marks, trial, pool
         self.setWindowTitle(TITLE)
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
         self.group: list = []  # the jobs shown (the days of an invoice)
@@ -264,8 +268,8 @@ class ExcerptsWindow(QDialog):
             b.setAutoDefault(False)
             b.clicked.connect(slot)
             row.addWidget(b)
-        row.addStretch(1)
-        self.problem = QLabel("")
+        row.addSpacing(z(12))
+        self.problem = QLabel("")  # (all the room left: why an invoice is held can take a sentence or two)
         self._speeds_warning = ""  # (the speeds warning shown in it, taken away once the speeds are fixed)
         self.problem.setObjectName("problem")
         self.problem.setWordWrap(True)
@@ -324,8 +328,8 @@ class ExcerptsWindow(QDialog):
         self.close()
 
     def _editor_closed(self, *_):
-        """The editor closed without a change kept (Escape, or the same text): a reload skipped while typing
-        is done now."""
+        """The editor closed, and no change kept has shown the table meanwhile (Escape, or the same text): a reload
+        skipped while typing is done now."""
         if self._pending is not None:
             QTimer.singleShot(0, self._reload_pending)
 
@@ -348,7 +352,8 @@ class ExcerptsWindow(QDialog):
         under it and the note on the prices, from self.runs. The row and column chosen and the scrolling stay as
         they were, and a speed box isn't touched unless its choices changed: this runs on every tick, and on every
         change in the main window (a read ending, an AI answer)."""
-        p = prices(self.days, self.runs, self.s)
+        jobs = [d.job for d in self.days]
+        p = prices(self.days, self.runs, self.s, self.pool(jobs) if self.pool is not None and jobs else None)
         self.speeds = p.speeds
         self._speed_boxes(p.speeds)
         # "Show prices for" and its "Each pays · <speed>" columns price the runs whose firms choose from their
@@ -380,8 +385,8 @@ class ExcerptsWindow(QDialog):
             except Exception:  # (a colour is a help: never a reason for the table not to show)
                 marks = {}
         self._marks = marks
-        self._firm_speed_boxes()
-        stripe = {k: tag_color(m).name() for k, m in marks.items() if m is not None}
+        self._firm_speed_boxes(p)
+        stripe ={k: tag_color(m).name() for k, m in marks.items() if m is not None}
         for c, a in enumerate(firms):
             head = t.horizontalHeaderItem(FIRST_FIRM + c)
             head.setToolTip(" - ".join(x for x in (a.name, a.firm) if x))
@@ -394,9 +399,6 @@ class ExcerptsWindow(QDialog):
         first = FIRST_FIRM + len(firms)
         for k, (_, _, tip) in enumerate(COUNTS):
             t.horizontalHeaderItem(first + k).setToolTip(tip)
-        # (the speed Generate bills a firm sharing pages without one at, by day: the agreement form's, or the firm's
-        # on its other pages, batch.speeds_to_ask)
-        settles = {(id(a.job), a.key): a.speed for a in speeds_to_ask([d.job for d in self.days], self.s)}
         mixed = False  # (a run shared at different speeds: the note says how it is divided)
         for r, run in enumerate(self.runs):
             day = run.day
@@ -422,7 +424,7 @@ class ExcerptsWindow(QDialog):
                 it.setCheckState(Qt.Checked if on else Qt.Unchecked)
                 it.setData(STRIPE_ROLE, stripe.get(a.key()))
                 if on and at and a.key() in at:
-                    self._price_cell(it, run, a, at, settles)
+                    self._price_cell(it, run, a, at, p)
                 elif on:  # (it chooses from its invoice: the price is in Each pays)
                     it.setToolTip(f"Ordered together by {len(run.keys)} firms: they share these pages"
                                   if len(run.keys) > 1 else "Ordered by this firm alone")
@@ -457,9 +459,11 @@ class ExcerptsWindow(QDialog):
         self._loading = False
         self.summary.setText(self._summary(p, shown))
         self._show_note(mixed)
-        held = [x for d in self.days for x in d.job.speed_problems(self.s)]
+        # (three speeds on the same pages: the invoice waits; a speed the rate sheet lacks: Generate stops; any other
+        # reason Generate makes no invoice, as it bills the days: Prices.hold)
+        held = [x for d in self.days for x in d.job.speed_problems(self.s)] or ([p.hold] if p.hold else [])
         warned, self._speeds_warning = self._speeds_warning, "⚠ " + held[0] if held else ""
-        if held:  # (three speeds on the same pages: the invoice waits; a speed the rate sheet lacks: Generate stops)
+        if held:
             self.problem.setText(self._speeds_warning)
         elif warned and self.problem.text() == warned:  # (fixed since, by the strip or a right-click)
             self.problem.setText("")
@@ -504,11 +508,11 @@ class ExcerptsWindow(QDialog):
                      "invoices says.")
         self.note.setText(text)
 
-    def _price_cell(self, it: QTableWidgetItem, run: Run, firm, at: dict, settles: dict) -> None:
+    def _price_cell(self, it: QTableWidgetItem, run: Run, firm, at: dict, p) -> None:
         """A ticked cell of a run priced at the speeds ordered: what the firm pays for it, already its share
-        (at: Prices.ordered of the run). The speed only when the firm's heading doesn't say it. A firm that must
-        still commit to a speed (settles: batch.speeds_to_ask): the speed it is priced at until then, with a ?, in
-        amber."""
+        (at: Prices.ordered of the run). The speed only when the firm's heading doesn't say it. A firm Generate will
+        still ask the speed of (p: Prices.asked; only where it asks): the invoice as it stands, at the agreement form's
+        speed until answered, with a ?, in amber."""
         key = firm.key()
         speed, pays = at[key]
         price, n = money_exact(pays), sharers(run)
@@ -516,15 +520,13 @@ class ExcerptsWindow(QDialog):
         # (÷n would be false at different speeds: "$7.60 - $3.25" of the original isn't anything over n)
         share = " · shared" if mixed else f" (÷{n})" if n > 1 else ""
         heading = self._heading_speed.get(key)
-        billed = (self.s.split_speeds != "ask"
-                  and speed_key(settles.get((id(run.day.job), key), speed)) == speed_key(speed))  # (as said)
-        if not run.speed(key) and not billed:  # (it must commit to one: priced at the agreement form's until then)
+        asked = p.asked.get((id(run.day.job), key))
+        if asked and not p.speed_billed(run, key):
             it.setText(f"{speed}? · {price}{share}")
             it.setForeground(QColor(AMBER))
-            why = "these pages are" if len(run.keys) > 1 else "some of its pages are"  # (alone on this run: its others)
-            it.setToolTip(f"No speed set: {why} ordered with another firm, so this one commits to a speed (Generate "
-                          f"asks). Priced at {speed}, the agreement form's, until then. Right-click to set it, or set "
-                          "it under the firm's name.")
+            it.setToolTip(f"No speed set: {self._why_it_commits(run, key)} Generate asks, starting from {asked}. Priced "
+                          f"at {speed}, the agreement form's, until you answer. Right-click to set it, or set it under "
+                          "the firm's name.")
             return
         said = heading is not None and speed_key(heading) == speed_key(speed)
         it.setText(f"{price}{share}" if said else f"{speed} · {price}{share}")
@@ -540,9 +542,19 @@ class ExcerptsWindow(QDialog):
         else:
             tip = f"Ordered by this firm alone: {name} pays {price}."
         if not run.speed(key):
-            tip += (f" Billed at {speed}, the agreement form's speed, unless you choose another (right-click, or "
-                    "under the firm's name).")
+            forms = {speed_key(default_speed(run.day.job.case, self.s)), speed_key(p.fallback)}
+            whence = "the agreement form's speed" if speed_key(speed) in forms else "its speed on its other pages"
+            tip += f" Billed at {speed}, {whence}, unless you choose another (right-click, or under the firm's name)."
         it.setToolTip(tip)
+
+    def _why_it_commits(self, run: Run, key: str) -> str:
+        """Why a firm without a speed must have one, for its cell's tooltip: as it is, by what it really ordered (alone
+        here, it may still share nothing at all)."""
+        if len(run.keys) > 1:
+            return "these pages are ordered with another firm, so it commits to a speed."
+        if any(key in r.keys and len(r.keys) > 1 for r in self.runs):
+            return "some of its pages are ordered with another firm, so it commits to a speed."
+        return "it has a speed on its other pages, and an invoice bills it one way for all of them."
 
     def _run_note(self, kinds: list[str]) -> str:
         """How a run ordered at these speeds is divided, given the fastest of them (SplitRule.run_note: "one original,
@@ -609,9 +621,9 @@ class ExcerptsWindow(QDialog):
             lines.append(f"<br><b>Each firm's invoice</b> ({how})")
             for key, amounts in p.firms:
                 # (the speeds offered, as ticked above; an invoice of the speed the firm ordered: that one, ticked
-                # or not)
-                costs = " · ".join(f"{html.escape(sp)} {fmt(amounts[sp])}" for sp in amounts
-                                   if key in p.committed or sp in shown or sp not in p.speeds)
+                # or not. With none of them to list, all: a firm's line never comes out with no amount)
+                listed = [sp for sp in amounts if key in p.committed or sp in shown or sp not in p.speeds] or amounts
+                costs = " · ".join(f"{html.escape(sp)} {fmt(amounts[sp])}" for sp in listed)
                 lines.append(f"{named(key)}: {costs}")
         return "<br>".join(lines)
 
@@ -642,13 +654,14 @@ class ExcerptsWindow(QDialog):
                 box.activated.connect(lambda _i, key=k, b=box: self._firm_speed_chosen(key, b.currentData()))
             self.firm_speed_boxes[k] = box
             self._heading_speed[k] = None
-            mine = {r.speed(k) for r in self.runs if k in r.keys}
+            mine = {p.speed_billed(r, k) for r in self.runs if k in r.keys}
             box.setEnabled(bool(mine))
             if not mine:  # (it orders nothing of the case: no day to set a speed on)
                 box.set_choices([("No pages ordered", None, "–")], 0)
                 box.setToolTip(f"{a.label()} ordered no pages of these days: tick a run first, then set its speed here")
                 continue
-            items = [(VARIES, None, VARIES)] if len(mine) > 1 else []
+            several = len({speed_key(sp) if sp else "" for sp in mine}) > 1  # ("Expedite" is "Expedited")
+            items = [(VARIES, None, VARIES)] if several else []
             # (none set: a firm ordering pages with another is billed the agreement form's speed, as Who ordered
             # says, unless Generate asks; one alone chooses on its invoice)
             shared = next((r for r in self.runs if k in r.keys and len(r.keys) > 1 and not r.speed(k)), None)
@@ -662,12 +675,15 @@ class ExcerptsWindow(QDialog):
                 items.append((CHOOSES, "", "Not set" if shared is not None and courthouses.speed_upfront()
                                else "Chooses"))
             items += [(sp, sp, sp) for sp in speeds]
-            now = next(iter(mine)) if len(mine) == 1 else None
+            now = None if several else next(iter(mine))
             found = sheet.find(now) if now else None  # ("Expedited" is the sheet's "Expedite")
             if now and found is None:  # (a speed the rate sheet doesn't have: kept, and said, as in the card)
                 items.append((f"{now} (not on the rate sheet)", now, now))
             wanted = found.name if found else now
-            box.set_choices(items, 0 if now is None else next((i for i, x in enumerate(items) if x[1] == wanted), 0))
+            # (none set on any of its pages, and it is the form's that Generate sets: the form's, not that speed chosen)
+            data = "" if form and now and speed_key(form) == speed_key(now) and not any(
+                r.speed(k) for r in self.runs if k in r.keys) else wanted
+            box.set_choices(items, 0 if now is None else next((i for i, x in enumerate(items) if x[1] == data), 0))
             if now is not None:
                 self._heading_speed[k] = wanted or form
             box.setToolTip(f"The speed {a.label()} ordered all its pages of the case at. A firm ordering pages "
@@ -818,8 +834,8 @@ class ExcerptsWindow(QDialog):
                 a, b = day.parse(text)
                 runs = carve(runs, i, a, b)
             except ValueError as e:
+                self._show()  # back to the run as it was (a held invoice says so here: why this was refused comes after)
                 self.problem.setText(f"⚠ {e}")
-                self._show()  # back to the run as it was
                 return
             self._keep(day, runs)
         elif key is not None:

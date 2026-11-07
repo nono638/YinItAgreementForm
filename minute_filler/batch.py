@@ -2753,6 +2753,27 @@ def settle_split_speeds(jobs: list[Job], s: Settings, outputs: list[str] | None 
     return asked
 
 
+def speed_days(group: list[Job], pool: list[Job] | None = None) -> list[Job]:
+    """The days the speeds of an invoice's days are worked out over: them and, unless they are billed already, the
+    other days Generate counts (pool: MainWindow._speed_days), each once. (Days billed already show what they were
+    billed: a speed set since on a day still to bill isn't theirs.)"""
+    more = [] if all(j.invoiced for j in group) else pool or []
+    return list({id(j): j for j in [*group, *more]}.values())
+
+
+def as_billed(group: list[Job], s: Settings, pool: list[Job] | None = None) -> list[Job]:
+    """The days of an invoice as Generate bills them, for showing prices: with Settings.split_speeds "shown", copies
+    with the speeds Generate sets without asking (settle_split_speeds: what Who ordered's rows show), in the same order;
+    asked at Generate, the days themselves (a speed still to answer is priced as it stands). The days themselves
+    are never changed. pool: the other days Generate works the speeds out over (speed_days)."""
+    if s.split_speeds == "ask":
+        return group
+    copies = {id(j): replace(j, case=deepcopy(j.case), speeds=dict(j.speeds), portions=deepcopy(j.portions))
+              for j in speed_days(group, pool)}
+    settle_split_speeds(list(copies.values()), s, ["invoice"])
+    return [copies[id(j)] for j in group]
+
+
 def _files_in(folder: Path) -> int:
     """How many files are in `folder`, its subfolders' too ("Invoices", "Trial Runs": Settings.folder_for), so a
     case's folder holding only subfolders with nothing in them counts as empty (0 too when it isn't there or can't

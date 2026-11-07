@@ -4515,6 +4515,20 @@ class MainWindow(QMainWindow):
         box.exec()
         return box.clickedButton() is go_on and not self._batch_running()
 
+    def _speed_days(self, jobs: list[Job]) -> list[Job]:
+        """The days Generate works the speeds of these jobs out over: them and the days of their trials Who ordered
+        counts, not invoiced yet, as its Speed column is (batch.speed_shown: a firm ordering one day alone that shares
+        pages on another commits on both, Generate of one day too). What the prices are worked out over too
+        (_as_billed, and the Excerpts window's), or they would say another speed than is billed."""
+        from ..batch import trial_days
+        pool: dict[int, Job] = {id(j): j for j in jobs}
+        for j in jobs:
+            if j in self.jobs:
+                for d in self._counted(trial_days(j, self.jobs)):
+                    if not d.invoiced:
+                        pool.setdefault(id(d), d)
+        return list(pool.values())
+
     def _ask_split_speeds(self, jobs: list[Job], button: str = "Generate") -> bool:
         """Before the files are made: the firms of a split order whose speed isn't set (batch.speeds_to_ask:
         firms that ordered the same pages commit to a speed, as the courthouse says) are asked about at once
@@ -4528,17 +4542,9 @@ class MainWindow(QMainWindow):
         (settle_split_speeds). With "ask", a firm asked about on several days of a trial at the same speed is one
         line ("All 4 days"), its answer every one of those days' (the user, 2026-10-24: one line per day was a
         question per firm and day)."""
-        from ..batch import speeds_to_ask, trial_days, trials
+        from ..batch import speeds_to_ask, trials
         from .dialogs import SplitSpeedsDialog
-        # (worked out over the days of their trials Who ordered counts, as its Speed column is, batch.speed_shown: a
-        # firm ordering one day alone that shares pages on another commits on both, Generate of one day too)
-        pool: dict[int, Job] = {id(j): j for j in jobs}
-        for j in jobs:
-            if j in self.jobs:
-                for d in self._counted(trial_days(j, self.jobs)):
-                    if not d.invoiced:
-                        pool.setdefault(id(d), d)
-        asks = [a for a in speeds_to_ask(list(pool.values()), self.s) if any(a.job is j for j in jobs)]
+        asks = [a for a in speeds_to_ask(self._speed_days(jobs), self.s) if any(a.job is j for j in jobs)]
         if not asks:
             return True
         if self.s.split_speeds != "ask":
@@ -7075,16 +7081,10 @@ class MainWindow(QMainWindow):
         self._card_summaries()  # (a folded card's line: the speed and its price may have changed)
 
     def _as_billed(self, group: list[Job]) -> list[Job]:
-        """The days of an invoice as Generate bills them: with Settings.split_speeds "shown", copies with the speeds
-        Generate sets without asking (batch.settle_split_speeds: what Who ordered's rows show), so the prices say
-        what is billed; asked at Generate, the days themselves (a speed still to answer is marked "?")."""
-        from ..batch import settle_split_speeds
-        if self.s.split_speeds == "ask":
-            return group
-        copies = [replace(j, case=deepcopy(j.case), speeds=dict(j.speeds), portions=deepcopy(j.portions))
-                  for j in group]
-        settle_split_speeds(copies, self.s, ["invoice"])
-        return copies
+        """The days of an invoice as Generate bills them, over the days it counts (batch.as_billed, _speed_days), so
+        the prices say what is billed; a speed still to answer, where Generate asks, is marked "?"."""
+        from ..batch import as_billed
+        return as_billed(group, self.s, self._speed_days(group))
 
     def _show_invoice_prices(self) -> tuple[list | None, int]:
         """The Invoice card's parties, Includes line (Peripherals…) and prices for the current job. When Generate
@@ -7938,7 +7938,7 @@ class MainWindow(QMainWindow):
             return
         if self.excerpts is None:
             self.excerpts = ExcerptsWindow(self.s, self._excerpts_changed, self, marks=self._marks,
-                                           trial=self._trial_of)
+                                           trial=self._trial_of, pool=self._speed_days)
         self.excerpts.load(self._excerpt_group(job))
         rows = [i for i, r in enumerate(self.excerpts.runs) if r.day.job is job]
         if rows:
