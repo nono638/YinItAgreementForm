@@ -7115,7 +7115,7 @@ class MainWindow(QMainWindow):
         self._note_trial_rules(group)  # (priced as an earlier invoice of the trial was, if there is one)
         billed = self._as_billed(group)
         case, opts = first_invoice_set(billed)
-        as_billed = next(b for j, b in zip(group, billed) if j is job)
+        day_billed = next(b for j, b in zip(group, billed) if j is job)
         split = job.portions is not None  # Excerpts... decides this day's parties (or needs checking)
         check = job.portions_check()
         with QSignalBlocker(self.inv_parties):
@@ -7154,13 +7154,13 @@ class MainWindow(QMainWindow):
             self.inv_info.setToolTip("No invoice is made for this day until Who ordered which pages… is checked:\n"
                                      "tick the firms that ordered each run, or choose \"Make this day whole\".")
             return None, 1
-        if as_billed.speed_problems():  # more speeds on the same pages than are billed for now: no prices either
-            self._warn(f"⚠ {as_billed.invoice_hold()}")
+        if day_billed.speed_problems():  # more speeds on the same pages than are billed for now: no prices either
+            self._warn(f"⚠ {day_billed.invoice_hold()}")
             self.inv_info.setToolTip("No invoice is made for this day until a firm's speed is changed\n"
                                      "(its row in Who ordered, or Who ordered which pages… for a run of pages).")
             return None, 1
-        if as_billed.unnamed_problem():  # parties not named at different speeds: nobody's share can be worked out
-            self._warn(f"⚠ {as_billed.unnamed_problem()}")
+        if day_billed.unnamed_problem():  # parties not named at different speeds: nobody's share can be worked out
+            self._warn(f"⚠ {day_billed.unnamed_problem()}")
             self.inv_info.setToolTip("No invoice is made for this day until every party is named\n"
                                      "(ticked in Who ordered, its speed set in its row) or Parties is changed.")
             return None, 1

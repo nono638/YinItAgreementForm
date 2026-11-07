@@ -252,10 +252,10 @@ def test_rounding_in_the_settings_window(qt):
 
 def test_the_excerpts_window_says_how_each_invoice_is_rounded(qt):
     """Under the Excerpts window's table, "Each firm's invoice" says how its amounts were rounded."""
+    from minute_filler.excerpts import Prices
     from minute_filler.gui.excerpts import ExcerptsWindow
     s = pat_settings()
-    p = SimpleNamespace(groups=[], ordered_groups=[], ordered={}, firms=[("smith law", {"Regular": Decimal("1.00")})],
-                        committed=set(), speeds=["Regular"])
+    p = Prices(["Regular"], firms=[("smith law", {"Regular": Decimal("1.00")})])
     windows = [ExcerptsWindow(s, lambda: None)]
     assert "<b>Each firm's invoice</b> (rounded up to the cent)" in windows[0]._summary(p, ["Regular"])
     s.invoice_rounding = "page"
