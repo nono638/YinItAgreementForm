@@ -781,7 +781,7 @@ half a cent a page ($6,612.50 there, $6,610.00 here, for 1,000 pages).</p>
     # ------------------------------------------------------------------------------- Pages ordered and speeds
     T("exc-table", EXCERPTS, "Who ordered which pages…: a firm that ordered some pages only (an excerpt)",
       "excerpt excerpts part of the transcript some pages runs page range split run remove run partial order firm "
-      "ordered only how to use steps button pages ordered each firm",
+      "ordered only how to use steps button pages ordered each firm whole",
       """
 <p>When one firm ordered the whole trial and others only some pages (an excerpt), open <b>Who ordered which
 pages…</b> (the button under the firms in Who ordered, or
@@ -792,11 +792,11 @@ printed page numbers (<i>141-170</i>); the rows around a run you type make room 
 read from the PDF. Where a page has none, or the page numbers start over partway through and a number is on two pages,
 a run goes by its place in the day (<i>place 40-44</i>). A job of several days is
 ordered whole: its cell shows the page numbers printed on its transcripts;</li>
-<li>each firm has a box: <b>tick the firms that ordered the run</b>. At first every ticked firm ordered every
-page;</li>
-<li><b>Split run</b> cuts a run in two. <b>Remove run</b> (or the Delete key, or a right-click) gives its pages to the
-run next to it, so every page stays in a run;</li>
-<li><b>Remove this day's excerpts</b> and <b>Remove all excerpts</b> go back to whole days.</li>
+<li>each firm has a coloured column: <b>tick the firms that ordered the run</b>, a click anywhere in the cell (on
+the date, it only chooses the row). At first every ticked firm ordered every page;</li>
+<li><b>Split run…</b> asks where to cut a run in two. <b>Remove run</b> (or the Delete key, or a right-click) gives
+its pages to the run next to it, so every page stays in a run;</li>
+<li><b>Make this day whole</b> and <b>Make every day whole</b> go back to whole days.</li>
 </ul>
 <p>For each run it counts <a href="topic:exc-your-pages">your pages and every reporter's</a> and shows what each
 firm pays; under it, what each group of firms ordering
@@ -837,8 +837,9 @@ every run again.</p>
 ordering by itself gets the invoice that lists every speed to choose from.</p>
 <ul>
 <li>Each firm's speed is in its row of <a href="topic:inv-who-ordered">Who ordered</a>, by name: the forms' speed
-while none is chosen. Choose another there, or, for one run, by right-clicking the firm's box in Who ordered which pages…
-(<i>Dana Smith on this run at… ▸</i>). The boxes above its table set the speed of all a firm's pages.</li>
+while none is chosen. Choose another there, or, for one run, by right-clicking the firm's cell in Who ordered which pages…
+(<i>Dana Smith on this run at… ▸</i>). The list under a firm's name in its table sets the speed of all a firm's
+pages; a cell names a speed only when it differs (<i>Daily · $172.50 (÷2)</i>: already that firm's share).</li>
 <li>Generate bills the speeds shown. With Settings → Invoice → <i>Firms ordering the same pages</i> set to ask, it
 asks <i>Which speed did each firm order?</i> first, one line per firm for the whole trial.</li>
 </ul>
