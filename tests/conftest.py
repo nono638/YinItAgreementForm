@@ -3,25 +3,32 @@ a newer version, every day a business day (forms dated today, whatever day the t
 application and main window for the GUI tests. Also, for the tests that ask for it, a courthouse whose split
 orders choose a speed from their invoices (split_orders_choose)."""
 import os
+import tempfile
 
 import pytest
+
+# Before anything of the app is imported, and for the whole run: what a test undoes (monkeypatch.undo() undoes every
+# fixture's patches, isolated_appdata's too) lands here, never on the user's real folders. Failing that test afterwards
+# was too late: made-up invoices went into the user's real records.db that way, on 2026-10-21 and again on 2026-11-06.
+_NOT_THE_REAL_FOLDERS = tempfile.TemporaryDirectory(prefix="yinit-tests-", ignore_cleanup_errors=True)
+for _name in ("APPDATA", "USERPROFILE", "HOME"):
+    os.environ[_name] = _NOT_THE_REAL_FOLDERS.name
 
 
 @pytest.fixture(autouse=True)
 def isolated_appdata(tmp_path, monkeypatch):
-    """Keep tests away from the real %APPDATA% settings, rate sheets and records, and from the real
-    Documents folder (where the records' CSV copies go). A test that undid it (monkeypatch.undo() undoes every
-    fixture's patches, this one's too) fails: it may have written to the real records (made-up invoices went into
-    the user's records.db that way, 2026-10-21)."""
-    real = {k: os.environ.get(k) for k in ("APPDATA", "USERPROFILE", "HOME")}
+    """Keep each test's %APPDATA% settings, rate sheets and records, and its Documents folder (where the records' CSV
+    copies go), in a temporary folder of its own. A test that undid it fails: it would share the run's folder (above)
+    with every other test that did."""
+    run = {k: os.environ.get(k) for k in ("APPDATA", "USERPROFILE", "HOME")}
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     yield
-    # (a test may point them at another temporary folder of its own: only the real ones are a leak)
-    if any(real[k] and os.environ.get(k) == real[k] for k in real):
-        pytest.fail("the test undid the isolation of %APPDATA% (monkeypatch.undo()?): it may have written to the "
-                    "real settings or records", pytrace=False)
+    # (a test may point them at another temporary folder of its own: only the run's are a leak)
+    if any(run[k] and os.environ.get(k) == run[k] for k in run):
+        pytest.fail("the test undid the isolation of %APPDATA% (monkeypatch.undo()?): use `with "
+                    "monkeypatch.context() as m:` for a patch of its own", pytrace=False)
 
 
 def pytest_configure(config):
