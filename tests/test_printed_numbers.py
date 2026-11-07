@@ -15,15 +15,16 @@ import pytest
 
 from minute_filler.batch import (Doc, Job, _printed_span, _run_words, billed_split_rule, counts_covers, cover_note,
                                  fill_jobs, fixes_without_cover, group, job_from_origin, job_origin, joint_origin,
-                                 put_back_orders, read_docs, remerge, settle_old_places)
+                                 origin_fixes, put_back_orders, read_docs, remerge, settle_old_places, trial_orders)
 from minute_filler.deliver import case_snapshot, ledger_for
 from minute_filler.excerpts import Day, Run, carve, case_days
 from minute_filler.extract_regex import RegexExtractor
 from minute_filler.ingest import Ingested, ingest_file
 from minute_filler.models import SRC_PDF, SRC_USER, Attorney, Extraction, FieldState
-from minute_filler.runsheet import Row, RunSheetOpts, add_takes, rows_from, title_page_texts, title_page_total
-from minute_filler.takes import (PageCount, PageFacts, PageMark, count_pages, counted_words, find_takes, numbers_known,
-                                 place_words, read_pages, run_numbers, scan_page, scan_pdf, without_cover)
+from minute_filler.runsheet import (Row, RunSheetOpts, add_takes, rows_from, run_sheet_summary, title_page_texts,
+                                    title_page_total)
+from minute_filler.takes import (PageCount, PageFacts, PageMark, _scan, count_pages, counted_words, find_takes,
+                                 numbers_known, place_words, read_pages, run_numbers, scan_page, scan_pdf, without_cover)
 
 from helpers import CAPTION_DPM, MIN_U_SCRIPT_COVER as COVER, page_numbered_transcript, pat_settings
 
@@ -141,6 +142,8 @@ AFTER = PageFacts(PageMark(819, PR), lined=True)
     (replace(FACT, branded=True, lined=True), AFTER, False),  # (a condensed transcript's first page)
     (replace(FACT, branded=True), replace(AFTER, index=True, lined=False), False),  # (an index left first counts whole)
     (replace(FACT, branded=True), PageFacts(PageMark()), True),  # (the page after it unnumbered: it is still a cover)
+    (replace(FACT, branded=True, caption=True), AFTER, False),  # (a typed title page saying "-against-", "Index No.")
+    (replace(FACT, branded=True, zero=True), AFTER, False),  # (it prints something where its number goes: no cover does)
 ])
 def test_what_makes_a_cover(first, after, dropped):
     facts, gone = without_cover([first, after])
@@ -262,9 +265,20 @@ def page_saying(*at: tuple) -> PageMark:
 ])
 def test_a_page_printing_0_has_its_number_in_its_head_if_anywhere(head, number):
     """Never a line number ("1" in the top margin, which filtering out the 0 would have taken), nor a number that is
-    the head's own."""
-    mark = page_saying((300, 40, "0"), (60, 28, head), (40, 80, "1"), (80, 300, "A."), (40, 720, "25"))
-    assert mark.number == number
+    the head's own, even between pages it would go on from."""
+    at = int(head.rsplit(" ", 1)[-1]) if head[-1].isdigit() and head != "Proceedings 0" else 100
+    doc = pymupdf.open()
+    for n in (at - 1, 0, at + 1):
+        page = doc.new_page()
+        page.insert_text((300, 40), str(n), fontsize=10)
+        if not n:
+            page.insert_text((60, 28), head, fontsize=10)
+        page.insert_text((40, 80), "1", fontsize=10)
+        page.insert_text((80, 300), "A.", fontsize=10)
+        page.insert_text((40, 720), "25", fontsize=10)
+    got = [f.mark.number for f in read_pages(doc)]
+    doc.close()
+    assert got == [at - 1, number, at + 1]
 
 
 def test_a_page_printing_another_number_is_read_as_before():
@@ -295,7 +309,7 @@ def test_a_0_on_the_first_page_is_no_first_page_number(tmp_path):
     ([154, None, None, None, None, None], None, False),  # (the one number OCR found)
     ([819, None, 821], None, True),
     ([819, None], None, True),
-    ([164, 164], None, True),  # (one number, twice: where a reporter changes)
+    ([164, 164], None, False),  # (one number, twice: [1, 1] looks the same, so the run goes by its place)
     ([819, 820], 3, False),  # (the wrong length)
     ([], None, False),
     ([None, None], None, False),
@@ -531,10 +545,13 @@ def test_a_scan_s_one_row_shows_only_the_number_on_its_first_page():
     assert take_cells(row)[2] == "p. 154"
 
 
-def test_a_take_starts_on_the_first_number_read_in_it():
-    takes = find_takes([PageMark(None, PR), PageMark(820, PR), PageMark(None, DS), PageMark(None, DS), PageMark(823, DS)],
-                       title_count=0)
-    assert [(t.start, t.numbers, t.at) for t in takes] == [(820, [None, 820], 0), (823, [None, None, 823], 2)]
+def test_a_take_starts_on_the_number_read_on_its_first_page_or_blank():
+    """Not the first number read in it: the run sheet's End formula counts on from its Start, and would say a page past
+    its last. Nor one counted on from the take before."""
+    takes = find_takes([PageMark(None, PR), PageMark(820, PR), PageMark(None, DS), PageMark(None, DS), PageMark(823, DS),
+                        PageMark(824, PR)], title_count=0)
+    assert [(t.start, t.numbers, t.at) for t in takes] == [(None, [None, 820], 0), (None, [None, None, 823], 2),
+                                                           (824, [824], 5)]
 
 
 # ------------------------------------------------------------------ the note on a count
@@ -692,6 +709,20 @@ def test_a_job_merging_rows_still_in_old_places_keeps_them_to_move(tmp_path, s):
     jobs = group([fresh], s, [empty, other])
     job, = jobs
     assert ident(job.case).index and job.portions == [(1, [A]), (5, [A, B])] and not job.old_places
+
+
+def test_a_job_merging_rows_still_in_old_places_waits_as_they_did(tmp_path, s):
+    """The record's total and documents come with the rows: without them the first transcript read would settle them."""
+    from minute_filler.batch import make_doc
+    a = job_of(s, page_numbered_transcript(tmp_path / "a.pdf", 5, cover=COVER))
+    other = Job(portions=[(2, [A]), (12, [A, B])], old_places=True, old_total=12, old_sources=["a.pdf", "b.pdf"])
+    empty = Job()
+    for job in (other, empty):
+        job.case.set("index_no", a.case.get("index_no"))
+        job.case.set("dates", a.case.get("dates"))
+    job, = group([make_doc(a.docs[0].ing, a.docs[0].regex, s, path="a.pdf")], s, [empty, other])
+    assert job.old_places and job.portions == [(2, [A]), (12, [A, B])] and (job.old_total, job.old_sources) == (
+        12, ["a.pdf", "b.pdf"])
 
 
 @pytest.mark.parametrize("fixes, want", [({5: DS}, {4: DS}), ({0: DS}, {}), ({1: DS, 2: PR}, {0: DS, 1: PR}), ({}, {})])
@@ -1085,3 +1116,826 @@ def test_help_says_a_cover_is_no_page():
     text = next(t for t in TOPICS if t.id == "check-pages").html
     assert "Min-U-Script cover" in text and "isn't a page" in text
     assert "place 40-44" in next(t for t in TOPICS if t.id == "exc-table").html
+
+
+# ------------------------------------------------------------------ pages printing what they print
+LINES = "\n".join(f"{n:2}  {'Q.  And then?' if n % 2 else 'A.  Yes.'}" for n in range(1, 26))
+
+
+def printed_doc(numbers, who=None, heads=None, caption=CAPTION_DPM):
+    """A PDF whose pages print these numbers where the number goes (None: nothing there; 0: a 0), signed as `who` says
+    ("" unsigned; "pr" on every page without it), each under its running head when `heads` gives one."""
+    doc = pymupdf.open()
+    for i, n in enumerate(numbers):
+        page = doc.new_page()
+        if n is not None:
+            page.insert_text((300, 40), str(n), fontsize=10)
+        if heads and heads[i]:
+            page.insert_text((60, 28), heads[i], fontsize=10)
+        page.insert_text((60, 80), caption if i == 0 else LINES, fontsize=9)
+        mark = who[i] if who else PR
+        if mark:
+            page.insert_text((520, page.rect.height - 40), mark, fontsize=10)
+    return doc
+
+
+def printed_pdf(path, numbers, who=None, heads=None, caption=CAPTION_DPM):
+    doc = printed_doc(numbers, who, heads, caption)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def read_numbers(numbers, heads) -> list:
+    """The numbers read_pages reads on these pages, as a PDF is read (the pages around each one to go by)."""
+    doc = printed_doc(numbers, heads=heads)
+    got = [f.mark.number for f in read_pages(doc)]
+    doc.close()
+    return got
+
+
+# ------------------------------------------------------------------ the zero rule goes by the pages around it
+@pytest.mark.parametrize("head", ["Proceedings 2026", "Term 2026", "Monday 2026", "Docket 12345", "Courtroom 25",
+                                  "Exhibits 5", "Ex. 12", "Juror 9", "Witness 3", "Index No. 712345 2021", "Vol. II 3",
+                                  "Nos. 5", "Case 7"])
+def test_a_number_in_a_head_that_doesnt_go_on_from_the_pages_around_it_is_no_page_number(head):
+    numbers = [100, 101, 102, 103, 104, 0, 106, 107, 108, 109, 110]
+    assert read_numbers(numbers, [""] * 5 + [head] + [""] * 5) == numbers[:5] + [None] + numbers[6:]
+
+
+def test_proceedings_2026_shows_no_year_among_the_page_numbers(tmp_path, s):
+    """It gave "pp. 100–104, 2026, 106–110", a warning that the numbers fall, and "100-110" refused."""
+    path = printed_pdf(tmp_path / "Roe.pdf", [100, 101, 102, 103, 104, 0, 106, 107, 108, 109, 110],
+                       heads=[""] * 5 + ["Proceedings 2026"] + [""] * 5)
+    day, = case_days([firms(job_of(s, path))])
+    assert not day.falls() and day.span(1, 11) == "100–110" and day.parse("100-110") == (1, 11)
+    take, = find_takes(job_of(s, path).docs[0].ing.marks, title_count=0)
+    assert take.heads == ["Proceedings 2026"]  # (the head stays as printed: it isn't its number)
+
+
+@pytest.mark.parametrize("numbers, heads, want", [
+    ([104, 0, 106], ["", "Proceedings 105", ""], [104, 105, 106]),
+    ([104, 0, 110], ["", "Proceedings 105", ""], [104, 105, 110]),  # (a skip of SKIP_OK after it)
+    ([104, 0, 106], ["", "Proceedings 110", ""], [104, None, 106]),  # (past the page after it)
+    ([100, 0, 106], ["", "Proceedings 105", ""], [100, 105, 106]),
+    ([98, 0, 106], ["", "Proceedings 105", ""], [98, None, 106]),  # (a jump of 7 from the page before)
+    ([100, None, 0, 103], ["", "", "Proceedings 102", ""], [100, None, 102, 103]),  # (an unread page between)
+    ([100, 101, 0], ["", "", "Proceedings 102"], [100, 101, 102]),  # (the last page: one neighbour is enough)
+    ([0, 101, 102], ["Proceedings 100", "", ""], [100, 101, 102]),  # (the first)
+    ([0], ["Proceedings 151"], [None]),  # (no neighbour at all)
+    ([0, 0, 0], ["Proceedings 151", "Proceedings 152", "Proceedings 153"], [151, 152, 153]),  # (they vouch for each other)
+    ([0, 0, 0], ["Proceedings 2026"] * 3, [None, None, None]),  # (the same number on each is the head's)
+    ([0, 0, 0, 0, 104], ["Proceedings 100", "Proceedings 101", "Proceedings 102", "Proceedings 103", ""],
+     [100, 101, 102, 103, 104]),  # (a stretch printing 0, up to the first page read)
+    ([104, 0, 0, 107], ["", "Proceedings 105", "Docket 555", ""], [104, 105, None, 107]),  # (each judged for itself)
+    ([164, 0, 166], ["", "Proceedings 164", ""], [164, None, 166]),  # (not a number the page before has)
+])
+def test_which_numbers_in_a_head_go_on_from_the_pages_around_it(numbers, heads, want):
+    assert read_numbers(numbers, heads) == want
+
+
+def test_a_page_read_alone_has_no_pages_around_it_to_go_by():
+    assert page_saying((300, 40, "0"), (60, 28, "Proceedings 151")).number is None
+
+
+# ------------------------------------------------------------------ a last page printing 0 still counts
+@pytest.mark.parametrize("zeros", [1, 2])
+def test_a_last_page_printing_0_still_counts(tmp_path, zeros):
+    """Unsigned and without its number in its head, it read as nothing, and dropped off the end: 11 pages of 12 billed,
+    with no word said."""
+    numbers = list(range(100, 112 - zeros)) + [0] * zeros
+    ing = ingest_file(printed_pdf(tmp_path / "Roe.pdf", numbers, [PR] * (12 - zeros) + [""] * zeros))
+    assert ing.count.pages == 12 and len(ing.marks) == 12 and not ing.count.warning
+    assert [m.number for m in ing.marks[-zeros:]] == [None] * zeros
+
+
+def test_what_keeps_a_page_at_the_end_of_the_first_reading():
+    signed = PageFacts(PageMark(100, PR))
+    assert len(_scan([signed, PageFacts(PageMark(), lined=True)])) == 2
+    assert len(_scan([signed, PageFacts(PageMark(), zero=True)])) == 2
+    assert len(_scan([signed, PageFacts(PageMark())])) == 1  # (nothing on it to say it is one)
+    # (line numbers alone don't make a transcript's pages out of a PDF with nothing else on them: no marks to go by)
+    assert _scan([PageFacts(PageMark(), lined=True)] * 3) == []
+
+
+# ------------------------------------------------------------------ a run ending on a page whose number wasn't read
+@pytest.mark.parametrize("printed, typed, places", [
+    ([100, None, None, 103, 104, 105], "100-101", "place 1-3"),
+    ([100, None, None, 103, 104, 105], "100-102", "place 1-3"),
+    ([100, None, None, 103, 104, 105], "101-103", "place 2-4"),
+    ([100, None, None, 103, 104, 105], "102-105", "place 2-6"),
+    ([100, None, 102, None, 104], "101-103", "place 2-4"),
+])
+def test_a_run_ending_among_unread_pages_is_refused_and_says_which_places(printed, typed, places):
+    """It billed the pages read up to there: "100-102" was one page, with no word said."""
+    with pytest.raises(ValueError, match=f"wasn't read.*{places}$"):
+        day_of(printed).parse(typed)
+
+
+@pytest.mark.parametrize("printed, typed, want", [
+    ([100, None, None, 103, 104, 105], "100-103", (1, 4)),  # (its ends are read)
+    ([100, None, None, 103, 104, 105], "103-105", (4, 6)),
+    ([100, None, None, 103, 104, 105], "place 1-2", (1, 2)),
+    ([100, 101, 103, 104], "100-102", (1, 2)),  # (no page prints 102, and none is unread: as ever)
+    ([100, 101, 103, 104], "102-104", (3, 4)),
+])
+def test_a_run_whose_ends_are_read_or_skipped_is_taken(printed, typed, want):
+    assert day_of(printed).parse(typed) == want
+
+
+# ------------------------------------------------------------------ one word for several runs, on the form's little room
+def agreement_job(numbers) -> Job:
+    """A day of these numbers, Alex B. Counsel ordering four runs of 60 pages at two speeds."""
+    doc = covered_doc(len(numbers), cover=0)
+    doc.ing.marks = [PageMark(n, PR) for n in numbers]
+    job = firms(Job(docs=[doc]))
+    job.case.set("dates", "6/3/2026")
+    job.portions = [(60, [A]), (120, [A]), (180, [A]), (240, [A])]
+    for row, speed in enumerate(["Daily", "Regular", "Daily", "Regular"]):
+        job.set_speed(A, speed, row=row)
+    return job
+
+
+def test_counted_pages_is_said_once_for_each_speed():
+    speeds = agreement_job([None] * 240).ordered_speeds()[A]
+    assert speeds == [("Daily", "6/3/2026 counted pages 1–60, 121–180"), ("Regular", "6/3/2026 counted pages 61–120, 181–240")]
+
+
+def test_pp_is_said_once_for_each_speed():
+    speeds = agreement_job(list(range(101, 341))).ordered_speeds()[A]
+    assert speeds == [("Daily", "6/3/2026 pp. 101–160, 221–280"), ("Regular", "6/3/2026 pp. 161–220, 281–340")]
+
+
+def test_a_mix_of_runs_says_each_kind_once():
+    """Pages 61-120 without numbers: those by their place, between the numbered ones."""
+    numbers = list(range(101, 161)) + [None] * 60 + list(range(221, 341))
+    speeds = dict(agreement_job(numbers).ordered_speeds()[A])
+    assert speeds["Regular"] == "6/3/2026 counted pages 61–120, pp. 281–340"
+    assert speeds["Daily"] == "6/3/2026 pp. 101–160, 221–280"
+
+
+def test_the_note_on_the_agreement_fits_where_the_old_words_did():
+    """Four runs at two speeds: the boxes on the UCS and the original form are about 336 points wide, and "counted
+    pages" said on each run came to 384 at the smallest size, cut off."""
+    from minute_filler.fill import speeds_note
+    from minute_filler.forms import original_map, ucs_map
+    from minute_filler.pdfout import fit_size, text_width
+    speeds = agreement_job([None] * 240).ordered_speeds()[A]
+    note = speeds_note([(sp, {"Daily": "6.50", "Regular": "4.30"}[sp], where) for sp, where in speeds])
+    for form in (ucs_map, original_map):
+        box = pymupdf.Rect(form.OVERLAYS["speeds_note"])
+        assert text_width(note, fit_size(note, box)) <= box.width - 4
+
+
+def test_one_run_at_a_speed_reads_as_before():
+    job = agreement_job(list(range(101, 341)))
+    job.portions = [(60, [A]), (240, [A])]
+    job.set_speed(A, "Daily", row=0)
+    job.set_speed(A, "Regular", row=1)
+    assert job.ordered_speeds()[A] == [("Daily", "6/3/2026 pp. 101–160"), ("Regular", "6/3/2026 pp. 161–340")]
+
+
+# ------------------------------------------------------------------ the line under the Pages field, as read
+def read_as(numbers, **k) -> Job:
+    doc = covered_doc(len(numbers), cover=0)
+    doc.ing.marks = [PageMark(n, PR) for n in numbers]
+    doc.ing.count = PageCount(len(numbers), first=numbers[0], last=numbers[-1], **k)
+    return Job(docs=[doc])
+
+
+def test_the_line_shows_numbers_that_start_again_as_they_are_read():
+    """It said "Transcript pages 1–111" over the cells' 1–39, 10–29, 60–97, 10–11, 100–111."""
+    assert read_as(FALLS).pages_help()[0] == "Transcript pages 1–39, 10–29, 60–97, 10–11, 100–111 (no word index)"
+    assert read_as(FALLS, index_pages=4).pages_help()[0] == ("Transcript pages 1–39, 10–29, 60–97, 10–11, 100–111 · "
+                                                             "excludes the 4 word-index pages after them")
+
+
+def test_the_line_reads_as_ever_on_numbers_that_only_rise():
+    assert read_as(TWICE).pages_help()[0] == "Transcript pages 130–256 (no word index)"
+    assert read_as(list(range(819, 937))).pages_help()[0] == "Transcript pages 819–936 (no word index)"
+
+
+def test_the_note_on_the_count_shows_numbers_that_start_again_as_read():
+    marks = [PageMark(n, PR) for n in FALLS]
+    note = extraction_note(count=PageCount(len(FALLS), first=1, last=111), marks=marks)
+    assert note == "transcript pages 1–39, 10–29, 60–97, 10–11, 100–111"
+
+
+# ------------------------------------------------------------------ the index limit counts the cover
+def test_a_word_index_at_the_limit_with_a_cover_is_no_warning(tmp_path):
+    """Cover + 14 pages + 6 of index: 6 of the PDF's 21 is within a quarter. Without the cover among the PDF's pages, 6
+    of 20 was over it, and the count went amber though it was right."""
+    c = ingest_file(page_numbered_transcript(tmp_path / "Roe.pdf", 14, cover=COVER, index_pages=6)).count
+    assert (c.pages, c.cover, c.index_pages) == (14, 1, 6) and not c.warning and c.confidence == 0.95
+
+
+def test_a_word_index_over_the_limit_still_warns_and_names_the_pdf_s_pages():
+    pages = [PageFacts(PageMark(100 + i, PR), lined=True) for i in range(14)]
+    pages += [PageFacts(PageMark(), index=True) for _ in range(7)]
+    c = count_pages(pages, cover=1)
+    assert "7 of the PDF's 22 total pages" in c.warning and c.confidence == 0.55
+
+
+# ------------------------------------------------------------------ a caption page is no cover
+@pytest.mark.parametrize("words", [
+    "JANE ROE,\nPlaintiff,\n-against-\nSAM POE,\nDefendant.",
+    "JANE ROE,\nPlaintiff,\n- against -\nSAM POE,\nDefendant.",
+    "JANE ROE v. SAM POE\nIndex No. 712345/2021",
+    "JANE ROE v. SAM POE\nINDEX NUMBER 712345/2021",
+])
+def test_a_typed_caption_page_saying_min_u_script_is_a_page(tmp_path, s, words):
+    """Taken for a cover, a real title page went unbilled without a word."""
+    path = page_numbered_transcript(tmp_path / "Roe.pdf", 20, first=819, cover=f"{words}\nJune 3, 2026\nMin-U-Script")
+    c = job_of(s, path).docs[0].ing.count
+    assert (c.cover, c.pages) == (0, 21)
+
+
+def test_the_cover_s_own_words_are_no_caption(tmp_path):
+    """"Word Index" isn't "Index No.", nor "Jane Roe v. Sam Poe" the "-against-" of a caption."""
+    ing = ingest_file(page_numbered_transcript(tmp_path / "Roe.pdf", 5, cover=COVER))
+    assert ing.count.cover == 1
+
+
+# ------------------------------------------------------------------ numbers known, on a short day
+@pytest.mark.parametrize("printed, known", [
+    ([1, 1], False), ([164, 164], False), ([1, 1, None], False),
+    ([154, None], True),  # (one read of two: as read, and no bill turns on it)
+    ([1, 2], True),
+])
+def test_two_numbers_read_must_be_two_numbers(printed, known):
+    assert numbers_known(printed) is known
+
+
+def test_a_short_day_printing_one_number_is_by_place():
+    assert _run_words([1, 1], 1, 2) == "counted pages 1–2" and day_of([1, 1]).span(1, 2) == "place 1–2"
+
+
+# ------------------------------------------------------------------ the run sheet keeps every take
+def sheet_of(opts) -> list:
+    from openpyxl import load_workbook
+    from minute_filler.runsheet import _read_ours
+    return [(r.reporter, r.pages, r.start) for r in _read_ours(load_workbook(opts.path)["Run Sheet"])]
+
+
+@pytest.fixture
+def sheets(tmp_path, s):
+    s.runsheet_dir = str(tmp_path / "sheets")
+    s.profile.initials = "P.R."
+    return s
+
+
+def test_a_first_page_without_a_number_keeps_both_takes_and_a_blank_start(tmp_path, sheets):
+    """Pat's first number read made Pat's take 2..11 and Dana's 11..18: they overlapped, and Dana's was dropped."""
+    s = sheets
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", [None] + list(range(2, 19)), [PR] * 10 + [DS] * 8))
+    rows = job.runsheet_opts(s).rows
+    assert [(r.reporter, r.pages, r.start, r.end(), r.at) for r in rows] == [("Pat", 10, None, None, 0),
+                                                                             ("DS", 8, 11, 18, 10)]
+    assert rows[0].numbers == [None] + list(range(2, 11))  # (what was read still shows)
+    made = add(job.case, rows, s)
+    assert (made.added, made.skipped) == (2, 0) and sheet_of(made) == [("Pat", 10, None), ("DS", 8, 11)]
+    assert "with 2 takes" in run_sheet_summary(made)
+    again = add(job.case, job.runsheet_opts(s).rows, s, made.path)
+    assert (again.added, again.skipped) == (0, 2)
+
+
+def test_a_take_whose_first_number_wasnt_read_stays_in_its_place(tmp_path, sheets):
+    """Its last take was dropped, and a blank Start sorted it out of the order of the pages."""
+    s = sheets
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", [1, 2, 3, None, 5, 6, 7, 8], ["ab"] * 3 + ["cd"] * 3 + ["ef"] * 2))
+    rows = job.runsheet_opts(s).rows
+    assert [(r.reporter, r.pages, r.start) for r in rows] == [("AB", 3, 1), ("CD", 3, None), ("EF", 2, 7)]
+    assert [r.numbers for r in rows] == [[1, 2, 3], [None, 5, 6], [7, 8]]  # (never 4, counted on from the page before)
+    made = add(job.case, rows, s)
+    assert sheet_of(made) == [("AB", 3, 1), ("CD", 3, None), ("EF", 2, 7)]
+    assert (add(job.case, job.runsheet_opts(s).rows, s, made.path).added) == 0
+
+
+def test_a_blank_start_stays_in_its_place_on_the_card_and_on_a_batch_s_run_sheet(tmp_path, sheets):
+    from minute_filler.batch import takes_of, unit_sheet
+    s = sheets
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", [1, 2, 3, None, 5, 6, 7, 8], ["ab"] * 3 + ["cd"] * 3 + ["ef"] * 2))
+    assert [r.reporter for r in takes_of([job], s)] == ["AB", "CD", "EF"]
+    assert [r.reporter for r in unit_sheet([job], s, []).rows] == ["AB", "CD", "EF"]
+
+
+def test_a_number_printed_twice_where_the_reporter_changes_keeps_every_take(tmp_path, sheets):
+    s = sheets
+    who = [PR] * 35 + [DS] * 32 + [PR] * 39 + [DS] * 20 + [PR]
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", TWICE, who))
+    made = add(job.case, job.runsheet_opts(s).rows, s)
+    assert made.added == 5 and sum(p for _, p, _ in sheet_of(made)) == 127
+    assert [start for *_, start in sheet_of(made)] == [130, 164, 197, 235, 256]
+    assert add(job.case, job.runsheet_opts(s).rows, s, made.path).added == 0
+
+
+def test_a_day_whose_numbers_fall_keeps_every_take(tmp_path, sheets):
+    s = sheets
+    who = [PR] * 39 + [DS] * 20 + [PR] * 38 + [DS] * 2 + [PR] * 12
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", FALLS, who))
+    made = add(job.case, job.runsheet_opts(s).rows, s)
+    assert made.added == 5 and sum(p for _, p, _ in sheet_of(made)) == 111
+    assert add(job.case, job.runsheet_opts(s).rows, s, made.path).added == 0
+
+
+def test_a_take_an_older_run_sheet_lost_to_a_number_printed_twice_is_added(tmp_path, sheets):
+    """An earlier version dropped Dana's takes from this sheet: they only share the number printed twice with Pat's."""
+    s = sheets
+    who = [PR] * 35 + [DS] * 32 + [PR] * 39 + [DS] * 20 + [PR]
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", TWICE, who))
+    old = add(job.case, [Row(DAY, "Pat", 35, 130), Row(DAY, "Pat", 39, 197), Row(DAY, "Pat", 1, 256)], s)
+    again = add(job.case, job.runsheet_opts(s).rows, s, old.path)
+    assert (again.added, again.skipped) == (2, 3)
+    assert sheet_of(again) == [("Pat", 35, 130), ("DS", 32, 164), ("Pat", 39, 197), ("DS", 20, 235), ("Pat", 1, 256)]
+
+
+@pytest.mark.parametrize("zero_at, written", [
+    (0, [("Pat", 0), ("DS", 161), ("Pat", 171)]),  # (its first take: the last take's Start is a formula on the sheet)
+    (10, [("Pat", 151), ("DS", 0), ("Pat", 171)]),  # (a take under it starting by a number of its own)
+    (20, [("Pat", 151), ("DS", 161), ("Pat", 0)]),
+])
+def test_a_zero_file_on_an_older_run_sheet_adds_nothing(tmp_path, sheets, zero_at, written):
+    """A take starting on a page printing 0 wrote a first page of 0 there, and the takes under it their numbers."""
+    s = sheets
+    numbers = list(range(151, 181))
+    numbers[zero_at] = 0
+    heads = [""] * 30
+    heads[zero_at] = f"Proceedings {151 + zero_at}"
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", numbers, [PR] * 10 + [DS] * 10 + [PR] * 10, heads))
+    # (takes of one transcript: all three reach the sheet, as an earlier version wrote them)
+    old = add(job.case, [Row(DAY, who, 10, start, doc="old.pdf", at=i * 10) for i, (who, start) in enumerate(written)], s)
+    assert old.added == 3
+    assert add(job.case, job.runsheet_opts(s).rows, s, old.path).added == 0
+
+
+@pytest.mark.parametrize("a, b, same", [
+    (Row(DAY, "Pat", 10, 2, doc="a.pdf", at=0), Row(DAY, "DS", 8, 11, doc="a.pdf", at=10), False),  # (one transcript)
+    (Row(DAY, "Pat", 10, 2, doc="a.pdf", at=0), Row(DAY, "Pat", 10, 2, doc="a.pdf", at=0), True),  # (the very take)
+    (Row(DAY, "Pat", 10, 2, doc="a.pdf", at=0), Row(DAY, "Pat", 10, 2, doc="b.pdf", at=0), True),  # (dropped twice)
+    (Row(DAY, "Pat", 5, 164, doc="a.pdf", at=0), Row(DAY, "Pat", 5, 164), True),  # (on the run sheet: no document)
+    (Row(DAY, "DS", 32, 164), Row(DAY, "Pat", 35, 130), False),  # (only the number printed twice in common)
+    (Row(DAY, "Pat", 35, 130), Row(DAY, "DS", 32, 164), False),
+    (Row(DAY, "DS", 1, 164), Row(DAY, "Pat", 35, 130), False),  # (a take of that one page)
+    (Row(DAY, "Dana", 1, 164), Row(DAY, "DS", 1, 164), True),  # (the same page under another name)
+    (Row(DAY, "Dana", 32, 164), Row(DAY, "DS", 32, 164), True),  # (the same pages under another name)
+    (Row(DAY, "Dana", 32, 164), Row(DAY, "DS", 30, 165), True),  # (more than the one number in common: as ever)
+    (Row(DAY, "Pat", 32, 164), Row(DAY, "Pat", 35, 130), True),  # (one reporter's: as ever)
+    # the last number read, not the count: 195, 197, 198 ends on 198 (the formula's 197 would miss the page shared)
+    (Row(DAY, "Pat", 3, 195, numbers=[195, 197, 198]), Row(DAY, "Pat", 3, 198), True),
+    (Row(DAY, "Pat", 3, None, numbers=[None, 5, 6]), Row(DAY, "Casey", 3, 4), True),  # (a Start counted on, on a sheet)
+    (Row(DAY, "Pat", 3, None, numbers=[None, 5, 6]), Row(DAY, "Pat", 3, None), True),  # (no numbers there: by the count)
+    (Row(DAY, "Pat", 3, None, numbers=[None, None, None]), Row(DAY, "Pat", 3, 40), True),  # (none read here)
+    # a scan's row has the one number on its first page: reporter typed in on the sheet since, it is still that take
+    (Row(DAY, "", 6, 154, numbers=[154]), Row(DAY, "Pat", 6, 154), True),
+    (Row(DAY, "", 6, 154, numbers=[154]), Row(DAY, "Pat", 6, 200), False),
+    (Row(DAY, "", 6, 154, numbers=[154]), Row(DAY, "", 6, 156), True),  # (its six pages reach it, not its one number)
+    # one number read of a take's six, from the same first page, under another name: that take
+    (Row(DAY, "Pat", 6, 154, numbers=[154] + [None] * 5), Row(DAY, "Casey", 6, 154), True),
+    (Row(date(2026, 6, 4), "Pat", 10, 2), Row(DAY, "Pat", 10, 2), False),
+])
+def test_what_is_the_same_take(a, b, same):
+    assert a.same_take(b) is same
+
+
+def test_correcting_a_take_with_a_blank_start(window, tmp_path, monkeypatch, s):
+    doc = take_with_numbers(window, tmp_path, s, [None, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61])
+    pat = window._take_rows[0]
+    assert pat.start is None and pat.numbers[:2] == [None, 51]
+    asked, _ = correct(window, monkeypatch, pat, 54)
+    assert "starts on page 51 and ends on page 53" in asked[0][2] and doc.fixes == {4: PR}
+
+
+# ------------------------------------------------------------------ the reporter's label changed since the old sheet
+CAPTION_NAMING = CAPTION_DPM + "\n\n    DANA SMITH\n    Senior Court Reporter"
+
+
+def test_a_first_take_written_under_its_initials_isnt_added_again_under_its_name(tmp_path, sheets):
+    """The old count stopped at the cover, so the old sheet says DS; the title page after it names Dana now. Added
+    again, Dana's 8 pages counted as 15."""
+    s = sheets
+    path = page_numbered_transcript(tmp_path / "Roe.pdf", 12, first=100, initials=[DS] * 7 + [PR] * 5, cover=COVER,
+                                    caption=CAPTION_NAMING)
+    job = job_of(s, path)
+    rows = job.runsheet_opts(s).rows
+    assert [(r.reporter, r.pages, r.start, r.after_cover) for r in rows] == [("Dana", 7, 100, True), ("Pat", 5, 107, False)]
+    old = add(job.case, [Row(DAY, "DS", 8, None), Row(DAY, "Pat", 5, 107)], s)
+    again = add(job.case, rows, s, old.path)
+    assert (again.added, again.skipped) == (0, 2)
+
+
+def test_another_reporter_s_initials_are_no_match():
+    new = Row(DAY, "Dana", 7, 100, initials=DS, after_cover=True)
+    assert new.same_take(Row(DAY, "DS", 8, None)) and not new.same_take(Row(DAY, "KP", 8, None))
+
+
+# ------------------------------------------------------------------ Split, on a day typed in or whose numbers fall
+def split_with(w, monkeypatch, answer):
+    """Split run… on the table's first run, answered with `answer` (None: the number offered): (the question, what it
+    offered)."""
+    from minute_filler.gui import excerpts as window_of_excerpts
+    asked = []
+
+    def get_text(_parent, _title, label, _echo, offered):
+        asked.append((label, offered))
+        return (offered if answer is None else answer), True
+    monkeypatch.setattr(window_of_excerpts.QInputDialog, "getText", get_text)
+    w.table.selectRow(0)
+    w._split()
+    return asked[0]
+
+
+def test_split_on_a_typed_day_asks_for_a_place(qt, tmp_path, s, monkeypatch):
+    """Pages typed 300, numbers read 100-399: "after which page number?" and 150 typed cut at place 150, not at the
+    page printed 150 (place 51)."""
+    job = firms(job_of(s, page_numbered_transcript(tmp_path / "a.pdf", 300, first=100)))
+    job.case.fields["est_pages"] = FieldState("280", SRC_USER, 1.0, [])
+    w = excerpts_of(s, job)
+    label, offered = split_with(w, monkeypatch, "150")
+    assert "after which place?" in label and "page number" not in label and "1–280 of 280 pages typed" in label
+    assert offered == "place 140"
+    assert [r[0] for r in job.portions] == [150, 280]
+
+
+def test_split_on_a_typed_day_takes_the_place_it_offers(qt, tmp_path, s, monkeypatch):
+    job = firms(job_of(s, page_numbered_transcript(tmp_path / "a.pdf", 30, first=100)))
+    job.case.fields["est_pages"] = FieldState("20", SRC_USER, 1.0, [])
+    w = excerpts_of(s, job)
+    split_with(w, monkeypatch, None)
+    assert [r[0] for r in job.portions] == [10, 20]
+
+
+def test_split_s_offer_on_a_day_whose_numbers_fall_is_taken(qt, tmp_path, s, monkeypatch):
+    """The middle page's number can be on two stretches: offered as it was, it was refused."""
+    job = falling_job(tmp_path, s)  # (101-120, 111-130: the middle page prints 120, the 21st 111)
+    day, = case_days([job])
+    assert day.as_typed(15, 15) == "place 15"  # (115: on both stretches)
+    with pytest.raises(ValueError):
+        day.parse(day.span(15, 15))
+    job.portions = [(30, [A, B]), (40, [A, B])]  # (the first run, its middle at place 15)
+    w = excerpts_of(s, job)
+    label, offered = split_with(w, monkeypatch, None)
+    assert offered == "place 15" and "page number" in label  # (its runs still go by their numbers)
+    assert w.problem.text() == "" and [r[0] for r in job.portions] == [15, 30, 40]
+
+
+def test_split_on_a_day_of_rising_numbers_asks_as_before(qt, tmp_path, s, monkeypatch):
+    job = firms(job_of(s, page_numbered_transcript(tmp_path / "a.pdf", 20, first=819)))
+    w = excerpts_of(s, job)
+    label, offered = split_with(w, monkeypatch, None)
+    assert label == "Cut the run 819–838 after which page number?" and offered == "828"
+    assert [r[0] for r in job.portions] == [10, 20]
+
+
+@pytest.mark.parametrize("a, b, want", [
+    (1, 20, "819–838"), (5, 5, "823"),
+])
+def test_a_run_as_it_can_be_typed(a, b, want):
+    assert day_of(range(819, 939)).as_typed(a, b) == want
+
+
+def test_a_run_whose_shown_numbers_mean_other_pages_is_offered_by_place():
+    d = day_of(TWICE)
+    assert d.as_typed(35, 35) == "place 35"  # (164 is both pages 35 and 36)
+    assert d.as_typed(35, 36) == "place 35–36"  # (one number twice is no number known)
+    assert d.example() == "130–149"
+
+
+# ------------------------------------------------------------------ an old record: all its transcripts first
+def old_two_volumes(tmp_path, s):
+    """A day of two transcripts as an older version kept it: a.pdf (a cover and 20 pages from 100), b.pdf (10 from
+    200), 31 pages counted. Alex B. Counsel alone ordered 100-104 (old places 2-6)."""
+    a = page_numbered_transcript(tmp_path / "a.pdf", 20, first=100, cover=COVER)
+    b = page_numbered_transcript(tmp_path / "b.pdf", 10, first=200)
+    origin = old_record(firms(job_of(s, a, b)))
+    origin["job"]["portions"] = [[6, [A]], [31, [A, B]]]
+    assert origin["case"]["fields"]["est_pages"][0] == "31"
+    return a, b, origin
+
+
+def drop_back(window, path, count):
+    window.add_files([str(path)], same_job=True)
+    wait(window, lambda: len(window.cur.docs) == count)
+
+
+def assert_moved_over(cur):
+    assert not cur.old_places and cur.portions == [(5, [A]), (30, [A, B])] and not cur.portions_problem()
+    assert [d.ing.name for d in cur.transcripts()] == ["a.pdf", "b.pdf"]  # (as the record counted them)
+    assert cur.case.fields["est_pages"].source == SRC_PDF and cur.case.get("est_pages") == "30"
+    assert not cur.pages_typed() and cur.invoice_pages() == 30
+    assert [(p.pages, p.span) for p in cur.invoice_orders()[0].portions] == [(5, "pp. 100–104"), (25, "pp. 105–119, 200–209")]
+
+
+def test_a_day_waits_for_all_its_transcripts_before_it_moves(window, tmp_path, s, monkeypatch):
+    """b.pdf moved. Settled when a.pdf was read, 31 stayed typed against the 30 total pages when b.pdf came back: 31
+    billed, the rows in old places, Alex billed 6 pages "counted pages 1–6", with no word said."""
+    said = []
+    monkeypatch.setattr(window, "_toast", said.append)
+    a, b, origin = old_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    b.rename(gone)
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: window.cur.docs)
+    cur = window.cur
+    assert cur.old_places and cur.portions == [(6, [A]), (31, [A, B])]
+    assert cur.case.get("est_pages") == "31" and cur.case.fields["est_pages"].source == SRC_USER
+    # (what it would say of the documents read so far is not so, while Pages still shows the record's 31)
+    assert not any("total pages now" in x for x in said)
+    gone.rename(b)
+    drop_back(window, b, 2)
+    assert_moved_over(cur)
+    assert any("30 total pages now, 31 when this job was made" in x for x in said)
+
+
+def test_the_document_with_the_cover_coming_back_last_is_counted_where_it_was(window, tmp_path, s):
+    """The cover was at place 1 as the record counted them, though a.pdf comes back after b.pdf."""
+    a, b, origin = old_two_volumes(tmp_path, s)
+    gone = tmp_path / "gone.pdf"
+    a.rename(gone)
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: window.cur.docs)
+    cur = window.cur
+    assert cur.old_places and [d.ing.name for d in cur.docs] == ["b.pdf"]
+    gone.rename(a)
+    drop_back(window, a, 2)
+    assert_moved_over(cur)
+
+
+def test_a_document_dropped_back_from_another_folder_is_known_by_its_name(window, tmp_path, s):
+    a, b, origin = old_two_volumes(tmp_path, s)
+    (tmp_path / "elsewhere").mkdir()
+    moved = tmp_path / "elsewhere" / "a.pdf"
+    a.rename(moved)
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: window.cur.docs)
+    drop_back(window, moved, 2)
+    assert_moved_over(window.cur)
+
+
+def test_a_document_back_under_another_name_holds_the_rows_for_a_look(window, tmp_path, s):
+    """Which order the record counted it in can't be told, so nor can where its cover was: the rows are not moved, they
+    don't end on its pages, and the invoice waits. Never moved by a guess."""
+    a, b, origin = old_two_volumes(tmp_path, s)
+    renamed = tmp_path / "renamed.pdf"
+    a.rename(renamed)
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: window.cur.docs)
+    drop_back(window, renamed, 2)
+    cur = window.cur
+    assert not cur.old_places and cur.transcript_pages() == 30 and cur.case.fields["est_pages"].source == SRC_PDF
+    assert cur.portions == [(6, [A]), (31, [A, B])] and "rows don't end on" in cur.portions_problem()
+
+
+def test_a_letter_that_moved_doesnt_keep_the_rows_waiting(tmp_path, s):
+    """Its transcript is here and the pages add up to the record's: nothing is missing that counts."""
+    path = page_numbered_transcript(tmp_path / "Roe.pdf", 20, first=819, cover=COVER)
+    job = job_from_origin({"sources": [str(path), str(tmp_path / "letter.pdf")],
+                           "job": {"portions": [[11, [A]], [21, [A, B]]]},
+                           "case": {"fields": {"est_pages": ["21", SRC_USER, 1.0]}, "attorneys": [ALEX.to_dict(), DANA.to_dict()]}},
+                          s)
+    assert (job.old_total, job.old_sources) == (21, [str(path), str(tmp_path / "letter.pdf")])
+    job.docs += read_docs([str(path)], s)[0]
+    remerge(job, s)
+    assert job.portions == [(10, [A]), (20, [A, B])] and not job.old_places and job.case.get("est_pages") == "20"
+
+
+def test_all_its_documents_read_settles_a_transcript_that_got_shorter(tmp_path, s):
+    """Every document of the record is here: nothing more will come, so the rows move, and are held for not fitting."""
+    path = page_numbered_transcript(tmp_path / "Roe.pdf", 20, first=819, cover=COVER)
+    job = job_from_origin({"sources": [str(path)], "job": {"portions": [[11, [A]], [31, [A, B]]]},
+                           "case": {"fields": {"est_pages": ["31", SRC_PDF, 0.95]}, "attorneys": [ALEX.to_dict(), DANA.to_dict()]}},
+                          s)
+    job.docs += read_docs([str(path)], s)[0]
+    remerge(job, s)
+    assert job.portions == [(10, [A]), (30, [A, B])] and not job.old_places and job.portions_problem()
+
+
+def test_a_shorter_transcript_back_from_another_folder_is_known_by_its_name(tmp_path, s):
+    """Its pages never add up to the record's, so only its name can say it is the document the record counted."""
+    (tmp_path / "elsewhere").mkdir()
+    moved = page_numbered_transcript(tmp_path / "elsewhere" / "Roe.pdf", 20, first=819, cover=COVER)
+    job = job_from_origin({"sources": [str(tmp_path / "Roe.pdf")], "job": {"portions": [[11, [A]], [31, [A, B]]]},
+                           "case": {"fields": {"est_pages": ["31", SRC_PDF, 0.95]}, "attorneys": [ALEX.to_dict(), DANA.to_dict()]}},
+                          s)
+    job.docs += read_docs([str(moved)], s)[0]
+    remerge(job, s)
+    assert job.portions == [(10, [A]), (30, [A, B])] and not job.old_places and job.portions_problem()
+
+
+def test_rows_cut_again_on_the_pages_here_are_no_longer_in_old_places(tmp_path, s):
+    """Cut in the window while a document is still away, the Pages field cleared: they are by the pages read."""
+    from minute_filler.excerpts import store
+    a, b, origin = old_two_volumes(tmp_path, s)
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    assert job.old_places and not job.pages_typed()  # (the record's count, not typed: the rows just don't fit)
+    day, = case_days([job])
+    store(day, [Run(day, 1, 5, [A]), Run(day, 6, 20, [A, B])], job.case.attorneys)
+    assert not job.old_places and job.portions == [(5, [A]), (20, [A, B])]
+
+
+def test_rows_cut_in_a_number_kept_as_typed_still_wait(tmp_path, s):
+    """They count pages of the record's 31, the cover among them: still to be moved."""
+    from minute_filler.excerpts import store
+    a, b, origin = old_two_volumes(tmp_path, s)
+    job = job_from_origin(origin, s)
+    job.case.fields["est_pages"].source = SRC_USER
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    day, = case_days([job])
+    assert job.pages_typed() and day.pages == 31
+    store(day, [Run(day, 1, 11, [A]), Run(day, 12, 31, [A, B])], job.case.attorneys)
+    assert job.old_places
+
+
+def test_a_trial_s_day_waits_for_its_transcripts_too(window, tmp_path, s):
+    """a.pdf (10 pages) moved, b.pdf (a cover and 20): the cover was at place 11, not 1. Taken at 1 the rows became
+    [4, 30], fitted when a.pdf came back, and Alex was billed 4 pages for 5, with no word said."""
+    a = page_numbered_transcript(tmp_path / "a.pdf", 10, first=100)
+    b = page_numbered_transcript(tmp_path / "b.pdf", 20, first=110, cover=COVER)
+    job = firms(job_of(s, a, b))
+    origin = json.loads(json.dumps(joint_origin([job])))
+    del origin["cover_out"]
+    origin["orders"][0]["portions"] = [[5, [A]], [31, [A, B]]]
+    gone = tmp_path / "gone.pdf"
+    a.rename(gone)
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: window.cur.docs)
+    cur = window.cur
+    assert cur.old_places and cur.portions == [(5, [A]), (31, [A, B])] and cur.portions_problem()
+    gone.rename(a)
+    window.add_files([str(a)])
+    wait(window, lambda: len(window.cur.docs) == 2)
+    assert not cur.old_places and cur.portions == [(5, [A]), (30, [A, B])] and not cur.portions_problem()
+    assert [d.ing.name for d in cur.transcripts()] == ["a.pdf", "b.pdf"]
+    assert [(p.pages, p.span) for p in cur.invoice_orders()[0].portions] == [(5, "pp. 100–104"), (25, "pp. 105–129")]
+
+
+def test_a_trial_whose_other_day_is_away_moves_the_day_that_is_all_here(tmp_path, s):
+    """The record's documents are of every day; this day's own pages add up, and that is what it waits for."""
+    a = page_numbered_transcript(tmp_path / "a.pdf", 20, first=819, cover=COVER)
+    job = firms(job_of(s, a))
+    origin = json.loads(json.dumps(joint_origin([job])))
+    del origin["cover_out"]
+    origin["sources"].append(str(tmp_path / "another day.pdf"))
+    origin["orders"][0]["portions"] = [[11, [A]], [21, [A, B]]]
+    put_back_orders([job], origin, s)
+    assert job.portions == [(10, [A]), (20, [A, B])] and not job.old_places
+
+
+# ------------------------------------------------------------------ an old own count kept as typed
+def own_count_record(path, est, source=SRC_USER, front=PR, rows=None) -> dict:
+    return json.loads(json.dumps({"sources": [str(path)],
+                                  "job": {"front_owner": {str(path): front}, "att_touched": True, "portions": rows},
+                                  "case": {"fields": {"est_pages": [est, source, 1.0]},
+                                           "attorneys": [ALEX.to_dict(), DANA.to_dict()]}}))
+
+
+def shared_with_cover(tmp_path, s):
+    s.profile.initials = "P.R."
+    return page_numbered_transcript(tmp_path / "Roe.pdf", 20, first=100, initials=[PR] * 8 + [DS] * 12, cover=COVER)
+
+
+def test_an_old_own_count_kept_as_typed_goes_back_to_the_count(tmp_path, s):
+    """The cover was the user's (front_owner), so 9 was the count of the user's pages, 8 now. Kept as a number typed it
+    billed the cover, and the agreement counted 9 of the 20 total pages."""
+    path = shared_with_cover(tmp_path, s)
+    job = job_from_origin(own_count_record(path, "9", rows=[[5, [A]], [21, [A, B]]]), s)
+    job.docs += read_docs([str(path)], s)[0]
+    remerge(job, s)
+    assert not job.pages_typed() and job.own_pages() == job.invoice_pages() == 8
+    assert job.case.fields["est_pages"].source == SRC_PDF and job.case.get("est_pages") == "20"
+    assert job.ordered_pages()[A] == 20
+    assert job.portions == [(4, [A]), (20, [A, B])]  # (it was the count, so the rows counted the cover)
+
+
+def test_an_own_count_whose_cover_was_someone_else_s_is_the_count_too(tmp_path, s):
+    """The cover was Dana's: the old count of the user's pages was 8, as it is now, and the rows counted the cover."""
+    path = shared_with_cover(tmp_path, s)
+    job = job_from_origin(own_count_record(path, "8", front=DS, rows=[[5, [A]], [21, [A, B]]]), s)
+    job.docs += read_docs([str(path)], s)[0]
+    remerge(job, s)
+    assert not job.pages_typed() and job.invoice_pages() == 8 and job.portions == [(4, [A]), (20, [A, B])]
+
+
+@pytest.mark.parametrize("typed, front", [("9", DS), ("10", PR), ("7", PR)])
+def test_a_number_that_was_never_an_old_count_stays_typed(tmp_path, s, typed, front):
+    path = shared_with_cover(tmp_path, s)
+    job = job_from_origin(own_count_record(path, typed, front=front), s)
+    job.docs += read_docs([str(path)], s)[0]
+    remerge(job, s)
+    assert job.pages_typed() and job.invoice_pages() == int(typed)
+
+
+def test_a_typed_0_is_the_user_s_even_when_none_of_the_pages_are_billed(tmp_path, s):
+    """No invoice for the day, as ever: it was never the count, though the user's pages of this transcript are none."""
+    s.profile.initials = "K.P."
+    path = shared_with_cover(tmp_path, s)
+    s.profile.initials = "K.P."
+    job = job_from_origin(own_count_record(path, "0", front=DS), s)
+    job.docs += read_docs([str(path)], s)[0]
+    remerge(job, s)
+    assert job.own_pages() == 0 and job.pages_typed() and job.case.get("est_pages") == "0"
+
+
+def test_whose_cover_it_was_goes_by_who_is_billed():
+    """Billed the whole transcript or a reporter of its own: the old count had the cover, whoever's initials follow."""
+    doc = covered_doc(5, who=PR)
+    assert Job(docs=[doc], own=(PR,))._cover_billed(doc) is True  # (one reporter, the user)
+    shared = covered_doc(5)
+    shared.ing.marks = [PageMark(100, PR), PageMark(101, PR), PageMark(102, DS), PageMark(103, DS), PageMark(104, DS)]
+    key = shared.key()
+    assert Job(docs=[shared], own=(PR,), front_owner={key: PR})._cover_billed(shared) is True
+    assert Job(docs=[shared], own=(PR,), front_owner={key: DS})._cover_billed(shared) is False
+    assert Job(docs=[shared], own=(PR,))._cover_billed(shared) is False  # (nobody said)
+    assert Job(docs=[shared], own=(PR,), front_owner={key: PR}, page_basis={key: "*"})._cover_billed(shared) is True
+    assert Job(docs=[shared], own=(PR,), front_owner={key: DS}, page_basis={key: DS})._cover_billed(shared) is True
+
+
+# ------------------------------------------------------------------ a record is all one way of counting
+def test_a_trial_part_moved_over_is_kept_all_in_the_old_way(tmp_path, s):
+    """Day X moved over, day Y still waiting (only an e-mail back). One mark can't say both: without it X's rows and
+    corrected takes were moved again when the record was opened, {4: ds} to {3: ds}, [5, 20] to [4, 19], with no word
+    said. So the record counts the covers everywhere, as an older one does, and nothing moves twice."""
+    x = firms(job_of(s, page_numbered_transcript(tmp_path / "x.pdf", 20, first=100, cover=COVER)))
+    x.portions = [(5, [A]), (20, [A, B])]
+    x.docs[0].fixes = {4: DS}
+    y = Job(old_places=True, portions=[(10, [A])])
+    y.case.set("dates", "6/4/2026")
+    origin = json.loads(json.dumps(joint_origin([x, y])))
+    assert counts_covers(origin)
+    assert origin["page_fixes"] == {str(tmp_path / "x.pdf"): {"5": DS}}
+    assert origin["orders"][0]["portions"] == [[6, [A]], [21, [A, B]]]
+    assert origin["orders"][1]["portions"] == [[10, [A]]]  # (still as the older record had them)
+
+    assert fixes_without_cover(origin_fixes(origin)[str(tmp_path / "x.pdf")], 1) == {4: DS}
+    again = job_of(s, tmp_path / "x.pdf")
+    put_back_orders([again], origin, s)
+    assert again.portions == [(5, [A]), (20, [A, B])] and not again.old_places and not again.portions_problem()
+
+
+def test_a_trial_all_moved_over_keeps_its_places_and_the_mark(tmp_path, s):
+    x = firms(job_of(s, page_numbered_transcript(tmp_path / "x.pdf", 20, first=100, cover=COVER)))
+    x.portions = [(5, [A]), (20, [A, B])]
+    x.docs[0].fixes = {4: DS}
+    origin = json.loads(json.dumps(joint_origin([x])))
+    assert not counts_covers(origin) and origin["page_fixes"] == {str(tmp_path / "x.pdf"): {"4": DS}}
+    assert origin["orders"][0]["portions"] == [[5, [A]], [20, [A, B]]]
+
+
+def test_rows_in_a_number_typed_arent_given_the_cover_back(tmp_path, s):
+    """They count pages of that number, and were never moved."""
+    x = firms(job_of(s, page_numbered_transcript(tmp_path / "x.pdf", 20, first=100, cover=COVER)))
+    x.case.fields["est_pages"] = FieldState("40", SRC_USER, 1.0, [])
+    x.portions = [(10, [A]), (40, [A, B])]
+    y = Job(old_places=True, portions=[(10, [A])])
+    origin = json.loads(json.dumps(joint_origin([x, y])))
+    assert origin["orders"][0]["portions"] == [[10, [A]], [40, [A, B]]]
+
+
+@pytest.mark.parametrize("docs, rows", [
+    ([(20, 1)], [(1, [A]), (20, [A, B])]),
+    ([(20, 1)], [(19, [A]), (20, [A, B])]),
+    ([(10, 0), (20, 1)], [(10, [A]), (11, [A]), (30, [A, B])]),
+    ([(59, 1), (59, 1)], [(59, [A]), (60, [A]), (118, [A, B])]),
+    ([(59, 1), (59, 0), (10, 1)], [(59, [A]), (118, [B]), (119, [A]), (128, [A, B])]),
+])
+def test_rows_given_their_covers_back_come_back_the_same(docs, rows):
+    """What a record of a part-moved trial writes, opened again, is the rows the job had."""
+    job = old_job(list(rows), *[covered_doc(n, f"{i}.pdf", cover=c) for i, (n, c) in enumerate(docs)])
+    job.old_places = False
+    job.portions = [r for _, r in enumerate(rows)]
+    other = Job(old_places=True)
+    orders = trial_orders([job, other], with_covers=True)
+    job.portions = [tuple(r) for r in orders[0]["portions"]]
+    job.old_places = True
+    settle_old_places(job)
+    assert job.portions == rows and not job.old_places
+
+
+def test_a_job_still_waiting_keeps_its_corrected_takes_in_the_old_way_too(tmp_path, s):
+    """Its takes moved as the transcript was read, its rows not yet: a record of both must say one thing."""
+    a, b, origin = old_two_volumes(tmp_path, s)
+    job = job_from_origin(origin, s)
+    job.docs += read_docs([str(a)], s)[0]
+    remerge(job, s)
+    assert job.old_places
+    job.docs[0].fixes = {4: DS}
+    kept = json.loads(json.dumps(job_origin(job)))["job"]
+    assert kept["page_fixes"] == {str(a): {"5": DS}} and "cover_out" not in kept
+    assert kept["portions"] == [[6, [A]], [31, [A, B]]]
+
+
+# ------------------------------------------------------------------ the help, on whose pages
+def test_the_help_s_examples_say_whose_pages():
+    from minute_filler.help_topics import TOPICS
+    text = " ".join(t.html for t in TOPICS)
+    assert "40 pages" not in text and "(10 pages, no index)" not in text
+    assert "50 by both attorneys" not in text
+
+
+def test_the_help_says_what_a_flat_save_to_has_inside_it():
+    from minute_filler.help_topics import TOPICS
+    text = " ".join(" ".join(t.html.split()) for t in TOPICS)
+    assert "no folders inside it but the <b>Math</b> folder" not in text
+    assert "and the <b>Inputs</b> folder when that is on" in text
