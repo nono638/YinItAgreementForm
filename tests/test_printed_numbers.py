@@ -22,8 +22,8 @@ from minute_filler.excerpts import Day, Run, carve, case_days
 from minute_filler.extract_regex import RegexExtractor
 from minute_filler.ingest import Ingested, ingest_file
 from minute_filler.models import SRC_PDF, SRC_USER, Attorney, Extraction, FieldState
-from minute_filler.runsheet import (Row, RunSheetOpts, add_takes, rows_from, run_sheet_summary, title_page_texts,
-                                    title_page_total)
+from minute_filler.runsheet import (Row, RunSheetOpts, add_takes, rows_from, run_sheet_summary, takes_to_add,
+                                    title_page_texts, title_page_total)
 from minute_filler.takes import (PageCount, PageFacts, PageMark, _scan, count_pages, counted_words, find_takes,
                                  numbers_known, place_words, read_pages, run_numbers, scan_page, scan_pdf, without_cover)
 
@@ -2510,3 +2510,175 @@ def test_whose_cover_it_was_goes_by_the_document_s_name_only_when_its_path_says_
     assert Job(docs=[shared], own=(PR,), front_owner={"y\\Other.pdf": PR})._cover_billed(shared) is False
     # (its own path first)
     assert Job(docs=[shared], own=(PR,), front_owner={"y\\Roe.pdf": PR, "x\\Roe.pdf": DS})._cover_billed(shared) is False
+
+
+# ------------------------------------------------------------------ what is already on a run sheet
+FALLS_WHO = [PR] * 39 + [DS] * 20 + [PR] * 38 + [DS] * 2 + [PR] * 12
+
+
+def test_a_falling_day_on_an_older_run_sheet_gets_the_takes_it_lost(tmp_path, sheets):
+    """An earlier version kept Pat's three takes. Dana's overlap them by more than one number, so "already has these
+    takes: nothing was added": 89 of the 111 total pages on the sheet, with no word said."""
+    s = sheets
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", FALLS, FALLS_WHO))
+    old = add(job.case, [Row(DAY, "Pat", 39, 1), Row(DAY, "Pat", 38, 60), Row(DAY, "Pat", 12, 100)], s)
+    again = add(job.case, job.runsheet_opts(s).rows, s, old.path)
+    assert (again.added, again.skipped) == (2, 3)
+    assert sum(p for _, p, _ in sheet_of(again)) == 111
+    assert add(job.case, job.runsheet_opts(s).rows, s, old.path).added == 0
+
+
+def test_two_volumes_each_numbered_from_1_keep_their_takes_on_a_new_sheet(tmp_path, sheets):
+    """Pat 1-20 of AM.pdf, Dana 1-15 of PM.pdf: "with 1 take. (1 take was on it already.)"."""
+    s = sheets
+    job = job_of(s, printed_pdf(tmp_path / "AM.pdf", list(range(1, 21)), [PR] * 20),
+                 printed_pdf(tmp_path / "PM.pdf", list(range(1, 16)), [DS] * 15))
+    made = add(job.case, job.runsheet_opts(s).rows, s)
+    assert (made.added, made.skipped) == (2, 0) and sorted(p for _, p, _ in sheet_of(made)) == [15, 20]
+    assert add(job.case, job.runsheet_opts(s).rows, s, made.path).added == 0
+
+
+def test_two_volumes_of_one_reporter_each_numbered_from_1_too(tmp_path, sheets):
+    s = sheets
+    job = job_of(s, printed_pdf(tmp_path / "AM.pdf", list(range(1, 21)), [PR] * 20),
+                 printed_pdf(tmp_path / "PM.pdf", list(range(1, 16)), [PR] * 15))
+    made = add(job.case, job.runsheet_opts(s).rows, s)
+    assert (made.added, made.skipped) == (2, 0) and sum(p for _, p, _ in sheet_of(made)) == 35
+
+
+def test_one_file_under_two_paths_is_one_take(tmp_path, sheets):
+    s = sheets
+    (tmp_path / "copy").mkdir()
+    a = printed_pdf(tmp_path / "Roe.pdf", list(range(1, 21)), [PR] * 20)
+    b = printed_pdf(tmp_path / "copy" / "Roe.pdf", list(range(1, 21)), [PR] * 20)
+    made = add(job_of(s, a).case, job_of(s, a, b).runsheet_opts(s).rows, s)
+    assert (made.added, made.skipped) == (1, 1)
+
+
+@pytest.mark.parametrize("a, b, among, same", [
+    # the row there is another reporter's of this run, starting apart: not this take, however many numbers they share
+    (Row(DAY, "DS", 20, 10), Row(DAY, "Pat", 39, 1), {"ds", "pat"}, False),
+    (Row(DAY, "DS", 2, 10), Row(DAY, "Pat", 39, 1), {"ds", "pat"}, False),
+    # its own reporter under another name: "DS" isn't among those of this run
+    (Row(DAY, "Dana", 32, 164), Row(DAY, "DS", 30, 165), {"dana", "pat"}, True),
+    # from the same page: a take corrected to another reporter, the same take
+    (Row(DAY, "DS", 32, 164), Row(DAY, "Pat", 32, 164), {"ds", "pat"}, True),
+    # so with its end moved: the sheet is the user's to put right, and added it would count those pages twice
+    (Row(DAY, "DS", 15, 165, corrected=True), Row(DAY, "Pat", 50, 130), {"ds", "pat"}, True),
+    (Row(DAY, "Pat", 39, 1), Row(DAY, "Pat", 39, 1), {"ds", "pat"}, True),
+    # no first number here to say it starts apart
+    (Row(DAY, "CD", 3, None, numbers=[None, 5, 6]), Row(DAY, "AB", 5, 1), {"cd", "ab"}, False),
+])
+def test_what_is_the_same_take_among_a_run_s_reporters(a, b, among, same):
+    assert a.same_take(b, among) is same
+
+
+@pytest.mark.parametrize("a, b, same", [
+    (Row(DAY, "Pat", 20, 1, doc="a.pdf", at=0), Row(DAY, "DS", 15, 1, doc="b.pdf", at=0), False),
+    (Row(DAY, "Pat", 20, 1, doc="a.pdf", at=0), Row(DAY, "Pat", 15, 1, doc="b.pdf", at=0), False),
+    (Row(DAY, "Pat", 20, 1, doc="a.pdf", at=0), Row(DAY, "Pat", 20, 2, doc="b.pdf", at=0), False),
+    (Row(DAY, "Pat", 20, 1, doc="a.pdf", at=0), Row(DAY, "PAT", 20, 1, doc="b.pdf", at=5), True),
+    (Row(DAY, "Pat", 20, 1, doc="a.pdf", at=0), Row(DAY, "Pat", 20, 1), True),  # (on the run sheet: no document)
+])
+def test_rows_of_two_documents_are_one_take_only_when_all_alike(a, b, same):
+    assert a.same_take(b) is same
+
+
+@pytest.mark.parametrize("a, b, same", [
+    # a Start of 0 or none on the sheet: only the reporter and the count to go by, the reporter under its initials too
+    (Row(DAY, "Kim Park", 27, 114, initials="kp"), Row(DAY, "KP", 27, 0), True),
+    (Row(DAY, "Kim Park", 27, 114, initials="kp"), Row(DAY, "KP", 27, None), True),
+    (Row(DAY, "KP", 27, 0), Row(DAY, "Kim Park", 27, 114, initials="kp"), True),
+    (Row(DAY, "Kim Park", 27, 114, initials="kp"), Row(DAY, "DS", 27, 0), False),
+    (Row(DAY, "Kim Park", 27, 114, initials="kp"), Row(DAY, "KP", 26, 0), False),
+    # a first page not read, under another label: one number in common is no fall, it has no first number to differ
+    (Row(DAY, "Casey", 2, None, numbers=[None, 5], initials="cd"), Row(DAY, "CD", 2, 4), True),
+    (Row(DAY, "CD", 2, 4), Row(DAY, "Casey", 2, None, numbers=[None, 5], initials="cd"), True),
+])
+def test_what_is_the_same_take_without_numbers_to_go_by(a, b, same):
+    assert a.same_take(b) is same
+
+
+def covered_three_takes(tmp_path, s, later=25):
+    """A cover, then Pat 24 pages, Dana 27, Pat `later`, numbered from 1."""
+    pages = 24 + 27 + later
+    return job_of(s, page_numbered_transcript(tmp_path / "Roe.pdf", pages, first=1, cover=COVER,
+                                              initials=[PR] * 24 + [DS] * 27 + [PR] * later))
+
+
+def test_a_lost_take_as_long_as_a_first_take_and_its_cover_is_put_back(tmp_path, sheets):
+    """An earlier version's first row: no Start, 25 pages, the cover and 24. Its lost third take is 25 pages by the same
+    reporter, so it counted as that row and was never put back: the sheet stayed 25 short, with no word said."""
+    s = sheets
+    job = covered_three_takes(tmp_path, s)
+    old = add(job.case, [Row(DAY, "Pat", 25, None), Row(DAY, "DS", 27, 25)], s)
+    assert old.added == 2
+    again = add(job.case, job.runsheet_opts(s).rows, s, old.path)
+    assert (again.added, again.skipped) == (1, 2)
+    assert ("Pat", 25, 52) in sheet_of(again) and sum(p for _, p, _ in sheet_of(again)) == 77
+    assert add(job.case, job.runsheet_opts(s).rows, s, old.path).added == 0
+
+
+def test_the_takes_on_a_sheet_of_blank_starts_are_still_found_each_for_its_own(tmp_path, sheets):
+    """One blank Start and the formulas under it read as no number at all: each row still answers for one take."""
+    s = sheets
+    job = covered_three_takes(tmp_path, s)
+    old = [Row(DAY, "Pat", 25, None), Row(DAY, "DS", 27, None), Row(DAY, "Pat", 25, None)]
+    assert takes_to_add(job.runsheet_opts(s).rows, old) == []
+    assert [r.start for r in takes_to_add(job.runsheet_opts(s).rows, old[:2])] == [52]
+
+
+def test_a_row_with_a_number_can_still_be_many_takes(tmp_path, sheets):
+    """Overlapping numbers aren't used up: one row there of a stretch now cut in two is both."""
+    new = [Row(DAY, "Pat", 10, 100), Row(DAY, "Pat", 10, 110)]
+    assert takes_to_add(new, [Row(DAY, "Pat", 20, 100)]) == []
+
+
+def test_a_row_with_no_number_goes_to_the_take_with_a_number_only_when_no_number_answers(tmp_path, sheets):
+    new = [Row(DAY, "Pat", 25, 52)]
+    assert takes_to_add(new, [Row(DAY, "Pat", 25, None), Row(DAY, "Pat", 25, 52)]) == []
+    first = Row(DAY, "Pat", 25, 1)
+    assert takes_to_add([first, *new], [Row(DAY, "Pat", 25, None), Row(DAY, "Pat", 25, 52)]) == []
+
+
+def test_a_take_written_with_a_start_of_0_under_its_initials_isnt_added_again(tmp_path, sheets):
+    """The old count read no names on its title page, the new one does, so the labels differ, and the take there with a
+    first page of 0 was added a second time: 27 pages counted twice."""
+    s = sheets
+    job = job_of(s, page_numbered_transcript(tmp_path / "Roe.pdf", 12, first=100, initials=[PR] * 7 + [DS] * 5,
+                                             caption=CAPTION_NAMING))
+    rows = job.runsheet_opts(s).rows
+    assert [(r.reporter, r.pages, r.start) for r in rows] == [("Pat", 7, 100), ("Dana", 5, 107)]
+    old = add(job.case, [Row(DAY, "Pat", 7, 100), Row(DAY, "DS", 5, 0)], s)
+    assert add(job.case, rows, s, old.path).added == 0
+
+
+def test_a_label_changed_on_a_first_page_not_read_isnt_added_again(tmp_path, sheets, monkeypatch):
+    """"CD" there from 4 for 2 pages, "Casey" here reading None and 5: added again, Casey counted twice."""
+    s = sheets
+    monkeypatch.setattr(s, "reporter_names", lambda: {"cd": "Casey"})
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", [1, 2, 3, None, 5, 6, 7], ["ab"] * 3 + ["cd"] * 2 + ["ef"] * 2))
+    rows = job.runsheet_opts(s).rows
+    assert [(r.reporter, r.numbers) for r in rows][1] == ("Casey", [None, 5])
+    old = add(job.case, [Row(DAY, "AB", 3, 1), Row(DAY, "CD", 2, 4), Row(DAY, "EF", 2, 6)], s)
+    assert add(job.case, rows, s, old.path).added == 0
+
+
+def test_their_own_sheet_goes_by_the_same_rules(tmp_path, sheets):
+    """A sheet this app didn't make: Dana's take is added, Pat's isn't."""
+    from openpyxl import Workbook, load_workbook
+    s = sheets
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Date", "Weekday", "Reporter", "Day's Take", "Running Take", "Pages written", "Starting Page No.",
+               "Ending Page No."])
+    ws.append([DAY, "Wednesday", "Pat", 1, 1, 39, 1, 39])
+    ws.append([DAY, "Wednesday", "Pat", 2, 2, 38, 60, 97])
+    ws.append([DAY, "Wednesday", "Pat", 3, 3, 12, 100, 111])
+    path = tmp_path / "theirs.xlsx"
+    wb.save(path)
+    job = job_of(s, printed_pdf(tmp_path / "Roe.pdf", FALLS, FALLS_WHO))
+    opts = add(job.case, job.runsheet_opts(s).rows, s, path)
+    assert (opts.added, opts.skipped) == (2, 3)
+    ws = load_workbook(path).active
+    assert sum(ws.cell(r, 6).value for r in range(2, ws.max_row + 1)) == 111

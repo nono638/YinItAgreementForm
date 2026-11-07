@@ -144,34 +144,54 @@ class Row:
             return min(read), max(read)
         return (self.start, self.end()) if self.start and self.end() is not None else None
 
-    def same_take(self, other: "Row") -> bool:
+    def same_take(self, other: "Row", among: set[str] | tuple = ()) -> bool:
         """Already on the run sheet: the same day and pages that overlap, or (without page numbers) the same day,
         reporter and page count. Takes of one transcript are never the same take, whatever numbers they print: a
         number printed twice where the reporter changes, a day whose numbers start again and a take whose first number
-        wasn't read all overlap, and the take was dropped from the run sheet with no word said. On a run sheet (its
-        rows name no transcript), two reporters' takes starting apart with only one number in common are that same
-        number printed twice, not one take (an earlier version left the second off, and it is added now). Without the
-        rest, and without the cover's page counted in an earlier run sheet's first take (no first page, one page more:
-        _with_cover), generating a day again adds its first take a second time."""
+        wasn't read all overlap, and the take was dropped from the run sheet with no word said. Nor are takes of two
+        transcripts, two volumes of a day each numbered from 1, unless all alike (one file under two paths). On a run
+        sheet (its rows name no transcript), the row of another reporter of this run (among: their labels, lower case),
+        starting apart, is that reporter's take, not this one, however many numbers they share (a day whose numbers
+        start again: an earlier version left the take off, and it is added now); a label that isn't among them may be
+        this reporter's under another name ("DS", now "Dana"), and from the same page, or with the end of the take
+        corrected since, it is the sheet's to keep. Under another name too, two takes starting apart with only one
+        number in common are that number printed twice, not one take. Without the rest, and without the cover's page
+        counted in an earlier run sheet's first take (no first page, one page more: _with_cover), generating a day again
+        adds its first take a second time."""
         if self.day != other.day:
             return False
-        if self.doc and self.doc == other.doc and self.at != other.at:
-            return False
+        if self.doc and other.doc:
+            if self.doc != other.doc:
+                return (self.start, self.pages, self.reporter.lower()) == (other.start, other.pages, other.reporter.lower())
+            if self.at != other.at:
+                return False
         mine, theirs = self._span(), other._span()
         if mine and theirs:
             if mine[0] > theirs[1] or theirs[0] > mine[1]:
                 return False
-            only_one = min(mine[1], theirs[1]) == max(mine[0], theirs[0]) and mine[0] != theirs[0]
-            return not only_one or self.reporter.lower() == other.reporter.lower()
-        return ((self.reporter.lower(), self.pages) == (other.reporter.lower(), other.pages)
+            if self.reporter.lower() == other.reporter.lower():
+                return True
+            if self.start != other.start and other.reporter.lower() in among and not self.corrected:
+                return False
+            # (a first page not read has no first number to differ: "CD" from 4, "Casey" reading None and 5, is that take)
+            only_one = (min(mine[1], theirs[1]) == max(mine[0], theirs[0]) and mine[0] != theirs[0]
+                        and self.start is not None and other.start is not None)
+            return not only_one
+        return ((self._same_reporter(other) and self.pages == other.pages)
                 or self._with_cover(other) or other._with_cover(self))
+
+    def _same_reporter(self, other: "Row") -> bool:
+        """The same label, or the other's is this one's initials ("DS", now "Dana", named on a title page that an
+        earlier count didn't read), either way round."""
+        a, b = self.reporter.lower(), other.reporter.lower()
+        return a == b or (bool(self.initials) and b == self.initials) or (bool(other.initials) and a == other.initials)
 
     def _with_cover(self, old: "Row") -> bool:
         """`old`, without a first page, is this first take as a run sheet written before the Min-U-Script cover stopped
         counting has it: its cover among its pages. Under its initials too ("DS", now "Dana"): that count stopped at
         the cover, so a title page naming the reporter on the page after it wasn't read."""
         return (self.after_cover and not old.start and bool(self.pages) and old.pages == self.pages + 1
-                and old.reporter.lower() in (self.reporter.lower(), self.initials))
+                and self._same_reporter(old))
 
 
 @dataclass
@@ -638,6 +658,26 @@ def _unique(rows: list[Row]) -> list[Row]:
     return out
 
 
+def takes_to_add(rows: list[Row], old: list[Row]) -> list[Row]:
+    """Those of a run's takes not on the run sheet already (Row.same_take, among the reporters of the run). A row there
+    with page numbers can be several takes (a stretch since cut in two). One with none (its Start blank, or 0) is known
+    only by its reporter and its count, so it answers for one take: "Pat, 25 pages" was a cover and 24, and a later take
+    of Pat's of 25 pages isn't that row, or it could never be put back on the sheet."""
+    among = {r.reporter.lower() for r in rows}
+    used: list[Row] = []
+    out: list[Row] = []
+    for r in _unique(rows):
+        hits = [o for o in old if r.same_take(o, among)]
+        if any(o._span() and r._span() for o in hits):
+            continue
+        free = next((o for o in hits if not any(o is u for u in used)), None)
+        if free is None:
+            out.append(r)
+        else:
+            used.append(free)
+    return out
+
+
 def _read_ours(ws) -> list[Row]:
     """The takes on a run sheet of this app, top to bottom; rows with nothing typed in them are skipped."""
     rows, prev_end = [], None
@@ -708,7 +748,7 @@ def _write_ours(path: Path, case: CaseInfo, opts: RunSheetOpts, exists: bool, s:
         ws = wb.active
         ws.title = SHEET
         old, case_name, indexes, known, meta = [], case.get("case_name"), [], {}, {}
-    new = [r for r in _unique(opts.rows) if not any(r.same_take(o) for o in old)]
+    new = takes_to_add(opts.rows, old)
     opts.added, opts.skipped = len(new), len(opts.rows) - len(new)
     opts.added_pages = sum(r.pages or 0 for r in new)
     if exists and not new:
@@ -1314,7 +1354,7 @@ def _append_theirs(path: Path, opts: RunSheetOpts) -> None:
             ends[r] = prev_end = end
         old.append(row)
         last = r
-    new = [x for x in _unique(opts.rows) if not any(x.same_take(o) for o in old)]
+    new = takes_to_add(opts.rows, old)
     opts.added, opts.skipped = len(new), len(opts.rows) - len(new)
     opts.added_pages = sum(r.pages or 0 for r in new)
     if not new:
