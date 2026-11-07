@@ -668,6 +668,92 @@ def test_a_new_math_pdf_that_fails_leaves_no_name_taken(tmp_path, monkeypatch):
     assert list((tmp_path / "Math").iterdir()) == []
 
 
+@pytest.fixture
+def no_write(tmp_path):
+    """A folder in which its permissions deny making a file, though os.access says it can be written: all Windows
+    goes by when tempfile.mkstemp meets a PermissionError, so mkstemp would try 2 billion names."""
+    import subprocess
+    if os.name != "nt":
+        pytest.skip("Windows' permissions")
+    folder, user = tmp_path / "No write", os.environ["USERNAME"]
+    folder.mkdir()
+    denied = subprocess.run(["icacls", str(folder), "/deny", f"{user}:(WD,AD)"], capture_output=True)
+    try:
+        if denied.returncode or not os.access(folder, os.W_OK):
+            pytest.skip("this folder's permissions can't be set up here")
+        with pytest.raises(PermissionError):
+            open(folder / "probe", "xb")
+        yield folder
+    finally:
+        subprocess.run(["icacls", str(folder), "/remove:d", user], capture_output=True)
+
+
+def test_save_as_into_a_folder_denied_fails_at_once(no_write):
+    """On a thread of its own, so that frozen it fails the test instead of hanging it."""
+    import threading
+    got = []
+
+    def save():
+        try:
+            to_pdf("<p>The math</p>", no_write / "Saved by hand.pdf")
+        except Exception as e:
+            got.append(e)
+    worker = threading.Thread(target=save, daemon=True)
+    worker.start()
+    worker.join(15)
+    assert not worker.is_alive(), "still trying after 15 seconds: the window would be frozen"
+    assert len(got) == 1 and isinstance(got[0], PermissionError)
+
+
+def test_save_as_pdf_into_a_folder_denied_shows_the_error_box(s, qt, monkeypatch, no_write):
+    """The window's Save as PDF..., on the GUI thread as in the app. (mkstemp out of the way, so that coming back to
+    it fails this test at once, not by freezing it.)"""
+    import tempfile
+
+    from minute_filler.gui.preview import MathDialog
+    from minute_filler.gui.widgets import QMessageBox
+
+    def not_here(*a, **k):
+        raise AssertionError("mkstemp tries a denied folder for as long as it takes")
+    monkeypatch.setattr(tempfile, "mkstemp", not_here)
+    said = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda parent, what, text: said.append((what, text)))
+    monkeypatch.setattr(qt.QFileDialog, "getSaveFileName", lambda *a, **k: (str(no_write / "The math.pdf"), ""))
+    dlg = MathDialog(made_of(s), s, None, no_write)
+    dlg._save()
+    assert len(said) == 1 and said[0][0] == "Not saved" and "PermissionError" in said[0][1]
+    dlg.close()
+
+
+def test_the_file_being_written_keeps_its_name_beside_the_pdf(tmp_path, monkeypatch):
+    """Not a .pdf, so never read back as a document; the name made by hand, not by mkstemp."""
+    import tempfile
+    real, moved = os.replace, []
+
+    def not_here(*a, **k):
+        raise AssertionError("mkstemp tries a denied folder for as long as it takes")
+
+    def replace(a, b):
+        moved.append(Path(a))
+        return real(a, b)
+    monkeypatch.setattr(tempfile, "mkstemp", not_here)
+    monkeypatch.setattr(os, "replace", replace)
+    out = to_pdf("<p>The math</p>", tmp_path / "The math.pdf")
+    assert out.read_bytes().startswith(b"%PDF") and [p.name for p in tmp_path.iterdir()] == [out.name]
+    assert moved[0].parent == tmp_path and moved[0].name.startswith("~YinIt ") and moved[0].suffix == ".saving"
+
+
+def test_a_name_another_save_is_writing_is_passed_over(tmp_path, monkeypatch):
+    import secrets
+    theirs = tmp_path / "~YinIt taken.saving"
+    theirs.write_bytes(b"another copy of the app, saving")
+    names = iter(["taken", "free"])
+    monkeypatch.setattr(secrets, "token_hex", lambda *a: next(names))
+    out = to_pdf("<p>The math</p>", tmp_path / "The math.pdf")
+    assert out.read_bytes().startswith(b"%PDF") and theirs.read_bytes() == b"another copy of the app, saving"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["The math.pdf", theirs.name]
+
+
 def test_save_as_starts_in_the_nearest_folder_there_is(s, qt, tmp_path, monkeypatch):
     """Generate saved none, so its Math folder isn't made: the Save box starts in the folder it would be in, not
     wherever Windows last was."""

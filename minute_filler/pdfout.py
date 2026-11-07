@@ -423,13 +423,10 @@ def _write_over(doc: pymupdf.Document, out: Path) -> None:
     """Writes `doc` to a file of its own in out's folder, and only then puts it in out's place. When that fails, the
     error is raised and the file being written is deleted; one that can't be is named on the error (`left_behind`)."""
     import os
-    import tempfile
     import time
     tmp: Path | None = None
     try:
-        fd, name = tempfile.mkstemp(prefix="~YinIt ", suffix=".saving", dir=out.parent)  # (not .pdf: no input)
-        os.close(fd)
-        tmp = Path(name)
+        tmp = _file_being_written(out.parent)
         doc.save(str(tmp), garbage=3, deflate=True)
         for attempt in range(3):  # (Dropbox, OneDrive or an antivirus may hold the name taken for a moment)
             try:
@@ -443,6 +440,23 @@ def _write_over(doc: pymupdf.Document, out: Path) -> None:
         if tmp is not None and not _gone(tmp):
             e.left_behind = tmp
         raise
+
+
+def _file_being_written(folder: Path) -> Path:
+    """A new empty file of its own in `folder`, for a PDF being written ('~YinIt 1a2b3c4d.saving', not .pdf: never read
+    as a document). Named by hand, not by tempfile.mkstemp: on Windows that takes a PermissionError for a name being
+    deleted and tries another while os.access says the folder can be written, which it says of a folder whose
+    permissions deny making files; 2 billion names later (TMP_MAX) the window would still be frozen. Here a
+    PermissionError comes straight out, for the box to say."""
+    import secrets
+    for _ in range(100):
+        tmp = folder / f"~YinIt {secrets.token_hex(4)}.saving"
+        try:
+            with open(tmp, "xb"):
+                return tmp
+        except FileExistsError:  # (another save's)
+            continue
+    raise FileExistsError(f"no free name for a file being written in {folder}")
 
 
 def _gone(p: Path) -> bool:
