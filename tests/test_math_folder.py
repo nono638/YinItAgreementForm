@@ -354,6 +354,81 @@ def test_each_reporters_math_says_what_it_covers(s, tmp_path, monkeypatch):
     assert "(DS invoices): these 2 of the 3 firms pay" in text
 
 
+def of_a_case(s, name: str, n: int, reporter: str = "", dates: str = "6/3/2026") -> list:
+    """The invoices of n firms of a case of this name, one set: (FirmInvoice, ""), as the math window has them."""
+    case = make_case({**ROE, "case_name": name, "index_no": "712345/2021", "dates": dates}, attorneys(n))
+    orders = [DayOrder(dates, 60, [Portion(60, [a.key() for a in case.attorneys])])]
+    opts = InvoiceOpts(60, n, days=[(dates, 60)], orders=orders, reporter=reporter)
+    return [(f, "") for f in firm_invoices(case, s, opts)]
+
+
+TWO_OF_FOUR = "this math covers 2 of the 4 firms billed for this work. Invoices not made by this Generate: Kim Park " \
+              "(Park Law) and Sam Poe (Poe LLP)."
+
+
+def test_the_math_window_over_two_cases_names_the_one_stopped(s):
+    """Generate all, two cases, one stopped: "This math covers 2 of the 4 firms", over 4 invoices, of no case named, and
+    the whole case's line titled "These firms together". The whole case keeps its title."""
+    whole = of_a_case(s, "Jane Roe v. Sam Poe", 2)
+    stopped = of_a_case(s, "Kim Doe v. Pat Moe", 4)[:2]
+    html, plain = explain(whole + stopped)
+    assert plain.startswith(f"Kim Doe v. Pat Moe: {TWO_OF_FOUR}\n")
+    assert "<p><b>Kim Doe v. Pat Moe: this math covers 2 of the 4 firms billed for this work.</b> Invoices" in html
+    assert "\nAll the firms together\n  As ordered (Regular): the 2 firms together pay" in plain
+    assert "\nKim Doe v. Pat Moe: these firms together\n  As ordered (Regular): these 2 of the 4 firms pay" in plain
+    assert "\nThese firms together" not in plain and "<h2>These firms together</h2>" not in html
+    assert "<h2>All the firms together</h2>" in html and "<h2>Kim Doe v. Pat Moe: these firms together</h2>" in html
+
+
+def test_the_case_named_in_the_math_is_escaped(s):
+    stopped = of_a_case(s, "Roe & Sons v. Poe", 4)[:2]
+    html, plain = explain(of_a_case(s, "Jane Roe v. Sam Poe", 2) + stopped)
+    assert "<h2>Roe &amp; Sons v. Poe: these firms together</h2>" in html and "<b>Roe &amp; Sons v. Poe: this" in html
+    assert "Roe & Sons v. Poe: these firms together" in plain
+
+
+def test_the_math_window_over_two_cases_both_stopped_names_each(s):
+    one, other = of_a_case(s, "Jane Roe v. Sam Poe", 4)[:2], of_a_case(s, "Kim Doe v. Pat Moe", 4)[:2]
+    plain = explain(one + other)[1]
+    assert plain.startswith(f"Jane Roe v. Sam Poe: {TWO_OF_FOUR}\nKim Doe v. Pat Moe: {TWO_OF_FOUR}\n")
+    assert "Jane Roe v. Sam Poe: these firms together" in plain and "Kim Doe v. Pat Moe: these firms together" in plain
+    assert "All the firms together" not in plain
+
+
+def test_the_math_window_over_two_whole_cases_says_as_it_did(s):
+    plain = explain(of_a_case(s, "Jane Roe v. Sam Poe", 2) + of_a_case(s, "Kim Doe v. Pat Moe", 2))[1]
+    assert "this math covers" not in plain.lower() and "Kim Doe" not in plain
+    assert plain.count("All the firms together") == 1 and "these firms together" not in plain.lower()
+
+
+def test_the_math_of_one_set_stopped_names_no_case(s):
+    """As a PDF has it, one set: what it is about is plain."""
+    plain = explain(of_a_case(s, "Kim Doe v. Pat Moe", 4)[:2])[1]
+    assert plain.startswith("This math covers 2 of the 4 firms") and "\nThese firms together\n" in plain
+
+
+def test_the_math_window_names_another_reporters_set(s):
+    """One case, the user's set whole and DS's stopped: the case's name alone wouldn't tell them apart."""
+    stopped = of_a_case(s, "Kim Doe v. Pat Moe", 4, "ds")[:2]
+    plain = explain(of_a_case(s, "Kim Doe v. Pat Moe", 2) + stopped)[1]
+    assert plain.startswith(f"Kim Doe v. Pat Moe (DS invoices): {TWO_OF_FOUR}\n")
+    assert "Kim Doe v. Pat Moe (DS invoices): these firms together" in plain and "All the firms together" in plain
+
+
+def test_the_math_window_names_the_days_of_sets_of_one_case(s):
+    """Each day billed alone (Settings.invoice_joint off): the same case and reporter, so its dates."""
+    day_1 = of_a_case(s, "Kim Doe v. Pat Moe", 4, dates="6/3/2026")[:2]
+    day_2 = of_a_case(s, "Kim Doe v. Pat Moe", 4, dates="6/4/2026")[:2]
+    plain = explain(day_1 + day_2)[1]
+    assert plain.startswith(f"Kim Doe v. Pat Moe, 6/3/2026: {TWO_OF_FOUR}\nKim Doe v. Pat Moe, 6/4/2026: {TWO_OF_FOUR}\n")
+
+
+def test_the_math_window_names_a_set_without_a_case_name(s):
+    """Nothing says the case's name yet: its index number."""
+    stopped = of_a_case(s, "", 4)[:2]
+    assert explain(of_a_case(s, "Jane Roe v. Sam Poe", 2) + stopped)[1].startswith(f"712345/2021: {TWO_OF_FOUR}\n")
+
+
 def orders_of(case, *portions, **more) -> InvoiceOpts:
     """Options of a 60-page day ordered as these Portions say."""
     return InvoiceOpts(60, 3, days=[("6/3/2026", 60)], orders=[DayOrder("6/3/2026", 60, list(portions))], **more)
@@ -848,17 +923,44 @@ def test_an_empty_math_file_left_behind_isnt_read_back_as_a_document(s, tmp_path
     assert expand_paths([str(tmp_path)]) == [] and expand_paths([str(tmp_path / "Math")]) == []
 
 
-def test_a_file_named_like_math_is_left_out_of_a_folder_but_read_when_given_itself(tmp_path):
-    """As "Minute Agreement..." and "MOFR..." are: by the name, in a folder dropped. A file dropped by itself is read
-    as given, as any is."""
+def test_a_transcript_named_like_math_is_read_from_a_folder(tmp_path):
+    """A name alone isn't ours: a math PDF saved has our mark, and one that couldn't be saved is empty. "Roe v Poe - the
+    math.pdf" with a transcript in it was left out of a folder dropped, with no word said."""
     named = tmp_path / "Jane Roe - the math.pdf"
-    again = tmp_path / "Jane Roe - the math (2).pdf"
+    again = tmp_path / "Expert - The Math (2).PDF"
     other = tmp_path / "Jane Roe transcript.pdf"
     transcript_pdf(named)
     transcript_pdf(again)
     transcript_pdf(other)
-    assert expand_paths([str(tmp_path)]) == [str(other)]
+    assert sorted(expand_paths([str(tmp_path)])) == sorted([str(again), str(named), str(other)])
     assert expand_paths([str(named)]) == [str(named)]
+
+
+def test_a_math_pdf_of_ours_is_left_out_of_a_folder_by_its_mark(s, tmp_path):
+    case, opts = firms(1)
+    paths = generate(case, s, tmp_path, ["invoice"], opts)
+    assert len(split(paths)[1]) == 1
+    assert expand_paths([str(tmp_path)]) == []
+
+
+def test_only_an_empty_file_of_that_name_is_left_out_by_its_name(tmp_path):
+    (tmp_path / "Jane Roe - the math.pdf").write_bytes(b"")
+    (tmp_path / "Jane Roe.pdf").write_bytes(b"")  # (not a math file's name: read, and said to be unreadable)
+    assert expand_paths([str(tmp_path)]) == [str(tmp_path / "Jane Roe.pdf")]
+
+
+def test_a_math_name_whose_size_cant_be_read_isnt_left_out(tmp_path, monkeypatch):
+    """(It went, or is denied, after the folder was listed.) No error here, and it isn't dropped with no word: reading it
+    says what is wrong with it."""
+    import pathlib
+    from minute_filler.batch import _an_empty_math_file
+    named = tmp_path / "Jane Roe - the math.pdf"
+
+    def denied(self, **k):
+        raise PermissionError("denied")
+    with monkeypatch.context() as m:
+        m.setattr(pathlib.Path, "stat", denied)
+        assert not _an_empty_math_file(named)
 
 
 def test_save_as_starts_in_the_nearest_folder_there_is(s, qt, tmp_path, monkeypatch):

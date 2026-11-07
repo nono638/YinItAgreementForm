@@ -597,20 +597,44 @@ def _left_out(firms: list[FirmInvoice]) -> tuple[list, list]:
 def _covers(made: list[tuple[FirmInvoice, str]]) -> list[tuple[str, str]]:
     """What the math of only some of the firms billed for the same work says first, someone looking back taking it
     for the whole job otherwise: for each such set, ('This math covers 2 of the 4 firms billed for this work.', who
-    the rest are and why they aren't here). [] when every firm is here. Not for a firm's own math (explain's
-    one_firm), which goes to that firm."""
+    the rest are and why they aren't here). [] when every firm is here. Over several sets of invoices (the math
+    window after Generate all), it names the one it means ('Kim Doe v. Pat Moe: this math covers ...': _set_names). Not
+    for a firm's own math (explain's one_firm), which goes to that firm."""
     groups: dict[int, list[FirmInvoice]] = {}
     for f, _ in made:
         groups.setdefault(f.group, []).append(f)
+    names = _set_names(made)
     out = []
-    for firms in groups.values():
+    for group, firms in groups.items():
         before, unmade = _left_out(firms)
         if before or unmade:
             rest = ([f"Invoiced by an earlier Generate: {_names(before)}."] if before else []) + (
                 [f"Invoices not made by this Generate: {_names(unmade)}."] if unmade else [])
             whole = len(firms) + len(before) + len(unmade)
-            out.append((f"This math covers {len(firms)} of the {whole} firms billed for this work.", " ".join(rest)))
+            covers = f"covers {len(firms)} of the {whole} firms billed for this work."
+            out.append((f"{names[group]}: this math {covers}" if names else f"This math {covers}", " ".join(rest)))
     return list(dict.fromkeys(out))
+
+
+def _of_set(made: list[tuple[FirmInvoice, str]], group: int) -> list[FirmInvoice]:
+    """The invoices of one set among these (FirmInvoice.group)."""
+    return [f for f, _ in made if f.group == group]
+
+
+def _set_names(made: list[tuple[FirmInvoice, str]]) -> dict[int, str]:
+    """What tells several sets of invoices apart, by FirmInvoice.group: the case's name (or its index number), another
+    reporter's "(DS invoices)", and the dates where those are the same (each day billed alone). {} for one set: the math
+    is about that."""
+    firsts: dict[int, FirmInvoice] = {}
+    for f, _ in made:
+        firsts.setdefault(f.group, f)
+    if len(firsts) < 2:
+        return {}
+    names = {g: (f.case.get("case_name") or f.case.get("index_no") or "These invoices")
+             + (f" ({f.opts.reporter.upper()} invoices)" if f.opts.reporter else "") for g, f in firsts.items()}
+    said = list(names.values())
+    return {g: f"{n}, {firsts[g].case.get('dates')}" if said.count(n) > 1 and firsts[g].case.get("dates") else n
+            for g, n in names.items()}
 
 
 def _names(firms: list) -> str:
@@ -934,13 +958,26 @@ def explain(made: list[tuple[FirmInvoice, str]], layout: str = "invoice",
             parts.append(f"<p class='muted'>{_e(SPLIT_EXACT)}</p>")
         parts += _split_tables(split)
         plain += [heading] + ([f"  {SPLIT_EXACT}"] if rounded else []) + _split_plain(split) + [""]
-    check = together(made)
-    if check:
-        title = "These firms together" if covers else "All the firms together"
-        parts.append(f"<h2>{title}</h2>")
+    for title, check in _added_up(made, bool(covers)):
+        parts.append(f"<h2>{_e(title)}</h2>")
         parts += [f"<p>{_e(x)}</p>" for x in check]
-        plain += [title] + [f"  {x}" for x in check]
+        plain += [title] + [f"  {x}" for x in check] + [""]
     return "\n".join(parts), "\n".join(plain).rstrip() + "\n"
+
+
+def _added_up(made: list[tuple[FirmInvoice, str]], covers: bool) -> list[tuple[str, list[str]]]:
+    """The math's last section (together), (title, lines): "All the firms together", or, of only some of the firms
+    (covers: _covers), "These firms together". Over several sets of invoices, some of them only part way (Generate all,
+    one case stopped): each of those under its own name, and the others as they always are."""
+    names = _set_names(made)
+    if not covers or not names:
+        out = [("These firms together" if covers else "All the firms together", together(made))]
+    else:
+        whole = [x for x in made if not any(_left_out(_of_set(made, x[0].group)))]
+        out = [("All the firms together", together(whole))] + [
+            (f"{name}: these firms together", together([x for x in made if x[0].group == group]))
+            for group, name in names.items() if any(_left_out(_of_set(made, group)))]
+    return [(title, lines) for title, lines in out if lines]
 
 
 def _math_doc(html_text: str):
