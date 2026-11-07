@@ -824,7 +824,8 @@ ordered the run;</li>
 (93 total pages)</i>.</p>
 <p><b>Columns ▾</b> (or a right-click on the table's headings) hides the counts you don't need. A <i>?</i> means
 which pages are yours can't be told yet: set your initials in Settings → My info, or say whose the first pages are
-under Whose pages….</p>
+under Whose pages…. On a day whose Est. number of pages you typed, a run cut out of it says <i>5 typed</i>: your own
+count, as how many of the transcript's total pages it holds can't be told.</p>
 <p>Tick <b>Only your pages</b> to see only the runs with pages of yours, billed or not; <b>Clear filter</b> shows
 every run again.</p>
 """),

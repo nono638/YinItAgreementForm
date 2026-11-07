@@ -9,7 +9,8 @@ optionally its place in the day ("1–20 of 85 total pages": Settings.excerpt_sh
 (firms_of: one for a firm, however many of its attorneys appear, gui/firm_columns.py: a band of the firm's colour
 over its name in the heading, the same colour as a stripe down its cells; ticked = that firm ordered the run, a
 click anywhere in the cell ticks it), its pages counted (COUNTS: the user's billed and transcribed, every
-reporter's transcribed and billed; each can be hidden under Columns ▾) and, for each speed offered, what each firm
+reporter's transcribed and billed, "5 typed" for a run cut out of a Pages number typed; each can be hidden under
+Columns ▾) and, for each speed offered, what each firm
 choosing from its invoice pays for it. Only your pages hides, as it is ticked, the runs with none of the user's
 pages, and Clear filter shows them again. Under the table the same prices by the firms ordering together ("A + B:
 15 of your pages billed (30 total pages) - each of the 2 pays ...": every count says whose pages it counts, the
@@ -81,6 +82,8 @@ PAGES_TIP = ("The page numbers printed on the transcript, as read from it (where
 PLACE_TIP = "The run's place among the day's pages: 1–20 of 85 total pages (every reporter's)"
 UNKNOWN = ("Which of these pages are yours can't be told: set your initials in Settings → My info, or say whose "
            "the first pages are under Whose pages… (a day whose Est. number of pages was typed in isn't counted by page)")
+TYPED_TIP = ("Pages typed, in the day's Est. number of pages: your own count, not every reporter's pages. How many of the "
+             "transcript's total pages this run holds can't be told")
 AMBER = "#d97706"  # (a firm's cell without the speed it must commit to: the warnings' amber, light and dark)
 VARIES = "(varies)"  # the Speed box of a firm whose days or runs are at different speeds
 CHOOSES = "Chooses on the invoice"  # the Speed box of a firm none is set for, that may choose from its invoice
@@ -434,8 +437,10 @@ class ExcerptsWindow(QDialog):
             mine = self._cell(r, first + 1, "?" if n.your_transcribed is None else str(n.your_transcribed), False)
             if n.your_transcribed is None:
                 mine.setToolTip(UNKNOWN)
-            self._cell(r, first + 2, str(n.total_transcribed), False)
-            self._cell(r, first + 3, str(n.total_billed), False)
+            for k, total in ((2, n.total_transcribed), (3, n.total_billed)):
+                cell = self._cell(r, first + k, f"{total} typed" if n.typed and total else str(total), False)
+                if n.typed:  # (the Pages field's number isn't every reporter's pages: their columns don't call it so)
+                    cell.setToolTip(TYPED_TIP)
             each = p.runs.get(id(run), {})
             for k, sp in enumerate(shown):
                 text = money_exact(each[sp]) if sp in each else ""
@@ -610,11 +615,10 @@ class ExcerptsWindow(QDialog):
         # (every reporter's pages, as the table's Total pages transcribed has them, not only the invoice's: the
         # user, 2026-10-29), and the user's among them when that can be told
         nobody = [self._counts[id(r)] for r in self.runs if not r.keys]
-        total = sum(n.total_transcribed for n in nobody)
-        if total:
+        if nobody:
             mine = [n.your_transcribed for n in nobody]
             yours = "" if None in mine else f", {sum(mine)} of them yours"
-            lines.append(f"Nobody: {total} total pages{yours} (not billed)")
+            lines.append(f"Nobody: {self._totals(nobody, 'total_transcribed')}{yours} (not billed)")
         if p.firms:
             how = ("its price a page rounded to the cent" if self.s.invoice_rounding == "page"
                    else "rounded up to the cent")
@@ -632,15 +636,23 @@ class ExcerptsWindow(QDialog):
         Prices.members), both counts said: "43 of your pages billed (93 total pages)", as the table's Your pages
         billed and Total pages billed (a bare "43 pp." read as all the pages: the user, 2026-10-30)."""
         counts = [self._counts[i] for i in runs if i in self._counts]
-        return (f"{sum(n.your_billed for n in counts)} of your pages billed "
-                f"({sum(n.total_billed for n in counts)} total pages)")
+        return f"{sum(n.your_billed for n in counts)} of your pages billed ({self._totals(counts, 'total_billed')})"
 
-    def _firm_speed_boxes(self) -> None:
-        """Each firm's box in its heading: the speed it ordered all its pages of the case at (Job.speeds of each day
-        it ordered on; VARIES when they differ, or a run has its own), CHOOSES for none; choosing one sets it on
-        every day (_firm_speed_chosen). A firm's box is kept from one showing to the next (self._speed_box_of), so
-        an open list and the focus stay. _heading_speed notes the speed each says, so the firm's cells needn't say
-        it (None for VARIES, CHOOSES and a firm that ordered nothing)."""
+    @staticmethod
+    def _totals(counts: list, which: str) -> str:
+        """These runs' `which` count (excerpts.Counts) in words, what is typed apart from what is counted: "93 total
+        pages", "10 pages typed", "93 total pages, 10 pages typed"."""
+        typed = sum(getattr(n, which) for n in counts if n.typed)
+        total = sum(getattr(n, which) for n in counts if not n.typed)
+        return ", ".join(([f"{total} total pages"] if total or not typed else [])
+                         + ([f"{typed} pages typed"] if typed else []))
+
+    def _firm_speed_boxes(self, p) -> None:
+        """Each firm's box in its heading: the speed all its pages of the case are billed at (p: Prices.speed_billed,
+        as its cells are priced, set on them or as Generate sets it; VARIES when they differ), CHOOSES for none;
+        choosing one sets it on every day (_firm_speed_chosen). A firm's box is kept from one showing to the next
+        (self._speed_box_of), so an open list and the focus stay. _heading_speed notes the speed each says, so the
+        firm's cells needn't say it (None for VARIES, CHOOSES and a firm that ordered nothing)."""
         self.firm_speed_boxes, self._heading_speed = {}, {}
         sheet = self.s.sheet()
         speeds = [sp.name for sp in sheet.speeds]

@@ -381,11 +381,14 @@ class Counts:
     reporters' pages only: no invoice of the user's is made); the user wrote (None when that
     can't be told: a transcript of several reporters while the user's initials aren't known, or whose first pages
     Whose pages... hasn't said whose they are, or the Pages field typed in); every reporter's; every reporter's a
-    firm ordered."""
+    firm ordered. typed: the last two aren't every reporter's pages but a stretch of the Pages field's number (the user's
+    own count, a run cut out of it or no transcript to count), so they are said as pages typed; a day of one run, with a
+    transcript, has the transcript's total pages."""
     your_billed: int
     your_transcribed: int | None
     total_transcribed: int
     total_billed: int
+    typed: bool = False
 
 
 def count_runs(runs: list[Run]) -> dict[int, Counts]:
@@ -401,24 +404,36 @@ def count_runs(runs: list[Run]) -> dict[int, Counts]:
                 masks[id(day)] = (job.billed_by("me").day_mask(), job.your_mask(), None)
             else:
                 # (a job of several days is ordered whole, its one run as long as the pages its invoice bills
-                # (Day.pages): its counts are the job's, every reporter's pages being all the transcripts')
+                # (Day.pages): its counts are the job's, every reporter's pages being all the transcripts': _total_of)
                 theirs = [job.your_pages_of(d) for d in job.transcripts()]
                 mine = None if job.pages_typed() or not theirs or None in theirs else sum(theirs)
-                total = job.invoice_pages() if job.pages_typed() else job.transcript_pages()
-                masks[id(day)] = (None, None, (job.billed_by("me").invoice_pages(), mine, total))
+                masks[id(day)] = (None, None, (job.billed_by("me").invoice_pages(), mine))
         billed, yours, whole = masks[id(day)]
         ordered = bool(run.keys)
         # (Whose pages... bills other reporters only: no invoice of the user's bills these pages, typed in or not;
         # billed_by("me") of a day typed in would still count the typed number)
         mine_billed = "me" in day.job.bill_reporters()
         if day.splittable:
-            n = run.end - run.start + 1
             mine = sum(yours[run.start - 1:run.end]) if yours is not None else None
-            own = sum(billed[run.start - 1:run.end]) if billed is not None else n
+            own = sum(billed[run.start - 1:run.end]) if billed is not None else run.end - run.start + 1
         else:
-            own, mine, n = whole
-        out[id(run)] = Counts(own if ordered and mine_billed else 0, mine, n, n if ordered else 0)
+            own, mine = whole
+        total, typed = _total_of(run)
+        out[id(run)] = Counts(own if ordered and mine_billed else 0, mine, total, total if ordered else 0, typed)
     return out
+
+
+def _total_of(run: Run) -> tuple[int, bool]:
+    """Every reporter's pages of a run, and whether that is really a stretch of a number typed in the Pages field. The
+    number typed is the user's own count, not every reporter's pages, and the day's places are counted in it: the run
+    that is all of a day has its transcripts' total pages (a job of several days, ordered whole, is always that), one
+    cut out of it can't say how many of them it holds. Without a transcript, only the number typed is known."""
+    day, n = run.day, run.end - run.start + 1
+    typed = day.job.pages_typed()
+    if day.splittable and not typed:
+        return n, False
+    counted = day.job.transcript_pages() if not day.splittable or (run.start, run.end) == (1, day.pages) else 0
+    return counted or n, typed and not counted
 
 
 @dataclass
