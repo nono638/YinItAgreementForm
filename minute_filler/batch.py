@@ -2403,6 +2403,15 @@ def group(docs: list[Doc], s: Settings, jobs: list[Job] | None = None) -> list[J
 
 # ------------------------------------------------------------ files in, PDFs out
 
+def _an_empty_math_file(path: Path) -> bool:
+    """A math PDF's name taken by a save that failed, and couldn't be deleted: empty, so no mark for is_generated to read.
+    (A file of that name with anything in it is a math PDF saved, marked, or a transcript named so, to be read.)"""
+    try:
+        return is_math_file(path) and path.stat().st_size == 0
+    except OSError:  # (reading it says what is wrong with it)
+        return False
+
+
 def expand_paths(paths: list[str]) -> list[str]:
     """Files as given, folders replaced by the documents in them; no duplicates."""
     out, seen = [], set()
@@ -2417,10 +2426,9 @@ def expand_paths(paths: list[str]) -> list[str]:
         p = Path(raw)
         if p.is_dir():
             for f in sorted(p.rglob("*")):
-                # forms this app filled earlier are not source documents (by the name too for the math: one that
-                # couldn't be saved or deleted stays empty, and an empty file has no mark for is_generated to read)
+                # forms this app filled earlier are not source documents
                 if (f.is_file() and f.suffix.lower() in BATCH_EXT
-                        and not f.name.startswith(("Minute Agreement", "MOFR", "~$")) and not is_math_file(f)
+                        and not f.name.startswith(("Minute Agreement", "MOFR", "~$")) and not _an_empty_math_file(f)
                         and not is_generated(f)):
                     add(f)
         elif p.is_file():
