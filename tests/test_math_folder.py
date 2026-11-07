@@ -803,6 +803,64 @@ def test_a_name_another_save_is_writing_is_passed_over(tmp_path, monkeypatch):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["The math.pdf", theirs.name]
 
 
+def math_saves_fail(monkeypatch, tries: int | None = None) -> list:
+    """A math PDF can't be put in its place (Dropbox has it), and its name, taken empty, can't be deleted, for the
+    first `tries` tries (None: at all; an antivirus has it). Returns the tries, as a list."""
+    import pathlib
+    import time
+    replace, unlink, tried = os.replace, pathlib.Path.unlink, []
+
+    def held(a, b):
+        if is_math_file(Path(b)):
+            raise PermissionError("Dropbox has it")
+        return replace(a, b)
+
+    def held_unlink(self, missing_ok=False):
+        if is_math_file(self):
+            tried.append(self)
+            if tries is None or len(tried) <= tries:
+                raise PermissionError("an antivirus has it")
+        return unlink(self, missing_ok=missing_ok)
+    monkeypatch.setattr(os, "replace", held)
+    monkeypatch.setattr(pathlib.Path, "unlink", held_unlink)
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+    return tried
+
+
+def test_an_empty_math_file_held_for_a_moment_is_deleted_on_a_second_try(s, tmp_path, monkeypatch):
+    tried = math_saves_fail(monkeypatch, tries=1)
+    case, opts = firms(1)
+    math = []
+    paths = generate(case, s, tmp_path, ["invoice"], opts, math=math)
+    assert len(tried) == 2 and list((tmp_path / "Math").iterdir()) == []
+    assert split(paths)[1] == [] and math_note("both", math, paths) == lost(1)
+
+
+def test_an_empty_math_file_left_behind_isnt_read_back_as_a_document(s, tmp_path, monkeypatch):
+    """It can't be deleted at all: it stays, and no mark tells it is ours, as a PDF that opens has."""
+    math_saves_fail(monkeypatch)
+    case, opts = firms(1)
+    math = []
+    paths = generate(case, s, tmp_path, ["invoice"], opts, math=math)
+    left, = (tmp_path / "Math").iterdir()
+    assert is_math_file(left) and left.stat().st_size == 0 and left not in paths
+    assert math_note("both", math, paths) == lost(1)  # (the box says so, the invoice made)
+    assert expand_paths([str(tmp_path)]) == [] and expand_paths([str(tmp_path / "Math")]) == []
+
+
+def test_a_file_named_like_math_is_left_out_of_a_folder_but_read_when_given_itself(tmp_path):
+    """As "Minute Agreement..." and "MOFR..." are: by the name, in a folder dropped. A file dropped by itself is read
+    as given, as any is."""
+    named = tmp_path / "Jane Roe - the math.pdf"
+    again = tmp_path / "Jane Roe - the math (2).pdf"
+    other = tmp_path / "Jane Roe transcript.pdf"
+    transcript_pdf(named)
+    transcript_pdf(again)
+    transcript_pdf(other)
+    assert expand_paths([str(tmp_path)]) == [str(other)]
+    assert expand_paths([str(named)]) == [str(named)]
+
+
 def test_save_as_starts_in_the_nearest_folder_there_is(s, qt, tmp_path, monkeypatch):
     """Generate saved none, so its Math folder isn't made: the Save box starts in the folder it would be in, not
     wherever Windows last was."""

@@ -1057,6 +1057,12 @@ def save_math(made: list[tuple[FirmInvoice, str, Path]], save: str = "both", lay
             out.append(new_pdf(explain(of, layout, one_firm)[0], path))
         except Exception as e:
             log_error("could not save the math of an invoice", e)
+            left = getattr(e, "left_behind", None)  # (held for a moment, it may be free now: as make_invoice tries)
+            if left is not None:
+                try:
+                    left.unlink(missing_ok=True)
+                except OSError as still:
+                    log_error("could not delete a math PDF that was not saved", still)
 
     if save in ("each", "both"):
         for f, number, path in made:

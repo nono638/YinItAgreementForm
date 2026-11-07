@@ -2182,9 +2182,11 @@ def expand_paths(paths: list[str]) -> list[str]:
         p = Path(raw)
         if p.is_dir():
             for f in sorted(p.rglob("*")):
-                # forms this app filled earlier are not source documents
+                # forms this app filled earlier are not source documents (by the name too for the math: one that
+                # couldn't be saved or deleted stays empty, and an empty file has no mark for is_generated to read)
                 if (f.is_file() and f.suffix.lower() in BATCH_EXT
-                        and not f.name.startswith(("Minute Agreement", "MOFR", "~$")) and not is_generated(f)):
+                        and not f.name.startswith(("Minute Agreement", "MOFR", "~$")) and not is_math_file(f)
+                        and not is_generated(f)):
                     add(f)
         elif p.is_file():
             add(p)
