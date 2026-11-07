@@ -353,6 +353,9 @@ def test_a_number_typed_isnt_what_another_reporters_invoice_bills(qt, themed, tm
     w = open_window(qt, jobs, s)
     assert invoices_shown(w) == {"Alex B. Counsel": DS_20}
     assert "in DS's name" in html.unescape(w.summary.text()) and "made too" not in w.summary.text()
+    # (what the run costs too: its places are in the number typed, the first 5 of them the user's, none of them DS's)
+    assert "only: 0 of your pages billed (30 total pages) - costs Regular $126.00 · Expedite $152.00" in \
+        html.unescape(w.summary.text())
     assert each_invoice(jobs, s) == [("DS", "Alex B. Counsel", DS_20)]
     w.close()
 
