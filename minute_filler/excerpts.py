@@ -82,15 +82,18 @@ class Day:
             return run_numbers(self.read).text
         return place_words(a, b)
 
-    def example(self) -> str:
-        """A run this day takes as typed, for the Page numbers cell's tooltip: its first 20 pages as shown, or, on
-        a day whose numbers repeat, where those would be refused (parse), by place."""
-        text = self.span(1, min(self.pages, 20))
+    def as_typed(self, a: int, b: int) -> str:
+        """Pages a..b as they can be typed: as shown, or, where that would be refused or be other pages (parse: a
+        number on two stretches, or printed twice), by place."""
+        text = self.span(a, b)
         try:
-            self.parse(text)
+            return text if self.parse(text) == (a, b) else place_words(a, b)
         except ValueError:
-            return place_words(1, min(self.pages, 20))
-        return text
+            return place_words(a, b)
+
+    def example(self) -> str:
+        """A run this day takes as typed, for the Page numbers cell's tooltip: its first 20 pages (as_typed)."""
+        return self.as_typed(1, min(self.pages, 20))
 
     def place(self, a: int, b: int) -> str:
         """Pages a..b by their place in the day: '1–20 of 85 total pages' (every reporter's: the pages split are
@@ -120,7 +123,8 @@ class Day:
         less, passing over pages whose number wasn't read (a number printed twice, where a reporter changes, takes
         both its pages). On a day whose numbers fall the same number can be on two pages, and the first found would
         bill the wrong ones, so of the stretches between falls only one may have any of a..b, and all of a..b must
-        lie within it."""
+        lie within it. An end that may be on a page whose number wasn't read (100 and 103 read, two pages between them,
+        "100-101") is refused too: nothing says which page it is, and stopping at the pages read would bill too few."""
         read = [(i, n) for i, n in enumerate(self.printed, 1) if n is not None]
         stretches: list[list[tuple[int, int]]] = []
         for place, n in read:
@@ -139,11 +143,25 @@ class Day:
         first, last = (next(place for place, n in found[0] if n >= a),
                        max(place for place, n in found[0] if n <= b))
         if len(found) == 1 and found[0][0][1] <= a and b <= found[0][-1][1]:
+            self._ends_read(found[0], a, b, first, last)
             return first, last
         typed = f"{a}–{b}" if a != b else str(a)
         raise ValueError(f"{self.label}'s printed page numbers start again ({run_numbers(self.printed).text}), and "
                          f"{typed} is {'on more than one stretch' if len(found) > 1 else 'not all on one stretch'} of "
                          f"them: type the run by its place in the day instead, e.g. place {first}-{last}")
+
+    def _ends_read(self, stretch: list[tuple[int, int]], a: int, b: int, first: int, last: int) -> None:
+        """ValueError, naming the places to type instead, when page number a or b may be on an unread page of this
+        stretch of (place, number): it lies between two numbers read with a page between them. (With none between, no
+        page prints it: "150-196" around 195, 197 is the pages from 150 to 195.)"""
+        unread = {n: (p + 1, q - 1) for n in {a, b} for (p, x), (q, y) in zip(stretch, stretch[1:])
+                  if x < n < y and q - p > 1}
+        if unread:
+            at, end = unread.get(a, (first,))[0], unread.get(b, (0, last))[1]
+            n = min(unread)
+            where = place_words(*unread[n])
+            raise ValueError(f"page number {n} of {self.label} may be on {where}, whose number wasn't read: type the "
+                             f"run by its place in the day instead, e.g. place {at}-{end}")
 
 
 def number_spans(printed: list) -> str:
@@ -305,10 +323,12 @@ def store(day: Day, runs: list[Run], firms: list[Attorney], s: Settings | None =
     of one run (a day that can't be split is one), else a run's speed that isn't its firm's on the day is kept in
     its row. A Parties number below the firms that now order the whole day is cleared. The attorney table is
     then the user's (Job.att_touched). With the settings `s`, the day's No. of copies follows the parties now
-    ordering (Job.refresh_copies; the window passes them)."""
+    ordering (Job.refresh_copies; the window passes them). Runs cut on the pages read are in today's places, whatever
+    the record the job was opened from counted (Job.old_places); those cut in a number typed stay as that number is."""
     job = day.job
     used = list(dict.fromkeys(k for r in runs for k in r.keys))
     if day.splittable:
+        job.old_places = job.old_places and job.pages_typed()
         whole = len(runs) == 1 and runs[0].keys
         if whole:
             job.speeds.update({k: sp for k, sp in runs[0].speeds.items() if k in runs[0].keys and sp})

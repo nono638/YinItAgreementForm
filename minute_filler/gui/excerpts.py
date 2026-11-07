@@ -843,9 +843,11 @@ class ExcerptsWindow(QDialog):
             self.table.selectRow(row)
 
     def _split(self) -> None:
-        """Split run…: asks after which page to cut the run chosen, starting from its middle, and it becomes two
-        there ("1-20" cut after 12: "1-12", "13-20"), both with its firms. The table can be read afresh while it
-        asks: the same run is found again, or, when it is gone, it says so."""
+        """Split run…: asks after which page to cut the run chosen, starting from its middle (as it can be typed:
+        Day.as_typed), and it becomes two there ("1-20" cut after 12: "1-12", "13-20"), both with its firms. A day
+        without page numbers to go by (one whose Pages field is typed in, whatever its transcripts print) asks for a
+        place, in those words: a number read there is no place in the number typed. The table can be read afresh while
+        it asks: the same run is found again, or, when it is gone, it says so."""
         run = self._chosen()
         if run is None:
             return
@@ -857,8 +859,10 @@ class ExcerptsWindow(QDialog):
             return
         job, start, end = run.day.job, run.start, run.end
         span, mid = run.day.span(start, end), (start + end) // 2
-        text, ok = QInputDialog.getText(self, "Split run", f"Cut the run {span} after which page number?",
-                                        QLineEdit.Normal, run.day.span(mid, mid))
+        what = "page number" if run.day.numbered else "place"
+        among = "" if run.day.numbered else f" ({run.day.place(start, end)})"
+        text, ok = QInputDialog.getText(self, "Split run", f"Cut the run {span} after which {what}?{among}",
+                                        QLineEdit.Normal, run.day.as_typed(mid, mid))
         if not ok:
             return
         run = next((r for r in self.runs if r.day.job is job and (r.start, r.end) == (start, end)), None)
@@ -871,7 +875,7 @@ class ExcerptsWindow(QDialog):
             self.problem.setText(f"⚠ {e}")
             return
         if not start <= cut < end:
-            self.problem.setText(f"⚠ To cut the run {span}, type a page number in it, before its last page.")
+            self.problem.setText(f"⚠ To cut the run {span}, type a {what} in it, before its last page.")
             return
         runs = self._day_runs(run.day)
         self._keep(run.day, carve(runs, runs.index(run), start, cut))
