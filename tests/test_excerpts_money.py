@@ -283,6 +283,115 @@ def test_a_third_speed_at_generate_is_held_and_said(qt, themed, tmp_path, s):
     w.close()
 
 
+# ------------------------------------------------------------------ Whose pages..., reporter by reporter
+def each_invoice(jobs, s) -> list:
+    """The invoices fill_jobs makes now, as the records have them, the user's first: ("yours" or "DS", firm, speed ->
+    amount)."""
+    before = {i.invoice_no for i in ledger_for(s).invoices()}
+    fill_jobs(jobs, s, outputs=["invoice"])
+    made = [("DS" if i.invoice_no.startswith("DS") else "yours", i.bill_to,
+             {sp: Decimal(v) for sp, v in i.amounts.items()})
+            for i in ledger_for(s).invoices() if i.invoice_no not in before]
+    return sorted(made, key=lambda x: x[0] != "yours")
+
+
+def two_reporters(tmp_path, s, pages=(30,), ticked=(A,), bills=("ds",)):
+    """Days of 10 pages of the user's (pr) and the rest of DS's, whose pages Whose pages... bills as `bills` says."""
+    s.profile.initials = "pr"
+    jobs = days_of(tmp_path / "a", s, pages=pages, ticked=ticked, initials=["pr"] * 10 + ["ds"] * 20)
+    for j, basis in zip(jobs, bills):
+        for d in j.transcripts():
+            j.page_basis[d.key()] = basis
+    return jobs
+
+
+YOUR_10 = {"Regular": Decimal("63.00"), "Expedite": Decimal("76.00")}
+DS_20 = {"Regular": Decimal("126.00"), "Expedite": Decimal("152.00")}
+
+
+def test_one_day_billing_another_reporter_and_one_the_user(qt, themed, tmp_path, s):
+    """The window added day 1's pages of DS's to day 2's of the user's, one invoice of Regular $189.00: no such invoice
+    is made. It prices the first set, as the invoices are made, and says the other's is made too."""
+    jobs = two_reporters(tmp_path, s, pages=(30, 30), bills=("ds", "me"))
+    w = open_window(qt, jobs, s)
+    assert invoices_shown(w) == {"Alex B. Counsel": YOUR_10}
+    assert "in your name; those in DS's name are made too" in html.unescape(w.summary.text())
+    assert each_invoice(jobs, s) == [("yours", "Alex B. Counsel", YOUR_10), ("DS", "Alex B. Counsel", DS_20)]
+    w.close()
+
+
+def test_a_number_typed_isnt_what_another_reporters_invoice_bills(qt, themed, tmp_path, s):
+    """5 typed, Whose pages... bills DS's alone. The number typed is the user's own count, and DS's invoice bills DS's 20
+    pages: the window said Regular $31.50, the number's."""
+    jobs = two_reporters(tmp_path, s)
+    jobs[0].case.set("est_pages", "5")
+    w = open_window(qt, jobs, s)
+    assert invoices_shown(w) == {"Alex B. Counsel": DS_20}
+    assert "in DS's name" in html.unescape(w.summary.text()) and "made too" not in w.summary.text()
+    assert each_invoice(jobs, s) == [("DS", "Alex B. Counsel", DS_20)]
+    w.close()
+
+
+def test_a_number_typed_and_the_user_billed_too(qt, themed, tmp_path, s):
+    """The user's set bills the number typed, and is the one priced."""
+    jobs = two_reporters(tmp_path, s, bills=(["me", "ds"],))
+    jobs[0].case.set("est_pages", "5")
+    w = open_window(qt, jobs, s)
+    five = {"Regular": Decimal("31.50"), "Expedite": Decimal("38.00")}
+    assert invoices_shown(w) == {"Alex B. Counsel": five}
+    assert each_invoice(jobs, s) == [("yours", "Alex B. Counsel", five), ("DS", "Alex B. Counsel", DS_20)]
+    w.close()
+
+
+def test_a_day_of_both_reporters_is_priced_as_before(qt, themed, tmp_path, s):
+    jobs = two_reporters(tmp_path, s, pages=(30, 30), bills=(["me", "ds"], ["me", "ds"]))
+    w = open_window(qt, jobs, s)
+    both = {"Regular": Decimal("126.00"), "Expedite": Decimal("152.00")}
+    assert invoices_shown(w) == {"Alex B. Counsel": both}
+    assert each_invoice(jobs, s) == [("yours", "Alex B. Counsel", both),
+                                     ("DS", "Alex B. Counsel", {"Regular": Decimal("252.00"), "Expedite": Decimal("304.00")})]
+    w.close()
+
+
+def test_runs_of_a_day_billing_nobody_on_the_first_set(qt, themed, tmp_path, s):
+    """Day 1 cut into runs, all of its pages billed on DS's set: nothing of it on the user's, in the cells and the
+    invoice alike, with day 2's firms at the speeds they share them at."""
+    jobs = two_reporters(tmp_path, s, pages=(30, 30), ticked=(A, D), bills=("ds", "me"))
+    w = open_window(qt, jobs, s)
+    set_runs(w, 0, (1, 15, [A], {}), (16, 30, [A, D], {}))
+    assert cell(w, 0, A).text() == cell(w, 1, A).text() == ""  # (no price: none of these pages is on these invoices)
+    assert cell(w, 2, A).text() == "$49.00 (÷2)"
+    made = each_invoice(jobs, s)
+    ours = {firm: amounts for who, firm, amounts in made if who == "yours"}
+    assert invoices_shown(w) == ours
+    assert cells_of(w)["Alex B. Counsel"] == next(iter(ours["Alex B. Counsel"].values()))
+    w.close()
+
+
+def test_a_job_of_several_days_billing_another_reporter(qt, themed, tmp_path, s):
+    """A job of several days, ordered whole, one row: as the set priced bills it, DS's on a day of the user's."""
+    s.profile.initials = "pr"
+    s.batch_combine_dates = True
+    folder = tmp_path / "a"
+    folder.mkdir()
+    docs, errors = read_docs([str(transcript_pdf(folder / f"Day {i}.pdf", 30, date=day,
+                                                 initials=["pr"] * 10 + ["ds"] * 20))
+                              for i, day in enumerate(("June 3, 2026", "June 4, 2026"))], s)
+    assert not errors
+    job, = group(docs, s)
+    job.case.attorneys = [Attorney(**ALEX, checked=True)]
+    job.case.set("delivery", "Expedite")
+    job.att_touched = True
+    for d in job.transcripts():
+        job.page_basis[d.key()] = "ds"
+    w = open_window(qt, [job], s)
+    assert not w.days[0].splittable
+    forty = {"Regular": Decimal("252.00"), "Expedite": Decimal("304.00")}
+    assert invoices_shown(w) == {"Alex B. Counsel": forty}
+    assert each_invoice([job], s) == [("DS", "Alex B. Counsel", forty)]
+    w.close()
+
+
 # ------------------------------------------------------------------ random orders
 def random_order(rng, folder, s):
     """Days of 1 to 3 transcripts, cut into runs at random, some with speeds, as the window keeps them."""
@@ -439,7 +548,7 @@ def trial_window(qt, tmp_path, make_window, s, pages=(10, 20)):
     for j in jobs:
         j.case.set("index_no", "712345/2024")
         j.case.set("case_name", "Jane Roe v. Sam Poe")
-    win.jobs, win.cur = jobs, jobs[1]
+    win.jobs, win.cur = jobs, jobs[-1]
     return win, jobs
 
 
@@ -626,6 +735,124 @@ def test_the_main_windows_row_and_the_window_say_the_same(qt, themed, tmp_path, 
     card = {f.atty.label(): {q.speed: q.per_party for q in f.quotes} for f in firm_invoices(case, s, opts)}
     assert card == invoices_shown(w) == {"Alex B. Counsel": {"Daily": Decimal("270.00")}}
     w.close()
+
+
+def tick(jobs, *keys):
+    for j in jobs:
+        for a in j.case.attorneys:
+            a.checked = a.key() in keys
+
+
+PARTIES = "Parties says 3"
+THREE_SPEEDS = "3 different speeds"
+
+
+@pytest.mark.parametrize("why, shown, firms, speeds", [
+    ("parties", PARTIES, (A, D), {A: "Daily"}),
+    ("three speeds", THREE_SPEEDS, (A, D, K), {D: "Daily", A: "Immediate"})])
+def test_the_cards_hold_what_generate_holds(qt, themed, tmp_path, make_window, s, why, shown, firms, speeds):
+    """Nothing on the day as it stands is held: the firm with no speed takes the form's at Generate, and that holds it.
+    The Invoice card and Who pays what priced the invoice ("Dana Smith: Expedite $120.00 | Alex B. Counsel: Daily
+    $145.50"), with no word, beside Who ordered's window saying no invoice, and Generate making none."""
+    win, jobs = trial_window(qt, tmp_path, make_window, s, pages=(30,))
+    tick(jobs, *firms)
+    day = jobs[0]
+    day.speeds = dict(speeds)
+    day.parties = 3 if why == "parties" else 0
+    assert not day.invoice_hold()
+    win._show_job()
+    assert win.inv_info.text().startswith("⚠") and shown in win.inv_info.text().replace("\n", " ")
+    assert "$" not in win.inv_info.text() and not win._inv_firms
+    pays = html.unescape(win.pays.text())
+    assert "No invoice yet" in pays and shown in pays and "$" not in pays
+    assert "No invoice yet" in win.orders_info.text() and shown in win.orders_info.text()
+    assert win.output_counts["invoice"].text() == "⚠ (0)"
+    assert "until" in win.output_counts["invoice"].toolTip()
+    assert day.speeds == speeds  # (the day itself as it was)
+    w = open_window(qt, jobs, s, pool=win._speed_days)
+    assert "No invoice yet" in w.problem.text() and shown in w.problem.text()
+    assert generate(jobs, s) == {}
+    w.close()
+
+
+def test_where_generate_asks_nothing_is_held_until_it_is_answered(qt, themed, tmp_path, make_window, s):
+    """The answer may be the one that frees it: the card prices it as it stands, with the ?."""
+    s.split_speeds = "ask"
+    win, jobs = trial_window(qt, tmp_path, make_window, s, pages=(30,))
+    tick(jobs, A, D)
+    jobs[0].speeds, jobs[0].parties = {A: "Daily"}, 3
+    win._show_job()
+    assert not win.inv_info.text().startswith("⚠") and "?" in win.inv_info.text()
+
+
+def test_a_day_held_as_billed_leaves_the_other_days_to_bill(qt, themed, tmp_path, make_window, s):
+    """Day 1 held only once Kim has the form's speed. Generate bills day 2 without it, as Who pays what now says, each
+    with the speed it is billed."""
+    from minute_filler.batch import bill_sets
+    win, jobs = trial_window(qt, tmp_path, make_window, s, pages=(30, 10))
+    one, two = jobs
+    tick([one], A, D, K)
+    tick([two], A)
+    one.speeds = {D: "Daily", A: "Immediate"}
+    win.cur = two
+    win._show_job()
+    sets, held = bill_sets(jobs, s)
+    assert sets == [[two]] and held == [one]  # (the days themselves)
+    assert win._invoice_group() == [two]
+    said = f"No invoice yet for {one.case.get('dates')}"
+    pays = html.unescape(win.pays.text())
+    made = generate([one, two], s)
+    alex = made["Alex B. Counsel"]["Immediate"]  # (his Immediate of day 1, on day 2's 10 of your pages)
+    assert list(made) == ["Alex B. Counsel"] and list(made["Alex B. Counsel"]) == ["Immediate"]
+    assert THREE_SPEEDS in pays and said in pays and f"${alex}" in pays
+    assert win.inv_info.text().endswith(f"${alex}")
+    assert said in win.orders_info.text() and THREE_SPEEDS in win.orders_info.text()
+
+
+def test_who_pays_prices_another_cases_days_as_they_are_billed(qt, themed, tmp_path, make_window, s):
+    """Who pays what lists a set not of the day shown: Alex's Daily on one of its days is his on the other. It said
+    "Daily + Expedite $242.00" where the day shown's own set would say, and Generate bills, Daily $270.00."""
+    win, jobs = trial_window(qt, tmp_path, make_window, s, pages=(5, 10, 20))
+    other, one, two = jobs
+    other.case.set("index_no", "700001/2020")
+    other.case.set("case_name", "Kim Doe v. Pat Moe")
+    tick([other], D)
+    one.speeds = {A: "Daily"}
+    win.cur = other
+    win._show_job()
+    pays = html.unescape(win.pays.text())
+    assert "$270.00" in pays and "$242.00" not in pays
+    made = generate(jobs, s)
+    assert made["Alex B. Counsel"] == {"Daily": Decimal("270.00")}
+
+
+def test_the_cards_price_the_invoices_generate_makes_of_each_reporter(qt, themed, tmp_path, make_window, s):
+    """Day 1 bills DS's pages, day 2 the user's: the Invoice card added them up, Regular $189.00, an invoice nobody gets."""
+    jobs = two_reporters(tmp_path, s, pages=(30, 30), bills=("ds", "me"))
+    for j in jobs:
+        j.case.set("index_no", "712345/2024")
+        j.case.set("case_name", "Jane Roe v. Sam Poe")
+    from test_show_the_math import settled
+    s.outputs = ["invoice"]
+    win = settled(make_window(s))
+    win.jobs, win.cur = jobs, jobs[1]
+    win._show_job()
+    card = win.inv_info.text()
+    assert "(10 of your pages)" in card and "Regular $63.00" in card and "$189.00" not in card
+    assert "$63.00" in win.pays.text() and "$189.00" not in win.pays.text()
+
+
+def test_the_card_of_another_reporters_pages_says_whose(qt, themed, tmp_path, make_window, s):
+    """A number typed, Whose pages... bills DS's alone: the invoice is DS's 20 pages, not "20 of your pages"."""
+    jobs = two_reporters(tmp_path, s)
+    jobs[0].case.set("est_pages", "5")
+    from test_show_the_math import settled
+    s.outputs = ["invoice"]
+    win = settled(make_window(s))
+    win.jobs, win.cur = jobs, jobs[0]
+    win._show_job()
+    card = win.inv_info.text()
+    assert card.startswith("20 of DS's pages") and "Regular $126.00" in card and "$31.50" not in card
 
 
 def test_the_excerpts_button_passes_generates_days_not_the_whole_trial(qt, themed, tmp_path, make_window, s):

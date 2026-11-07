@@ -7092,6 +7092,11 @@ class MainWindow(QMainWindow):
         from ..batch import as_billed
         return as_billed(group, self.s, self._speed_days(group))
 
+    def _hold_of(self, job: Job) -> str:
+        """Why Generate makes no invoice of this day, as it bills it (_as_billed: a speed it sets can be what holds it);
+        "" when it makes one."""
+        return self._as_billed([job])[0].invoice_hold()
+
     def _show_invoice_prices(self) -> tuple[list | None, int]:
         """The Invoice card's parties, Includes line (Peripherals…) and prices for the current job. When Generate
         all bills it with other days of its case, or billed it with them already ("Invoiced already ✓"), the first
@@ -7099,14 +7104,18 @@ class MainWindow(QMainWindow):
         When the attorneys don't all pay the same (they ordered different days or pages), a line per attorney. A
         firm of a split order whose speed Generate still asks is priced at the form's speed, with a "?"
         (_price_lines). No prices while the invoice is held (whose pages, Excerpts... to check, more speeds on the
-        same pages than are billed, a day of the case nobody is ticked on, unless the day is invoiced already).
+        same pages than are billed, parties not named, each as Generate bills the day: _as_billed; a day of the case
+        nobody is ticked on, unless the day is invoiced already). The first of the invoices Generate makes of the days,
+        where Whose pages... bills several reporters (batch.first_invoice_set).
         Returns the invoices priced (invoice.firm_invoices; None when there are none to price, the card saying
         why), for Who pays what and the Invoice card's link to the math, and how many days they cover."""
-        from ..batch import joint_invoice
+        from ..batch import first_invoice_set
         job = self.cur
         group = self._invoice_group()
         self._note_trial_rules(group)  # (priced as an earlier invoice of the trial was, if there is one)
-        case, opts = joint_invoice(self._as_billed(group))
+        billed = self._as_billed(group)
+        case, opts = first_invoice_set(billed)
+        as_billed = next(b for j, b in zip(group, billed) if j is job)
         split = job.portions is not None  # Excerpts... decides this day's parties (or needs checking)
         check = job.portions_check()
         with QSignalBlocker(self.inv_parties):
@@ -7145,13 +7154,13 @@ class MainWindow(QMainWindow):
             self.inv_info.setToolTip("No invoice is made for this day until Who ordered which pages… is checked:\n"
                                      "tick the firms that ordered each run, or choose \"Make this day whole\".")
             return None, 1
-        if job.speed_problems():  # more speeds on the same pages than are billed for now: no prices either
-            self._warn(f"⚠ {job.invoice_hold()}")
+        if as_billed.speed_problems():  # more speeds on the same pages than are billed for now: no prices either
+            self._warn(f"⚠ {as_billed.invoice_hold()}")
             self.inv_info.setToolTip("No invoice is made for this day until a firm's speed is changed\n"
                                      "(its row in Who ordered, or Who ordered which pages… for a run of pages).")
             return None, 1
-        if job.unnamed_problem():  # parties not named at different speeds: nobody's share can be worked out
-            self._warn(f"⚠ {job.unnamed_problem()}")
+        if as_billed.unnamed_problem():  # parties not named at different speeds: nobody's share can be worked out
+            self._warn(f"⚠ {as_billed.unnamed_problem()}")
             self.inv_info.setToolTip("No invoice is made for this day until every party is named\n"
                                      "(ticked in Who ordered, its speed set in its row) or Parties is changed.")
             return None, 1
@@ -7179,8 +7188,10 @@ class MainWindow(QMainWindow):
         ask_tip = ("A speed with \"?\" is not set yet: firms that order the same pages commit to a speed.\n"
                    "Generate asks for it (set it beforehand in Who ordered)." if asked else "")
         self.inv_info.setToolTip(ask_tip)
-        # (the pages billed are the user's own: the user, 2026-10-30, every count says whose pages)
-        yours, alone = f"{opts.pages} of your pages", f"{job.invoice_pages()} of your pages"
+        # (the pages billed are the user's own, or the reporter's whose invoices these are: the user, 2026-10-30, every
+        # count says whose pages)
+        whose = f"{opts.reporter.upper()}'s" if opts.reporter else "your"
+        yours, alone = f"{opts.pages} of {whose} pages", f"{job.invoice_pages()} of your pages"
         if len(group) > 1 and job.invoiced:  # (the days one invoice billed already: batch.bill_sets)
             self.inv_info.setText(f"Invoiced already ✓: one invoice for {len(group)} days ({yours})\n"
                                   f"{prices}")
@@ -7279,7 +7290,7 @@ class MainWindow(QMainWindow):
                 why = why or (self.inv_info.text() if [id(j) for j in g] == own else "") or "Nothing to bill yet."
                 blocks.append(head + html.escape(why).replace("\n", "<br>"))
         for j in held:  # (no invoice until it is checked: Generate all leaves it out)
-            blocks.append(html.escape(f"⚠ No invoice yet for {j.case.get('dates') or j.title()}: {j.invoice_hold()}"))
+            blocks.append(html.escape(f"⚠ No invoice yet for {j.case.get('dates') or j.title()}: {self._hold_of(j)}"))
         if not blocks:
             blocks.append(html.escape(self.inv_info.text() or "Nothing to bill yet.").replace("\n", "<br>"))
         text = "<br><br>".join(blocks) + (f"<br>{MATH_LINK}" if self._pay_firms else "")
@@ -7287,11 +7298,11 @@ class MainWindow(QMainWindow):
             self.pays.setText(text)
 
     def _price_set(self, group: list[Job]) -> tuple[list, str]:
-        """The invoices of these days, as Who pays what shows an invoice other than the job shown's (batch.
-        joint_invoice, invoice.firm_invoices), priced as their trial was before (_note_trial_rules); or none and
-        why: a day nobody is ticked on (batch.group_problem; not for days invoiced already), a rate sheet that
-        can't price them, or nobody left to bill."""
-        from ..batch import group_problem, joint_invoice
+        """The invoices of these days, as Who pays what shows an invoice other than the job shown's, as Generate bills
+        them (_as_billed, batch.first_invoice_set, invoice.firm_invoices), priced as their trial was before
+        (_note_trial_rules); or none and why: a day nobody is ticked on (batch.group_problem; not for days invoiced
+        already), a rate sheet that can't price them, or nobody left to bill."""
+        from ..batch import first_invoice_set, group_problem
         from ..invoice import firm_invoices
         # (days invoiced already are one set, all invoiced or none: batch.bill_sets)
         held = group_problem(group) if not group[0].invoiced else ""
@@ -7299,7 +7310,7 @@ class MainWindow(QMainWindow):
             return [], f"⚠ No invoice for these {len(group)} days yet: {held}"
         self._note_trial_rules(group)
         try:
-            case, opts = joint_invoice(group)
+            case, opts = first_invoice_set(self._as_billed(group))
             firms = firm_invoices(case, self.s, opts)
         except Exception as e:  # (a broken rate sheet must not break the window)
             return [], f"⚠ {e}"
@@ -7325,9 +7336,10 @@ class MainWindow(QMainWindow):
         self._job_counts = counts
         self._generate_labels(everyone)
         held = ""
-        if shown and "invoice" in outputs and job.invoice_hold():  # (Generate asks first: see invoice_hold)
+        billed = self._as_billed([job])[0] if shown and "invoice" in outputs else job  # (a speed Generate sets can hold it)
+        if shown and "invoice" in outputs and billed.invoice_hold():  # (Generate asks first: see invoice_hold)
             held = {"portions": "Who ordered which pages… is checked", "ownership": "Whose pages… is chosen",
-                    "unnamed": "Parties is checked"}.get(job.hold_kind(), "the speeds are checked")
+                    "unnamed": "Parties is checked"}.get(billed.hold_kind(), "the speeds are checked")
         for key, label in self.output_counts.items():
             on = key in outputs and (shown or everyone is not None)
             why = held if key == "invoice" else ""
@@ -7572,7 +7584,7 @@ class MainWindow(QMainWindow):
             parts.append(f"Invoiced already (✓): {dates(billed)}. Generate all won't bill "
                          f"{'it' if len(billed) == 1 else 'them'} again{again}.")
         if held:
-            parts.append(f"⚠ No invoice yet for {dates(held)}: {held[0].invoice_hold()}.")
+            parts.append(f"⚠ No invoice yet for {dates(held)}: {self._hold_of(held[0])}.")
         left_out = [j for j in (trial or self.jobs) if not j.include and (j.transcript_pages() or j.invoice_pages())
                     and j is not self.cur]
         if left_out and len(self.jobs) > 1:

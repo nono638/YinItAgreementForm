@@ -2192,6 +2192,14 @@ def joint_invoice_sets(group: list[Job]) -> list[tuple[CaseInfo, InvoiceOpts]]:
     return out
 
 
+def first_invoice_set(group: list[Job]) -> tuple[CaseInfo, InvoiceOpts]:
+    """The first of the invoices of these days (joint_invoice_sets), which is what a card prices: a firm's one invoice
+    of them, not a mix of each day's reporters (nor a number typed, on another reporter's: Job.billed_by). The days as
+    they stand (joint_invoice) when no reporter has pages to bill."""
+    sets = joint_invoice_sets(group)
+    return sets[0] if sets else joint_invoice(group)
+
+
 def remerge(job: Job, s: Settings) -> None:
     """Rebuilds job.case from its documents, keeping what the user entered: typed fields, and the proceeding
     types and attorneys (with their ticks) once the user has changed them (Job.proc_touched, Job.att_touched).
@@ -3026,11 +3034,13 @@ def bill_sets(jobs: list[Job], s: Settings) -> tuple[list[list[Job]], list[Job]]
     2026-10-23), each a list of the days it bills, earliest invoice first: those Generate all would make
     (invoice_groups of the days not invoiced yet and not held), and those made already, each with the days it
     billed (Job.invoice_set; a day of it not among `jobs` is left out of it). Days with no pages to bill are in
-    none. Second, the days not invoiced yet whose invoice is held (Job.invoice_hold): Generate all makes none for
-    them until it is checked."""
+    none. Second, the days not invoiced yet whose invoice is held (Job.invoice_hold), as Generate bills them
+    (as_billed: a speed it sets can be what holds one: a third on the same pages, or firms at different speeds with
+    parties not named): Generate all makes none for them until it is checked."""
     days = [j for j in jobs if j.invoice_pages()]
-    held = [j for j in days if not j.invoiced and j.invoice_hold()]
-    sets = invoice_groups([j for j in days if not j.invoiced and not j.invoice_hold()], s)
+    due = [j for j in days if not j.invoiced]
+    held = [j for j, b in zip(due, as_billed(due, s)) if b.invoice_hold()]
+    sets = invoice_groups([j for j in due if not any(j is h for h in held)], s)
     billed: dict[int, list[Job]] = {}
     for j in days:
         if j.invoiced:  # (no number: invoiced on its own)
@@ -4043,7 +4053,7 @@ def output_counts(jobs: list[Job], outputs, s: Settings | None = None, again: bo
     Settings.invoice_joint says) the invoices, one for each attorney ticked on any of its days who ordered pages
     and was not invoiced yet (and the set of each other reporter Whose pages... bills, see joint_invoice_sets).
     Days already invoiced (Job.invoiced), and days whose invoice is held (Excerpts... rows to check, Whose
-    pages... to choose, speeds or Parties to check: Job.invoice_hold), get none. A day made already (Job.made, the
+    pages... to choose, speeds or Parties to check: Job.invoice_hold, as_billed), get none. A day made already (Job.made, the
     window gives it to Generate all for its invoice alone) counts its invoice only, unless `again`. again: a day
     already invoiced counts as one not invoiced yet, as Generate (the job shown) bills it again (Job.billed_keys);
     Generate all doesn't. "detailed": with Settings.invoice_detailed_copy, the detailed copy of each invoice
@@ -4070,7 +4080,8 @@ def output_counts(jobs: list[Job], outputs, s: Settings | None = None, again: bo
             out[form.kind] += 1
     # the invoices and the run sheet: the days of a case share them (their own phases of fill_jobs)
     if "invoice" in outputs and "invoice" in out:
-        groups = invoice_groups([j for j in jobs if (again or not j.invoiced) and not j.invoice_hold()], s)
+        due = [j for j in jobs if again or not j.invoiced]
+        groups = invoice_groups([j for j, b in zip(due, as_billed(due, s)) if not b.invoice_hold()], s)
         for g in groups:
             if not group_problem(g):
                 for case, opts in joint_invoice_sets(g):  # (each reporter billed)
