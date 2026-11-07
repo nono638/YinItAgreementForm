@@ -64,18 +64,23 @@ _HEAD_OWN = re.compile(r"(?i)\b(?:vol(?:ume)?|day|part|session|no|index|exhibit)
                        r"jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b\.?\s+(?:\d{1,2},?\s+)?$")
 SKIP_OK = 5  # numbers this far apart on pages side by side are one stretch (a page left out where a reporter changes)
 _BRAND = "min-u-script"  # (a false match would leave a real page unbilled without a word, so nothing looser)
+# what a typed title page says and a Min-U-Script cover doesn't: "-against-", "- against -", "Index No.", "Index Number"
+# (its "Word Index" is neither, nor "In The Matter Of: Jane Roe v. Sam Poe")
+_CAPTION = re.compile(r"(?i)-\s*against\s*-|\bindex\s*(?:no\b|number\b|#)")
 
 
 # ------------------------------------------------------------------ page numbers as read
 
 def numbers_known(printed: list, pages: int | None = None) -> bool:
     """These pages' printed numbers (None where none was read) can stand for them: one per page, and different
-    numbers on at least half of the pages. Not 1, 1, 1 (a line number taken for the page's), nor the one number OCR
-    found on a page of a scan: "pp. 1–1" or "p. 154" would say nothing true of the whole run."""
+    numbers on at least half of the pages. Not 1, 1, 1 or 1, 1 (a line number taken for the page's: two numbers read
+    must be two numbers), nor the one number OCR found on a page of a scan: "pp. 1–1" or "p. 154" would say nothing
+    true of the whole run."""
     pages = len(printed) if pages is None else pages
     if not pages or len(printed) != pages:
         return False
-    return len({n for n in printed if n is not None}) >= max(1, math.ceil(pages / 2))
+    read = [n for n in printed if n is not None]
+    return len(set(read)) >= max(1, math.ceil(pages / 2), min(len(read), 2))
 
 
 @dataclass(frozen=True)
@@ -138,7 +143,10 @@ class PageMark:
 class Take:
     """Pages in a row by one reporter."""
     initials: str
-    start: int | None          # the first printed number read among its pages, as read (None: none was)
+    # the number read on its first page, as read; None when none was, and the run sheet's Start is then blank: its End
+    # formula counts on from the Start, so a later page's number there would give a page past its last (numbers says
+    # what was read). Never counted on from the page before.
+    start: int | None
     pages: int = 0
     title_only: bool = False   # nothing but title pages
     # the running heads of its pages as printed, each once ("Proceedings", "DIRECT - DEFENDANT - SAM POE"), the
@@ -167,8 +175,8 @@ def _lines(page) -> list[tuple[float, float, str, float]]:
 def _page_number(lines: list, h: float, w: float) -> int | None:
     """The printed page number: a number alone on its line at the top of the page, else at the foot. A number
     up to 25 at the left edge is a line number ("1" of the first line, "25" of the last), not the page's. A page
-    printing 0 there has its real number in its running head, if anywhere (_head_number): the 0 is still picked here,
-    not filtered out with the candidates, or a line number would be taken in its place."""
+    printing 0 there gives 0 (its real number is in its running head, if anywhere: _head_number): the 0 is picked
+    here, not filtered out with the candidates, or a line number would be taken in its place."""
     top = [(y0, t) for y0, y1, t, x0 in lines if y1 < TOP * h and _NUMBER.match(t)]
     foot = [(y0, t) for y0, y1, t, x0 in lines if y0 > BOTTOM * h and _NUMBER.match(t)]
     line_no = {(y0, t) for y0, y1, t, x0 in lines if x0 < 0.2 * w and _NUMBER.match(t) and int(t) <= 25}
@@ -176,14 +184,15 @@ def _page_number(lines: list, h: float, w: float) -> int | None:
     for found, pick in (([c for c in top if c not in line_no], min), ([c for c in foot if c not in line_no], max),
                         (top, min), (foot, max)):
         if found:
-            return int(pick(found)[1]) or _head_number(lines, h)
+            return int(pick(found)[1])
     return None
 
 
 def _head_number(lines: list, h: float) -> int | None:
     """The number at the end of a line of the running head ("Proceedings 151"), for a page that prints 0 where its
     number goes; None when none is there. Not a number that is the head's own ("VOLUME 3", "DAY 2", "No. 5", a date),
-    nor 0."""
+    nor 0. Only a candidate: heads end in all sorts of numbers ("Proceedings 2026", "Docket 12345", "Juror 9"), so it
+    becomes the page's number only where it goes on from the pages around it (_numbers_in_heads)."""
     for y0, _y1, t, _x in lines:
         m = _HEAD_NUMBER.search(t) if y0 < HEAD * h else None
         if m and not _HEAD_OWN.search(t[:m.start()]):
@@ -192,11 +201,17 @@ def _head_number(lines: list, h: float) -> int | None:
 
 
 def scan_page(page) -> PageMark:
-    """Reads the page number, the initials and the running head of one PDF page."""
+    """Reads the page number, the initials and the running head of one PDF page. A page printing 0 where its number
+    goes has none here: only the pages around it can say what its head's number is (read_pages)."""
+    return _read_page(page)[0]
+
+
+def _read_page(page) -> tuple[PageMark, bool, int | None]:
+    """scan_page's PageMark, whether the page prints 0 where its number goes, and then the number in its head."""
     h = page.rect.height or 792
     lines = _lines(page)
-    mark = PageMark()
-    mark.number = _page_number(lines, h, page.rect.width or 612)
+    printed = _page_number(lines, h, page.rect.width or 612)
+    mark = PageMark(printed or None)
     # the initials: alone on their line, at the foot of the page (or at the top)
     for y0, y1, t, _x in sorted(lines, key=lambda l: -l[0]):
         if (y0 > BOTTOM * h or y1 < TOP * h) and _INITIALS.match(t):
@@ -204,7 +219,7 @@ def scan_page(page) -> PageMark:
             break
     mark.head = " ".join(t for y0, y1, t, _x in lines if y0 < HEAD * h and not _NUMBER.match(t)
                          and not _INITIALS.match(t)).strip()
-    return mark
+    return mark, printed == 0, _head_number(lines, h) if printed == 0 else None
 
 
 def is_index_page(text: str) -> bool:
@@ -257,6 +272,9 @@ class PageFacts:
     blank: bool = False  # next to no text and no picture: an empty page (a scanned page is not blank)
     top: str = ""        # an index-looking page's first lines: the heading that can name the case
     branded: bool = False  # it says "Min-U-Script" (what a Min-U-Script cover says: without_cover)
+    caption: bool = False  # it says "-against-" or "Index No.": a typed title page, which no cover says (without_cover)
+    zero: bool = False     # it prints 0 where its number goes (mark.number: from its head, or None: _numbers_in_heads)
+    head_number: int | None = None  # that page's number in its running head, to check against the pages around it
 
 
 def read_pages(doc) -> list[PageFacts]:
@@ -270,14 +288,45 @@ def read_pages(doc) -> list[PageFacts]:
         # a scanned page has no text either, but it is a page of the transcript: taken for blank, the scanned
         # pages after a typed cover page would all be left out of the count
         blank = len(text.strip()) < 20 and not page.get_images()
-        facts.append(PageFacts(scan_page(page), lined, index, blank, top, _BRAND in text.lower()))
+        mark, zero, head_number = _read_page(page)
+        facts.append(PageFacts(mark, lined, index, blank, top, _BRAND in text.lower(), bool(_CAPTION.search(text)),
+                               zero, head_number))
+    _numbers_in_heads(facts)
     return facts
+
+
+def _continues(n: int, low: tuple[int, int] | None, high: tuple[int, int] | None) -> bool:
+    """A number goes on from those around it, each (how many pages away, its number): above the one before and below
+    the one after, by no more than SKIP_OK beyond the pages between. At least one must be there."""
+    fits = lambda a, b, away: a < b and b - a - (away - 1) <= SKIP_OK
+    return (low or high) is not None and (low is None or fits(low[1], n, low[0])) and (
+        high is None or fits(n, high[1], high[0]))
+
+
+def _numbers_in_heads(facts: list[PageFacts]) -> None:
+    """A page printing 0 where its number goes takes the number in its running head (PageFacts.head_number) when that
+    goes on from the numbers of the pages around it. On the real transcripts every number recovered so fits; a head's
+    other numbers ("Proceedings 2026", "Docket 12345", "Juror 9") don't, and as page numbers they would show among the
+    day's and say its numbers fall. No page around it with a number (the whole PDF printing 0): the next page's head
+    must go on from it. Left None otherwise: the page still counts (_scan), and what shows is what was read."""
+    numbered = lambda f: f.mark.number is not None and not f.index
+    for i, f in enumerate(facts):
+        if f.head_number is None or f.index:
+            continue
+        low = next(((i - j, facts[j].mark.number) for j in range(i - 1, -1, -1) if numbered(facts[j])), None)
+        high = next(((j - i, facts[j].mark.number) for j in range(i + 1, len(facts)) if numbered(facts[j])), None)
+        if (low or high) is None:
+            high = next(((j - i, facts[j].head_number) for j in range(i + 1, len(facts))
+                         if facts[j].head_number is not None), None)
+        if _continues(f.head_number, low, high):
+            f.mark.number = f.head_number
 
 
 def without_cover(facts: list[PageFacts]) -> tuple[list[PageFacts], int]:
     """The pages without a Min-U-Script cover, and how many that took off (0 or 1). A cover is the first page, saying
-    "Min-U-Script", with no number, initials or line numbers of its own, and a next page that doesn't look like the
-    word index (_scan never stops at its first page, so an index left first would count whole).
+    "Min-U-Script", with no number, initials or line numbers of its own and no caption's words ("-against-", "Index
+    No.": a typed title page can say Min-U-Script in its footer or its text), and a next page that doesn't look like
+    the word index (_scan never stops at its first page, so an index left first would count whole).
 
     Taken out here, once, so that no reading of the pages (the count, the takes, the owners, the masks) has to skip
     it: one that forgot would bill a page off without a word. What it misses costs little (the page counts, and asks
@@ -287,7 +336,7 @@ def without_cover(facts: list[PageFacts]) -> tuple[list[PageFacts], int]:
         return facts, 0
     first = facts[0]
     is_cover = (first.branded and first.mark.number is None and not first.mark.initials and not first.lined
-                and not facts[1].index)
+                and not first.zero and not first.caption and not facts[1].index)
     return (facts[1:], 1) if is_cover else (facts, 0)
 
 
@@ -301,18 +350,20 @@ def _scan(facts: list[PageFacts]) -> list[PageMark]:
     """The pages up to the first one that looks like the word index: one PageMark each. [] when no page has
     initials or a page number (not a transcript, or a scan without text). A page that looks like the index but
     carries the initials seen on the pages before it is a page of the transcript (the index is unsigned)."""
-    marks: list[PageMark] = []
+    pages: list[PageFacts] = []
     seen: set[str] = set()
     for i, f in enumerate(facts):
         if i and f.mark.initials not in seen and f.index:
             break
         if f.mark.initials:
             seen.add(f.mark.initials)
-        marks.append(f.mark)
-    # trailing pages with neither initials nor a number are dropped; a last page with only its number is
-    # kept (it ends the last take)
-    signed = [i for i, m in enumerate(marks) if m.initials or m.number is not None]
-    return marks[:signed[-1] + 1] if signed else []
+        pages.append(f)
+    if not any(f.mark.initials or f.mark.number is not None or f.zero for f in pages):
+        return []
+    # trailing pages with nothing to say they are the transcript's are dropped; a last page with only its number, its
+    # line numbers or a 0 where its number goes is kept (it ends the last take: without it the count is a page short)
+    signed = [i for i, f in enumerate(pages) if f.mark.initials or f.mark.number is not None or f.lined or f.zero]
+    return [f.mark for f in pages[:signed[-1] + 1]]
 
 
 # ------------------------------------------------------------------ the page count, read several ways
@@ -366,8 +417,9 @@ def _index_run(facts: list[PageFacts]) -> int:
     return most
 
 
-def count_pages(facts: list[PageFacts], page_count: int | None = None) -> PageCount:
-    """Reads the transcript's own pages four ways (see PageCount) and reconciles them.
+def count_pages(facts: list[PageFacts], page_count: int | None = None, cover: int = 0) -> PageCount:
+    """Reads the transcript's own pages four ways (see PageCount) and reconciles them. cover: the Min-U-Script cover
+    left out of facts (without_cover), still one of the PDF's pages when its share for the index is worked out.
 
     The count that most readings give wins, among those that leave the index no more than index_limit() of the
     pages (blank pages at the end left out); a tie goes to the scan's count, then to the reading listed first in
@@ -417,7 +469,7 @@ def count_pages(facts: list[PageFacts], page_count: int | None = None) -> PageCo
     for name in READINGS:
         if name in readings:
             votes.setdefault(readings[name], []).append(name)
-    limit = index_limit(room)
+    limit = index_limit(room + cover)
     passing = {n: names for n, names in votes.items() if room - n <= limit}
     order = list(READINGS)
 
@@ -447,8 +499,9 @@ def count_pages(facts: list[PageFacts], page_count: int | None = None) -> PageCo
     rival = [n for n in out.others if len(votes[n]) >= 2 or n in passing]
     # (the user, 2026-10-30: every count says whose pages): a PDF's count is its "total pages"
     if best not in passing:
-        out.warning = (f"⚠ {out.index_pages} of the PDF's {room} total pages were taken for the word index, more "
-                       f"than a quarter: check the count" + (f" (another reading gives {rival[0]})" if rival else ""))
+        out.warning = (f"⚠ {out.index_pages} of the PDF's {room + cover} total pages were taken for the word index, "
+                       f"more than a quarter: check the count"
+                       + (f" (another reading gives {rival[0]})" if rival else ""))
     elif any(len(votes[n]) >= 2 for n in out.others):
         other = next(n for n in out.others if len(votes[n]) >= 2)
         too_much = "" if other in passing else "; that leaves more than a quarter of the PDF to the index"
@@ -495,7 +548,7 @@ def body_pages(marks: list[PageMark], page_count: int, count: PageCount | None =
 
 def find_takes(marks: list[PageMark], title_count: int = 1, front: str = "") -> list[Take]:
     """Groups the pages into takes. A page without initials belongs to the take it is in. Each take has its pages'
-    numbers as read (Take.numbers, Take.start: the first read). Each take lists its running heads as printed
+    numbers as read (Take.numbers, and Take.start: its first page's). Each take lists its running heads as printed
     (Take.heads, each once, the title pages' left out, and last_head), less any character a workbook cell can't
     hold and a page number printed on the head's own line. title_count: how many title pages the transcript
     begins with. front: whose the pages before the first initials are, as Whose pages... answered
@@ -511,12 +564,10 @@ def find_takes(marks: list[PageMark], title_count: int = 1, front: str = "") -> 
         initials = m.initials or fill
         fill = initials
         if not takes or takes[-1].initials != initials:
-            takes.append(Take(initials, None, title_only=i < title_count, at=i))
+            takes.append(Take(initials, m.number, title_only=i < title_count, at=i))
         take = takes[-1]
         take.pages += 1
         take.numbers.append(m.number)
-        if take.start is None:
-            take.start = m.number
         take.title_only = take.title_only and i < title_count
         head = _own_number_off(" ".join(_CONTROL.sub("", m.head).split()), number) if i >= title_count else ""
         if head:

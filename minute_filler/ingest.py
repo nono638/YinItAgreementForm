@@ -188,7 +188,7 @@ def _read_pdf(doc: pymupdf.Document, name: str) -> Ingested:
         ing.first_page_no = int(m.group(1)) or None  # (a 0 printed where the number goes is no page number)
     try:  # every page: who wrote it, and where the transcript ends (the word index after it isn't counted)
         facts, cover = without_cover(read_pages(doc))
-        ing.count = count_pages(facts, doc.page_count - cover)
+        ing.count = count_pages(facts, doc.page_count - cover, cover)
         ing.count.cover = cover
         ing.marks = counted_marks(facts, ing.count)
         ing.index_head = index_heading(facts, ing.count)
