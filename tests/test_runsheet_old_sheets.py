@@ -15,6 +15,7 @@ from openpyxl import Workbook, load_workbook
 
 from minute_filler.batch import group, read_docs
 from minute_filler.runsheet import Row, RunSheetOpts, _number, _read_ours, add_takes, run_sheet_summary, takes_to_add
+from minute_filler.settings import ReporterProfile
 from minute_filler.takes import TITLE_ONLY
 
 from helpers import CAPTION_DPM, pat_settings
@@ -178,6 +179,41 @@ def test_a_take_the_user_typed_in_after_it_was_left_off_isn_t_added_again(tmp_pa
     wb.save(path)
     assert again(job, s, path).added == 0
     assert total(path) == 35
+
+
+ANOTHER_TAKES_ROW = {
+    # Kim's take typed in by hand under a name of the user's own, its own Start and count
+    "another name": ([("AM.pdf", range(1, 21), [PR] * 20), ("PM.pdf", range(1, 31), [DS] * 15 + [KP] * 15)],
+                     [("Pat", 20, 1)], ("Kimberly", 15, 16)),
+    # Kim's take typed in under the initials, Start blank, while Settings names KP "Kim"
+    "initials": ([("AM.pdf", range(1, 21), [PR] * 20), ("PM.pdf", range(1, 31), [DS] * 15 + [KP] * 15)],
+                 [("Pat", 20, 1)], ("KP", 15, None)),
+    # the user's own take typed in under the user's initials (the user's name on the sheet is "Pat"), Start blank
+    "own initials": ([("AM.pdf", range(1, 21), [KP] * 20), ("PM.pdf", range(1, 31), [DS] * 15 + [PR] * 15)],
+                     [("Kim", 20, 1)], ("PR", 15, None)),
+}
+
+
+@pytest.mark.parametrize("shape", ANOTHER_TAKES_ROW)
+def test_a_row_another_take_answers_to_isn_t_taken_for_the_take_left_off(tmp_path, s, shape):
+    """DS's take (PM.pdf numbered from 1 again) was left off by the released version, and the user typed in ANOTHER
+    take of that day by hand, of the same count. That row was taken for DS's take: DS's take stayed off (35 pages on
+    the sheet of a 50-page day), or the other take was added a second time (65 pages, once DS's went on)."""
+    files, sheet, typed = ANOTHER_TAKES_ROW[shape]
+    s.reporters = {"kp": ReporterProfile(name="Kim")}
+    job = job_of(s, *(pdf(tmp_path / name, list(numbers), who) for name, numbers, who in files))
+    path = released_sheet(tmp_path / "sheet.xlsx", sheet)
+    wb = load_workbook(path)
+    ws = wb["Run Sheet"]
+    r = 5 + len(sheet)
+    ws.cell(r, 1, DAY).number_format = "m/d/yyyy"
+    ws.cell(r, 3, typed[0])
+    ws.cell(r, 6, typed[1])
+    ws.cell(r, 7, typed[2])
+    wb.save(path)
+    assert again(job, s, path).added == 1
+    assert ("DS", 15, 1) in sheet_of(path) and total(path) == 50
+    assert again(job, s, path).added == 0 and total(path) == 50
 
 
 def test_a_draft_or_a_part_sent_ahead_still_stands_for_its_take(tmp_path, s):
