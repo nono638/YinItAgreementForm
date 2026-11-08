@@ -29,10 +29,10 @@ earlier put it), next to the transcript, in a folder the records list for the ca
 can go to different folders) or in Documents\\YinIt Run Sheets (where earlier versions kept them all): see
 sheet_folders. One found is added to where it is; it is not moved. It is found by index number or, since one
 trial can have several index numbers billed together, by case name; otherwise a new one is started. On a run
-sheet of this app, the rows already there stay in their order (with what was typed in them) and each new take
-goes before the first later one. A run sheet this app did
-not make (downloaded from Google Sheets, say) gets its rows added at the end, or on a row typed in ahead for that
-day, with its own formulas copied down; it is backed up first.
+sheet of this app, the rows already there stay in their order (with what was typed in them) and each new take,
+one the sheet hasn't already (takes_to_add), goes before the first later one. A run sheet this app did not make
+(downloaded from Google Sheets, say) gets its rows added at the end, or on a row typed in ahead for that day, with
+its own formulas copied down; it is backed up first.
 
 A run sheet made before the app was renamed (2.0) is still found and added to: its hidden "DjinnIt" sheet
 (OLD_META) is read, and replaced by a "YinIt" one when the run sheet is written again (meta_sheet, _meta).

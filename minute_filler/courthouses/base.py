@@ -226,7 +226,7 @@ class Courthouse:
 
     math_subfolder: the name of the folder the math of the invoices (invoice_math.save_math) always goes in, never
     among the invoices: inside the case's own folder, as an output's subfolder does, or inside Save to or the
-    invoices' own folder (Settings.folder_for)."""
+    invoices' own folder (Settings.folder_for). "" is "Math" too (courthouses.use)."""
     key: str
     name: str
     outputs: tuple[OutputSpec, ...]

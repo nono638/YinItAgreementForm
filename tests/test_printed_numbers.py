@@ -5,7 +5,13 @@ page read and rising, or the whole day shows 1-N), so a cover before pages 819-9
 pages. Now a Min-U-Script cover is taken out where a PDF is read (takes.without_cover), and the numbers are shown as
 read, in the stretches they run in (takes.run_numbers); a run without numbers says its place ("place 1–20", "counted
 pages 1–20"), never a bare "1–20". Records made before this count the cover in what they keep by place, so a past job
-opened again moves its rows and corrected takes over (batch.settle_old_places). All names and numbers are made up."""
+opened again moves its corrected takes (batch.fixes_without_cover) and its rows (batch.settle_old_places) over.
+
+Also here: a page printing 0 where its number goes, its number in its running head; a run typed in Excerpts... by its
+place where a number can't say which page; a job opened again waiting for every transcript its record counted, and
+keeping the record's list of documents and its count meanwhile (Job.old_sources, Job.old_count); and the run sheet
+generated again, which keeps every take, adds none twice and keeps them in the order of the pages
+(runsheet.takes_to_add, page_order). All names and numbers are made up."""
 import json
 from dataclasses import replace
 from datetime import date

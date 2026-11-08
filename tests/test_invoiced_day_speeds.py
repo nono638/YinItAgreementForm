@@ -100,7 +100,7 @@ def test_generate_of_a_day_invoiced_bills_what_its_card_says(window, tmp_path, s
 
 def test_where_generate_asks_a_day_invoiced_isnt_asked_another_days_speed(window, tmp_path, s, monkeypatch):
     """Settings.split_speeds "ask": Generate of day 1 asked Alex's speed on it, starting from day 2's Daily (and
-    billed Daily, the answer as it started)."""
+    billed Daily, the answer as it started). Now it asks nothing, and bills what the card says."""
     from minute_filler.gui import dialogs
     s.split_speeds = "ask"
     asked = []

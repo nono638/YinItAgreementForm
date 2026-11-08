@@ -1050,11 +1050,12 @@ class RegexExtractor:
 
     # ----- pages
     def _pages(self, ing: Ingested, text: str, ex: Extraction) -> None:
-        """Estimated pages: the page count of a transcript PDF (noting its page numbers as read, such as
-        'transcript pages 358-380', or only 'starts at page 358' when they don't run on to its last page, never worked
-        out from the count), or 'N pages' written in an e-mail ('about 1,250 pages' -> 1250). A range of pages in an e-mail ('pages 10-25', 'pp. 10 to 25') counts
-        them, 16, at a lower confidence; a single page ('p. 10') is not a count. 'expect 30-40 pages' is an
-        estimate, the larger number: 40.
+        """Estimated pages: the page count of a transcript PDF (noting its page numbers as read, never worked out
+        from the count: 'transcript pages 358-380', 'transcript pages 1–39, 10–29' where they start again or jump
+        (takes.run_numbers), or only 'starts at page 358' when they don't run on to its last page), or 'N pages'
+        written in an e-mail ('about 1,250 pages' -> 1250). A range of pages in an e-mail ('pages 10-25', 'pp. 10 to
+        25') counts them, 16, at a lower confidence; a single page ('p. 10') is not a count. 'expect 30-40 pages' is
+        an estimate, the larger number: 40.
         A transcript's count leaves out the word index printed after it, and is read four ways and reconciled
         (takes.count_pages): when the readings disagree or the index looks too long, its confidence is lower and
         the field is marked for review (batch._all_pages offers the other counts). It is counted, not read from

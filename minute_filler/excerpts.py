@@ -4,10 +4,10 @@ Each day of the case (a job, see batch.invoice_groups) is cut into runs of pages
 ordered it: the whole day by everyone ticked (the default), or excerpts - firm A the whole trial, firm B a
 stretch of day 1, firm C part of B's stretch and another of day 2. A run is typed in the page numbers printed
 on the transcript ("141-170"; by its place in the day, "place 40-44", when they aren't known or can't say which
-page) and the runs around it make room (carve). A run removed gives its pages to the run above it (remove), and a day can be one run again
-(whole_day). A run nobody ordered is billed to nobody. What is set is kept on each day as Job.portions (rows of
-(last page, firms), and a run's own speeds, see store) and the attorneys ticked on it, so the invoices
-(invoice.firm_invoices) bill it as before: pages ordered by several firms share the original and the judge's
+page) and the runs around it make room (carve). A run removed gives its pages to the run above it (remove), and a
+day can be one run again (whole_day). A run nobody ordered is billed to nobody. What is set is kept on each day as
+Job.portions (rows of (last page, firms), and a run's own speeds, see store) and the attorneys ticked on it, so the
+invoices (invoice.firm_invoices) bill it as before: pages ordered by several firms share the original and the judge's
 index between them (the index too, when Settings.invoice_index_shared says "split"), and each firm pays its own
 copy (and its own index). Whether a day gets an index is judged on every page of it, as
 Settings.invoice_index_rule says (with "any", another day of the invoice reaching the threshold is enough), so a
@@ -21,10 +21,10 @@ Each firm on a run ordered it at a speed (Run.speeds; the day's, Job.speeds, unl
 firm billed alone may leave it unset and choose from its invoice; firms that ordered a run together commit to
 theirs (courthouses.speed_upfront), and are priced at it (invoice_calc.quote_ordered): at different speeds, the
 run's one original is divided as the courthouse's split rule chosen in Settings says (or the one the job was
-billed by already: batch.Job.split_rule). What is shown is what Generate bills: a firm with no speed of its own on a
-run is priced at the one Generate gives it without asking (batch.as_billed: its speed on its other pages, else that
-day's agreement form's). Where Generate asks (Settings.split_speeds "ask"), it is priced as the invoice stands until
-it is answered: at its speed where set, else the form's (invoice.default_speed).
+billed by already: batch.Job.split_rule). What is shown is what Generate bills: a firm that must commit and has no
+speed set yet is priced at the one Generate gives it without asking (batch.as_billed: its speed on its other pages,
+else that day's agreement form's). Where Generate asks (Settings.split_speeds "ask"), it is priced as the invoice
+stands until it is answered: at its speed where set, else the form's (invoice.default_speed).
 """
 from __future__ import annotations
 
@@ -41,7 +41,8 @@ from .models import Attorney
 from .settings import Settings
 from .takes import numbers_known, place_words, run_numbers, run_numbers_known
 
-_BY_PLACE = re.compile(r"(?i)^\s*place\b")  # a run typed by its place in the day, whatever the day's numbers: "place 40-44"
+# a run typed by its place in the day, whatever the day's numbers: "place 40-44"
+_BY_PLACE = re.compile(r"(?i)^\s*place\b")
 
 
 @dataclass
@@ -397,12 +398,12 @@ def sharers(run: Run) -> int:
 class Counts:
     """A run's pages, as the Who ordered window counts them (the user, 2026-10-29: "Pages billed" read as every
     reporter's): the user's own invoice bills (0 when nobody ordered the run, or when Whose pages... bills other
-    reporters' pages only: no invoice of the user's is made); the user wrote (None when that
-    can't be told: a transcript of several reporters while the user's initials aren't known, or whose first pages
-    Whose pages... hasn't said whose they are, or the Pages field typed in); every reporter's; every reporter's a
-    firm ordered. typed: the last two aren't every reporter's pages but a stretch of the Pages field's number (the user's
-    own count, a run cut out of it or no transcript to count), so they are said as pages typed; a day of one run, with a
-    transcript, has the transcript's total pages."""
+    reporters' pages only: no invoice of the user's is made); the user wrote (None when that can't be told: a
+    transcript of several reporters while the user's initials aren't known, or whose first pages Whose pages...
+    hasn't said whose they are, or the Pages field typed in); every reporter's; every reporter's a firm ordered
+    (_total_of). typed: the last two aren't every reporter's pages but a stretch of the Pages field's number (the
+    user's own count: a run cut out of it, or no transcript to count), so they are said as pages typed; the run that
+    is a whole day, with a transcript, has the transcript's total pages."""
     your_billed: int
     your_transcribed: int | None
     total_transcribed: int
@@ -472,7 +473,8 @@ class Prices:
     ordered: dict[int, dict[str, tuple[str, Decimal]]] = field(default_factory=dict)
     # ((key, speed) of each firm, pages, key -> what it pays for those pages), fewest firms first
     ordered_groups: list[tuple[tuple[tuple[str, str], ...], int, dict[str, Decimal]]] = field(default_factory=list)
-    # (the speed a firm is priced at while it has none, Generate still asking: the agreement form's, invoice.default_speed)
+    # (the speed a firm is priced at while it has none, Generate still asking: the agreement form's,
+    # invoice.default_speed)
     fallback: str = ""
     committed: set[str] = field(default_factory=set)  # the firms whose invoice bills the speeds they ordered
     # the runs (by id) of each set in groups and ordered_groups, by its firm keys (or its (key, speed) pairs): the
@@ -484,7 +486,8 @@ class Prices:
     asked: dict[tuple[int, str], str] = field(default_factory=dict)
     hold: str = ""  # why Generate makes no invoice of these days yet, as they are billed ("" when it does: find_hold)
     reporter: str = ""  # whose name the invoices priced are in (InvoiceOpts.reporter: "" = the user's)
-    more_sets: list[str] = field(default_factory=list)  # the other reporters Generate makes invoices for, not priced here
+    # the other reporters Generate makes invoices for, not priced here (their initials)
+    more_sets: list[str] = field(default_factory=list)
 
     def speed_billed(self, run: Run, key: str) -> str:
         """The speed firm `key` is billed for the run at: the run's own, else its speed on the day, set or as Generate
@@ -508,12 +511,12 @@ def find_hold(days: list[Day], billed: list[Job]) -> str:
 def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None = None) -> Prices:
     """The prices of the runs as Generate bills them (see Prices; batch.as_billed, worked out over the days in `pool`
     too: the other days Generate counts, MainWindow._speed_days), so the window never says another price than the
-    invoice. A firm's share of a run is worked out exactly, and the
-    invoices round each firm's total up to the cent (invoice_calc.quote_shares, quote_ordered); with each price a
-    page rounded to the cent (Settings.invoice_rounding "page"), a share is that price times its pages, as the
-    invoice has it ($6.6125 a page -> $6.61 x 30 = $198.30, not $198.375). Only the first set of invoices is priced
-    (batch.joint_invoice_sets): on days of several reporters, those of the first reporter Whose pages... bills on any
-    of them (the user, when ticked), each day as that reporter's invoices bill it; Prices.reporter and more_sets say so."""
+    invoice. A firm's share of a run is worked out exactly, and the invoices round each firm's total up to the cent
+    (invoice_calc.quote_shares, quote_ordered); with each price a page rounded to the cent (Settings.invoice_rounding
+    "page"), a share is that price times its pages, as the invoice has it ($6.6125 a page -> $6.61 x 30 = $198.30,
+    not $198.375). Only the first set of invoices is priced (batch.joint_invoice_sets): on days of several
+    reporters, those of the first reporter Whose pages... bills on any of them (the user, when ticked), each day as
+    that reporter's invoices bill it; Prices.reporter and more_sets say so."""
     group = [d.job for d in days]
     try:
         firms = firms_of(group)  # (the same firm named alike on every day, batch.same_entries, before they are copied)

@@ -1040,11 +1040,11 @@ def math_note(save: str, made: list, paths: list, now: str | None = None) -> str
     """What the box at the end of Generate or Generate all says about the math of the invoices it made, "" when it
     is all saved: nothing else tells the user there is none. save: Settings.save_math as they were made; made: the
     (FirmInvoice, number) of each invoice (generate's `math`); paths: the files saved; now: Settings.save_math at the
-    box, which the math's window or its links may have changed since: made with Don't save it, the note says so in
-    a shorter form when the list no longer does. The PDFs due are counted by
-    FirmInvoice.group, as save_math goes by reporter within a Generate: firm_invoices makes one group for each
-    reporter's set. A number is said only when it is known: with "each" every missing PDF is one invoice's, and when
-    none was saved it is all of them; otherwise one PDF may be of one invoice or of all of them."""
+    box, which the math's window or its links may have changed since. Made with "off" (Don't save it), the note
+    names that setting, or, when the list says to save it by now, says the next Generate will. The PDFs due are
+    counted by FirmInvoice.group, as save_math goes by reporter within a Generate: firm_invoices makes one group for
+    each reporter's set. A number is said only when it is known: with "each" every missing PDF is one invoice's, and
+    when none was saved it is all of them; otherwise one PDF may be of one invoice or of all of them."""
     from collections import Counter
 
     from .settings import MATH_SAVES

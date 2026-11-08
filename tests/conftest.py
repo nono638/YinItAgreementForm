@@ -1,4 +1,5 @@
-"""Fixtures for every test: settings and records kept in a temporary folder, no real Ollama, no look on GitHub for
+"""Fixtures for every test: settings and records kept in a temporary folder of each test's own (and, for a test that
+undoes that, in one of the whole run's, never the user's real folders), no real Ollama, no look on GitHub for
 a newer version, every day a business day (forms dated today, whatever day the tests run), and an off-screen Qt
 application and main window for the GUI tests. Also, for the tests that ask for it, a courthouse whose split
 orders choose a speed from their invoices (split_orders_choose)."""

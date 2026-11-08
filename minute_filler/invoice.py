@@ -867,8 +867,9 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
     (courthouses.speed_upfront), is billed that speed alone (invoice_calc.quote_ordered): one whose speed isn't
     set yet, at the agreement form's (default_speed), which is what Generate's question starts from. Without
     opts.orders (invoices made the old way), every firm gets the same prices, split evenly. The amounts are rounded
-    as Settings.invoice_rounding says (Quote.per_party). ValueError without a page count, or when a speed set isn't
-    on the rate sheet."""
+    as Settings.invoice_rounding says (Quote.per_party). Each is told who is billed for the same work, for its math
+    (_one_set: the firms of this call's invoices, and those left out as invoiced already). ValueError without a page
+    count, or when a speed set isn't on the rate sheet."""
     orderers = case.invoice_orderers()
     group = next(_GROUPS)
     if not opts.orders:
@@ -993,7 +994,7 @@ class Invoices:
                         if m.detailed is not None:
                             m.detailed.append(copy)
         finally:
-            try:  # an aside too: the invoices are made and recorded (an error on its way up goes on: the same list)
+            try:  # an aside too, and in finally: the invoices made before an error get their math all the same
                 from .invoice_math import save_math  # (it imports this module)
                 m.made += save_math(made, m.s.save_math, m.s.math_layout, m.folder("math"))
             except Exception as e:
