@@ -1,8 +1,10 @@
-"""Who ordered which pages says what Generate bills: each test reads what the window shows a firm, makes the invoices
-with the real batch.fill_jobs, and compares the two in the records (the ledger). The window priced an unset firm at the
+"""Who ordered which pages says what Generate bills: most tests read what the window shows a firm, make the invoices
+with the real batch.fill_jobs, and compare the two in the records (the ledger). The window priced an unset firm at the
 first day's agreement form, on the days as they stood; Generate first gives such a firm its speed from its other pages,
 else that day's form (batch.settle_split_speeds), so the two differed once a firm's speed was set on part of its pages
-or the days' forms differed.
+or the days' forms differed. Also: rounding and Parties, Whose pages... billing another reporter, Generate asking the
+speeds, and, in the main window, the days Generate and Generate all work the speeds out over
+(MainWindow._speed_days) and what the Invoice card and Who pays what price and hold.
 
 Prices are from the bundled "Sample Rates" sheet. A page at Expedite: $7.60 alone, $4.90 shared by two. At Daily: $9.00
 alone, $5.75 shared by two. All names are made up."""
@@ -161,7 +163,7 @@ def test_a_speed_on_one_day_is_the_firms_speed_on_the_other(qt, themed, tmp_path
 
 
 def test_a_speed_on_the_shared_run_is_the_firms_speed_on_its_lone_run(qt, themed, tmp_path, s):
-    """The same day: Alex alone on 10 total pages unset, sharing 20 with Dana, Daily there by right-click. The window
+    """On one day: Alex alone on 10 total pages unset, sharing 20 with Dana, Daily there by right-click. The window
     said "Expedite + Daily $202.00"; Generate bills Daily $216.00."""
     jobs = days_of(tmp_path / "a", s)
     w = open_window(qt, jobs, s)
@@ -202,8 +204,9 @@ def test_a_speed_from_the_other_pages_isnt_called_the_forms(qt, themed, tmp_path
 
 @pytest.mark.usefixtures("split_orders_choose")
 def test_a_firm_with_no_speed_is_priced_at_the_form_where_firms_neednt_commit(qt, themed, tmp_path, s):
-    """Alex Daily and Dana with none, on day 2, whose form is Daily; Dana has no speed of its own anywhere, and is shown at
-    the first day's form, where its invoice chooses. It has no other pages to take a speed from: the tip doesn't say so."""
+    """Alex Immediate and Dana with none, on day 2, whose form is Daily; Dana has no speed of its own anywhere, and is
+    shown at the first day's form, where its invoice chooses. It has no other pages to take a speed from: the tip
+    doesn't say so."""
     jobs = days_of(tmp_path / "a", s, pages=(10, 20), ticked=(D, A), forms=("Expedite", "Daily"))
     w = open_window(qt, jobs, s)
     set_runs(w, 0, (1, 10, [K], {}))
@@ -353,7 +356,7 @@ def test_a_number_typed_isnt_what_another_reporters_invoice_bills(qt, themed, tm
     w = open_window(qt, jobs, s)
     assert invoices_shown(w) == {"Alex B. Counsel": DS_20}
     assert "in DS's name" in html.unescape(w.summary.text()) and "made too" not in w.summary.text()
-    # (what the run costs too: its places are in the number typed, the first 5 of them the user's, none of them DS's)
+    # (the run's line under the table too: none of your pages billed, and the price of DS's 20)
     assert "only: 0 of your pages billed (30 total pages) - costs Regular $126.00 · Expedite $152.00" in \
         html.unescape(w.summary.text())
     assert each_invoice(jobs, s) == [("DS", "Alex B. Counsel", DS_20)]
@@ -410,7 +413,8 @@ def test_the_index_is_judged_on_the_days_of_the_invoices_priced(tmp_path, s):
 
 
 def test_a_job_of_several_days_billing_another_reporter(qt, themed, tmp_path, s):
-    """A job of several days, ordered whole, one row: as the set priced bills it, DS's on a day of the user's."""
+    """A job of several days (ordered whole: one row) whose Whose pages... bills DS's pages: priced as DS's invoice
+    bills it, DS's 40 pages of the two days."""
     s.profile.initials = "pr"
     s.batch_combine_dates = True
     folder = tmp_path / "a"
@@ -435,7 +439,7 @@ def test_a_job_of_several_days_billing_another_reporter(qt, themed, tmp_path, s)
 
 # ------------------------------------------------------------------ random orders
 def random_order(rng, folder, s):
-    """Days of 1 to 3 transcripts, cut into runs at random, some with speeds, as the window keeps them."""
+    """One to three days of a transcript each, cut into runs at random, some with speeds, as the window keeps them."""
     jobs = days_of(folder, s, pages=tuple(rng.choice([7, 11, 13, 25, 33]) for _ in range(rng.choice([1, 2, 2, 3]))),
                    ticked=(D, A, K), forms=[rng.choice(SPEEDS[:3]) for _ in range(3)])
     days, firms = case_days(jobs), firms_of(jobs)
@@ -928,6 +932,8 @@ def test_the_excerpts_button_passes_generates_days_not_the_whole_trial(qt, theme
 
 
 def test_as_billed_is_where_the_main_window_has_it(qt, tmp_path, make_window, s):
+    """MainWindow._as_billed is batch.as_billed: copies at the speeds Generate sets, the days untouched; where Generate
+    asks, the days themselves."""
     from test_show_the_math import settled
     from minute_filler.batch import as_billed
     win = settled(make_window(s))

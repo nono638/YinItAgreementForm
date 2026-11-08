@@ -1,8 +1,11 @@
 """How Who ordered which pages looks and clicks (gui/firm_columns.py, gui/excerpts.py): a band of each firm's colour
 over its name, a stripe of it down its column, the speed list in its heading, a click anywhere in a cell ticking
-it, and what the cells say. What the table's prices are made of: tests/test_excerpts.py, tests/test_mixed_speeds.py.
-Prices are from the bundled "Sample Rates" sheet: at Expedite, an original of $5.40, a copy and an e-mailed copy of
-$1.10 a page, so $7.60 a page alone and $4.90 a page shared by two. All names are made up."""
+it, how wide the columns are, what the cells and the lines under the table say (prices, held invoices, pages typed),
+the row and column chosen after a change, Split run…, and one rebuild of the table for one change. What the table's
+prices are made of: tests/test_excerpts.py, tests/test_mixed_speeds.py; that they are what Generate bills:
+tests/test_excerpts_money.py. Prices are from the bundled "Sample Rates" sheet: at Expedite, an original of $5.40, a
+copy and an e-mailed copy of $1.10 a page, so $7.60 a page alone and $4.90 a page shared by two. A day of 30 pages
+(helpers.transcript_pdf) shows the page numbers "101–130". All names are made up."""
 import os
 from decimal import Decimal
 
@@ -239,6 +242,7 @@ def test_a_click_anywhere_in_a_firms_cell_ticks_it_once(qt, clicking):
 
 
 def test_a_right_click_on_a_cell_is_the_runs_menu_and_ticks_nothing(qt, clicking, monkeypatch):
+    """Only the left button ticks: the right one is the run's menu, and the middle one does nothing either."""
     from PySide6.QtCore import Qt
     w, told = clicking
     click_at(qt, w, 0, D, Qt.RightButton)
@@ -874,8 +878,8 @@ def test_a_tooltip_doesnt_say_whose_speed_it_isnt(qt, themed, tmp_path, s):
 # ------------------------------------------------------------------ the money adds up
 @pytest.mark.parametrize("rounding", ["exact", "page"])
 def test_a_committed_firms_cells_add_up_to_its_invoice(qt, themed, tmp_path, s, rounding):
-    """Its run alone was priced by its own at every speed; its invoice bills one speed for all of it. The cells of
-    the row, read back, are what the invoice comes to, within rounding up to the cent; and that is the
+    """Its run alone was priced by its own at every speed; its invoice bills one speed for all of it. Alex's cells,
+    read back and added up, are what its invoice comes to, within rounding up to the cent; and that is the
     invoice's amount when Generate makes it."""
     from minute_filler.batch import fill_jobs
     from minute_filler.deliver import ledger_for
@@ -934,7 +938,8 @@ def two_reporters(tmp_path, s):
 
 
 def test_a_firm_sharing_only_pages_not_billed_is_billed_as_generate_has_it(qt, themed, s, two_reporters):
-    """"Alex B. Counsel: " with no amount: commit counted the shared run, the invoice doesn't (no pages of it billed)."""
+    """It read "Alex B. Counsel: " with no amount: whether Alex commits to a speed counted the shared run, which his
+    invoice doesn't bill (none of its pages are the user's), so he is billed as Generate has it, at Expedite."""
     w = open_window(qt, two_reporters, s)
     split(w, w.days[0], (1, 10, [A]), (11, 30, [A, D]))
     assert invoice_line(w, "Alex B. Counsel") == "Alex B. Counsel: Expedite $76.00"
@@ -1129,8 +1134,9 @@ def test_a_number_typed_of_one_page_says_one_page(qt, themed, tmp_path, s):
     w.close()
 
 
-# ------------------------------------------------------------------ a Pages number typed
+# ------------------------------------------------------------------ pages typed (a number in the Pages field)
 def typed_day(tmp_path, s, typed="20"):
+    """One day of a transcript of 30 total pages, with `typed` typed in its Pages field (Est. number of pages)."""
     from minute_filler.models import SRC_USER, FieldState
     jobs = days_of(tmp_path, s)
     jobs[0].case.fields["est_pages"] = FieldState(typed, SRC_USER, 0.95, [typed])
@@ -1139,6 +1145,7 @@ def typed_day(tmp_path, s, typed="20"):
 
 
 def counts_of(w, r):
+    """Row r's counts as the table says them, in the order of COUNTS."""
     from minute_filler.gui.excerpts import COUNTS, FIRST_FIRM
     first = FIRST_FIRM + len(w.firms)
     return [w.table.item(r, first + k).text() for k in range(len(COUNTS))]

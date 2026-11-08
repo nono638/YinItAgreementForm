@@ -16,10 +16,11 @@ Who ordered is who ordered, what and at what speed, in one place (the user, 2026
 forms name (the trial's, every day of it) beside the speeds offered, then a row per firm of the trial, whichever
 day is shown (_show_attorneys, _trial_firms), with its tick (the whole trial, as a rule: Settings.trial_orders,
 batch.tick_firm; half ticked for some days only, _tick_row), What (the whole trial, the day shown, or Who ordered
-which pages…: _what_box), Speed (the speed billed, by name: _firm_speed_box) and Pages; the row selected is spelled
-out under it (_build_att_details); and a line saying who orders what and what Generate all bills
-(_show_orders). Each firm of a trial is marked by a square and a thin stripe of its colour wherever it is named: Who ordered, Who pays what,
-Who ordered which pages… (_marks, _mark_row). While nothing is loaded, the jobs made lately are listed to open again
+which pages…: _what_box), Speed (the speed billed, by name: _firm_speed_box) and Your pages; the row selected is
+spelled out under it (_build_att_details); and a line saying who orders what and what Generate all bills
+(_show_orders). Each firm of a trial is marked by its colour wherever it is named (_marks, _mark_row): a square and a
+thin stripe in Who ordered and Who pays what, a band over its name and a stripe down its column in Who ordered
+which pages…. While nothing is loaded, the jobs made lately are listed to open again
 (_show_start); fields complete from the records (_fill_completions); New job can be undone for a few seconds
 (_undo_clear); the Records button counts the invoices of a status (Settings.records_count: _count_records). View
 zooms, picks the theme, folds the cards and shows or hides the job list's Day column. F1 opens the manual at the
@@ -48,9 +49,10 @@ reporter's takes of every day ticked, with the running heads printed on their pa
 or a CSV file (_show_takes, _save_takes); a take that came out wrong (a page's initials misread or missing) is
 corrected there, and the correction is the transcript's (_fix_take, Doc.fixes). The Invoice card's
 Peripherals... (the e-mailed copy and the index, for this job only) and Customize... set what the current job's
-invoice shows, Excerpts... which firm ordered which pages of the days ticked of the case (its own window,
-gui/excerpts.py), and Whose pages... whose pages of a transcript of several reporters are billed (the user's own,
-by default; other reporters' on invoices in their name); with Generate all, the days of one case share one
+invoice shows, and Whose pages... whose pages of a transcript of several reporters are billed (the user's own,
+by default; other reporters' on invoices in their name). Who ordered's Who ordered which pages… says which firm
+ordered which pages of the days ticked of the case (its own window, gui/excerpts.py, open beside this one, with
+the speeds and prices as Generate bills them: _speed_days); with Generate all, the days of one case share one
 invoice per attorney (batch.joint_invoice). The files of a case go into a folder of its own inside Save to
 (Settings.case_folders), asked about when it has files in it already (_case_folder); its run sheet too, unless
 Settings give run sheets a folder of their own. A case's run sheet is also looked for next to its transcripts,
@@ -60,12 +62,14 @@ there is nothing to clear. File -> Lock finished PDFs saves copies whose fields 
 Generate and Generate all show the files as pictures first (preview.PreviewDialog), with "The math" of the
 invoices, unless that is turned off (then the math comes after saving, preview.MathDialog, unless
 Settings.show_math is off), and the math is saved as PDFs in a Math folder as Settings.save_math says
-(Settings.folder_for "math"; its "Save the math" list is under the math too: _math_saves_kept); the box that says what
-was saved says so too when the math wasn't (_math_note), and can print the files. File -> Open recent lists the
-documents opened lately, and Export / Import settings carry the settings to another computer. A job once made can be opened again from the Records window, its takes as the user corrected
-them (open_past_job, batch.origin_fixes). When the window opens it makes the day's backup of the records and, once
-a day, asks whether there is a newer version (update.py: an Update button at the top until it is installed); a
-new user is asked a few questions first
+(Settings.folder_for "math"; its "Save the math" list is under the math too: _math_saves_kept); the box that says
+what was saved also says when the math wasn't (_math_note), and can print the files. File -> Open recent lists the
+documents opened lately, and Export / Import settings carry the settings to another computer. A job once made can
+be opened again from the Records window, its takes as the user corrected them, also in a document that comes back
+later (open_past_job, batch.origin_fixes, batch.back_from_record); a record that counted a Min-U-Script cover among
+the pages is moved to the count without it as its documents are read (batch.counts_covers). When the window opens
+it makes the day's backup of the records and, once a day, asks whether there is a newer version (update.py: an
+Update button at the top until it is installed); a new user is asked a few questions first
 (preview.WelcomeDialog), a settings file that couldn't be read is said so instead, and an incomplete rate sheet is
 warned about (MainWindow._startup). On the first day the app is used in a new year, the yin-yang's "done" picture
 is the New Year one (note_opened).
@@ -177,7 +181,8 @@ def take_cells(row) -> list[str]:
     and annoying more often")."""
     day = f"{row.day.month}/{row.day.day}/{row.day.year}" if row.day else ""
     day = f"{row.case} · {day}" if getattr(row, "case", "") else day
-    # (as read from the PDF, Row.numbers: Row.end() is a count, and wrong where the numbers skip or repeat)
+    # (the page numbers as read from the PDF, Row.numbers, in their stretches: Row.end() is worked out from a count,
+    # and wrong where the numbers skip or repeat)
     return [day, row.reporter or NO_INITIALS, run_numbers(row.numbers).pp(), str(row.pages or 0), row.heads]
 
 
@@ -2979,8 +2984,8 @@ class MainWindow(QMainWindow):
         fixes: the takes corrected in them, by Doc.key() (a trial opened again: batch.origin_fixes; Doc.fixes; a job of
         one day keeps its record's itself, Job.old_fixes).
         orders: the record of a trial opened again (its origin): who ordered each day comes back as it kept it
-        (batch.put_back_orders). old_places: that record counted Min-U-Script covers among the pages, fixes too
-        (batch.counts_covers). What was opened is kept for File -> Open recent."""
+        (batch.put_back_orders). old_places: the record opened again counted Min-U-Script covers among the pages, so
+        `fixes` does too (batch.counts_covers). What was opened is kept for File -> Open recent."""
         gen = self.gen
         for p in reversed(paths):
             self.s.remember_file(p)
@@ -3037,11 +3042,12 @@ class MainWindow(QMainWindow):
         added to that job (with same_job, whatever they are about); otherwise (or with batch=True) they are
         sorted into jobs by case and date, the new ones billed by split_rule when one is given (the days of an
         invoice opened again: Job.split_rule). fixes: the takes corrected in the documents, by Doc.key() (a trial
-        opened again: batch.origin_fixes); each document read whose key is there gets them (Doc.fixes), and the days
-        made of them keep those of the documents not read, for each as it comes back (Job.old_fixes).
+        opened again: batch.origin_fixes); each document read whose key is there gets them (Doc.fixes), and, with
+        orders, the days made of them keep those of the documents not read, for each as it comes back, at its own
+        path only (Job.old_fixes, Job.old_fixes_exact).
         orders: a trial's record opened again (its origin, add_files): the days made of these documents get who
         ordered them as it kept it (batch.put_back_orders). old_places: that record counted Min-U-Script covers among
-        the pages: the corrected takes are moved to places without them (the rows are the jobs':
+        the pages: the corrected takes are moved to places without them (the Excerpts... rows are moved on the jobs:
         batch.settle_old_places), and a toast says the count changed once a job has all its transcripts, this read
         or a later one (until then the Pages field still shows the record's count). A cell of the attorney table
         being typed in when the read ends is taken as typed, and opened again afterwards while the same job is on
@@ -3071,7 +3077,7 @@ class MainWindow(QMainWindow):
             for d in docs:
                 for w in d.ing.warnings:
                     self._toast(w)
-                if fixes and fixes.get(d.key()):  # (a past job opened again: its takes as they were corrected)
+                if fixes and fixes.get(d.key()):  # (a trial opened again: its takes as they were corrected)
                     d.fixes = fixes_without_cover(fixes[d.key()], cover_pages(d.ing) if old_places else 0)
             if docs:
                 typing = self._sync_from_ui()
@@ -3703,7 +3709,8 @@ class MainWindow(QMainWindow):
             return
         self._sync_from_ui()
         job.docs[:] = [d for d in job.docs if d is not doc]
-        job.old_sources = documents_not_here(job.old_sources, [doc.key()])  # (out by choice: not waited for)
+        # (taken out by the user: a job opened again from a record no longer waits for it to come back)
+        job.old_sources = documents_not_here(job.old_sources, [doc.key()])
         remerge(job, self.s)
         if own_job:
             new = Job(docs=[doc], batch=True)
@@ -4527,13 +4534,14 @@ class MainWindow(QMainWindow):
         return box.clickedButton() is go_on and not self._batch_running()
 
     def _speed_days(self, jobs: list[Job]) -> list[Job]:
-        """The days Generate works the speeds of these jobs out over: them and the days of their trials ticked in the
-        list (_considered), not invoiced yet, as its Speed column is (batch.speed_shown: a firm ordering one day alone
-        that shares pages on another commits on both, Generate of one day too). Not a day for being the one on screen
-        (_counted): what Generate all bills would change with it. Jobs invoiced already, alone (batch.speed_days: they
-        show what they were billed, and Generate of the day shown bills one so again; a speed set since on a day still
-        to bill isn't theirs). What the prices are worked out over too (_as_billed, and the Excerpts window's), or
-        they would say another speed than is billed."""
+        """The days Generate works the speeds of these jobs out over: them, and the days of their trials ticked in the
+        list (_considered) and not invoiced yet, much as Who ordered's Speed column has it (batch.speed_shown: a firm
+        ordering one day alone that shares pages on another commits on both, Generate of one day too). Unlike that
+        column (_counted), a day isn't added for being the one on screen: what Generate all bills would change with
+        the day shown. Jobs all invoiced already, them alone (batch.speed_days: they show what they were billed, and
+        Generate of the day shown bills one so again; a speed set since on a day still to bill isn't theirs). The
+        prices are worked out over the same days (_as_billed, and the Excerpts window's `pool`), or they would say
+        another speed than is billed."""
         from ..batch import speed_days, trial_days
         pool: dict[int, Job] = {id(j): j for j in jobs}
         considered = self._considered()
@@ -5965,11 +5973,12 @@ class MainWindow(QMainWindow):
             self._refresh_job_labels()
 
     def _math_note(self, save: str, made: list, paths: list) -> str:
-        """What the box at the end of Generate or Generate all says about the math (invoice_math.math_note; save:
-        Settings.save_math as the files were made, made: generate's `math`, paths: the files saved). None saved is
-        said even when the list has since been changed, in the math's window or from its links during Generate all:
-        nothing else need have said it (no such window follows a preview, nor Show the math off), and what that
-        window says of it has closed."""
+        """What the box at the end of Generate or Generate all says about the math: "" when all of it was saved, else
+        what wasn't (invoice_math.math_note; save: Settings.save_math as the files were made, made: generate's
+        `math`, paths: the files saved). That none was saved is said even when the "Save the math" list has been
+        changed since (in the math's window, or from its links during Generate all), with a word that it saves the
+        math from the next Generate: no such window follows a preview, nor comes with Show the math off, so nothing
+        else need have said it, and that window has closed by now."""
         from ..invoice_math import math_note
         return math_note(save, made, paths, self.s.save_math)
 
@@ -6859,12 +6868,13 @@ class MainWindow(QMainWindow):
         another day of the case. origin: Activity.origin (JSON), or what the Records window put together from
         an older record's columns. The case comes back as it was filled in (batch.job_from_origin) and the
         documents it was read from are read again when they are still where they were, their takes as the user
-        corrected them (batch.origin_fixes: kept by the job for each document until it is back, Job.old_fixes; a
-        trial's given to add_files). An invoice of several
-        days is read from its documents, a job per day, each with who ordered it as the record kept it
-        (batch.put_back_orders; a record made before 2.13 keeps none). What an older record kept by a page's place
-        counts a Min-U-Script cover among the pages, and is moved as its documents are read (batch.counts_covers). Asks
-        first when there is work on screen or
+        corrected them (batch.origin_fixes: a job of one day keeps them, Job.old_fixes, and gives each document its
+        own as it is read, now or once it is back; a trial's are given to add_files). The record's documents include
+        those it says were away when it was made (batch.record_documents). An invoice of several days is read from its
+        documents, a job per day, each with who ordered it as the record kept it (batch.put_back_orders; a record made
+        before 2.13 keeps none). An older record counts a Min-U-Script cover among a document's pages
+        (batch.counts_covers): what it kept by a page's place (the Excerpts... rows, the corrected takes) is moved to
+        places without the cover as its documents are read. Asks first when there is work on screen or
         documents are still being read (self.work: they would be dropped without a word); False
         when nothing was opened (during Generate all a box says so, over the Records window the click came from:
         this window's status bar is behind it)."""
@@ -7104,8 +7114,10 @@ class MainWindow(QMainWindow):
         self._card_summaries()  # (a folded card's line: the speed and its price may have changed)
 
     def _as_billed(self, group: list[Job]) -> list[Job]:
-        """The days of an invoice as Generate bills them, over the days it counts (batch.as_billed, _speed_days), so
-        the prices say what is billed; a speed still to answer, where Generate asks, is marked "?"."""
+        """The days of an invoice as Generate bills them, their speeds worked out over the days it counts
+        (batch.as_billed, _speed_days: copies, the days themselves untouched), so the prices say what is billed.
+        Where Generate asks, the days themselves: a speed still to answer is priced as it stands, and the Invoice
+        card marks it "?" (_price_lines)."""
         from ..batch import as_billed
         return as_billed(group, self.s, self._speed_days(group))
 
@@ -7122,8 +7134,9 @@ class MainWindow(QMainWindow):
         firm of a split order whose speed Generate still asks is priced at the form's speed, with a "?"
         (_price_lines). No prices while the invoice is held (whose pages, Excerpts... to check, more speeds on the
         same pages than are billed, parties not named, each as Generate bills the day: _as_billed; a day of the case
-        nobody is ticked on, unless the day is invoiced already). The first of the invoices Generate makes of the days,
-        where Whose pages... bills several reporters (batch.first_invoice_set).
+        nobody is ticked on, unless the day is invoiced already). Where Whose pages... bills several reporters, the
+        prices and the pages said ("20 of DS's pages") are those of the first invoice Generate makes of the days
+        (batch.first_invoice_set).
         Returns the invoices priced (invoice.firm_invoices; None when there are none to price, the card saying
         why), for Who pays what and the Invoice card's link to the math, and how many days they cover."""
         from ..batch import first_invoice_set
@@ -7856,7 +7869,8 @@ class MainWindow(QMainWindow):
             return
         who, day = row.reporter or take.initials.upper(), take_cells(row)[0]
         first_no, now = read[0], read[-1]
-        # (the lowest and highest ahead, not the first and the last: on a day whose numbers fall these run backward)
+        # (the bounds: the lowest and highest numbers from the take on, not the first and the last, which run backward
+        # on a transcript whose numbers start again)
         end_no, ok = QInputDialog.getInt(
             self, title, f"{who}'s take{' on ' + day if day else ''} starts on page {first_no} and ends on "
                          f"page {now}.\n\nOn which page does it really end?", now, min(ahead), max(ahead))
@@ -7879,7 +7893,7 @@ class MainWindow(QMainWindow):
         owners = page_owners(marks)
         # (leaving out a page moved_end only pins to whose it is already: it doesn't move)
         pages = sorted(i for i in fixes if owners[i] != fixes[i])
-        # (as read; pages without a number by their place among the transcript's)
+        # (the page numbers as read; with none read, the pages by their place in the transcript: "counted pages 3–5")
         printed = run_numbers(numbers, pages[0] + 1, pages[-1] + 1).text
         span = (f"page{'s' if '–' in printed or ',' in printed else ''} {printed}" if printed
                 else counted_words(pages[0] + 1, pages[-1] + 1))

@@ -3,18 +3,20 @@ who ordered which pages of the whole case, as a table (see excerpts.py). Its ? (
 the main window) shows how to use it, step by step (show_how_to).
 
 A row per run of pages of a day: its date and weekday (in italics on the day's later runs), its page numbers
-(typed in the transcript's own page numbers, "141-170", or by place in the day when they aren't known; the runs
-around a run typed make room for it; a job of several days shows the numbers printed on its transcripts),
-optionally its place in the day ("1–20 of 85 total pages": Settings.excerpt_show_place), a column per firm
-(firms_of: one for a firm, however many of its attorneys appear, gui/firm_columns.py: a band of the firm's colour
-over its name in the heading, the same colour as a stripe down its cells; ticked = that firm ordered the run, a
-click anywhere in the cell ticks it), its pages counted (COUNTS: the user's billed and transcribed, every
-reporter's transcribed and billed, "5 typed" for a run cut out of a Pages number typed; each can be hidden under
-Columns ▾) and, for each speed offered, what each firm
-choosing from its invoice pays for it. Only your pages hides, as it is ticked, the runs with none of the user's
-pages, and Clear filter shows them again. Under the table the same prices by the firms ordering together ("A + B:
-15 of your pages billed (30 total pages) - each of the 2 pays ...": every count says whose pages it counts, the
-user's or every reporter's, the user, 2026-10-30) and each firm's invoice, each firm with its colour's square.
+(typed in the transcript's own page numbers, "141-170", or by place in the day, "place 40-44", where they aren't
+known or start again; the runs around a run typed make room for it; a job of several days shows the numbers
+printed on its transcripts), optionally its place in the day ("1–20 of 85 total pages": Settings.excerpt_show_place),
+a column per firm (firms_of: one for a firm, however many of its attorneys appear; gui/firm_columns.py: a band of
+the firm's colour over its name in the heading, the same colour as a stripe down its cells; ticked = that firm
+ordered the run, and a click anywhere in the cell ticks it), its pages counted (COUNTS: the user's billed and
+transcribed, every reporter's transcribed and billed; the two totals say "5 typed" for a run cut out of a number
+typed in the Pages field, or a day typed in with no transcript to count, as pages typed aren't every reporter's
+pages: excerpts.Counts.typed; each count can be hidden under Columns ▾) and, for each speed offered, what each firm
+choosing from its invoice pays for it ("Each pays · Regular"). Only your pages hides, as it is ticked, the runs with
+none of the user's pages, and Clear filter shows them again. Under the table the same prices by the firms ordering
+together ("A + B: 15 of your pages billed (30 total pages) - each of the 2 pays ...": every count says whose pages
+it counts, the user's or every reporter's, the user, 2026-10-30), the pages nobody ordered, and each firm's
+invoice, each firm with its colour's square.
 Split run… cuts a run in two where it is told; Remove run (or the Delete key) gives a run's pages to the run above
 it (excerpts.remove: every page stays in one run); Make this day whole makes a day one run again, Make every day
 whole every day of the case. A right-click on a run offers the same. Every change is kept at once (on the days'
@@ -32,7 +34,9 @@ self.pool): a firm with no speed of its own on a run is at the one Generate give
 else that day's agreement form's. Where Generate asks instead (Settings.split_speeds "ask"), the invoice as it stands
 is shown until it is answered, the cell reading "Expedite? · $68.60 (÷2)", in amber. Only the runs of a firm billed
 alone, choosing from its invoice, are priced at each speed offered: their cells are blank, and the "Show prices for"
-boxes and their columns are hidden while there is none.
+boxes and their columns are hidden while every run is priced at the speeds its firms ordered. A day whose printed
+page numbers start again ("1–39, 10–29") is warned about under the buttons for as long as it is shown
+(_warn_falling).
 """
 from __future__ import annotations
 
@@ -566,16 +570,18 @@ class ExcerptsWindow(QDialog):
         else:
             tip = f"Ordered by this firm alone: {name} pays {price}."
         if not run.speed(key):
-            # (this day's form: another day's speed that a firm has on these pages comes from its pages there. None at
-            # all, where it needn't commit: it is shown at the first day's form, Prices.fallback)
+            # (called the form's when it is this day's form's speed: another speed came from the firm's pages
+            # elsewhere. With no speed at all, where it needn't commit, it is shown at the first day's form:
+            # Prices.fallback)
             form = not p.speed_billed(run, key) or speed_key(speed) == speed_key(default_speed(run.day.job.case, self.s))
             whence = "the agreement form's speed" if form else "its speed on its other pages"
             tip += f" Billed at {speed}, {whence}, unless you choose another (right-click, or under the firm's name)."
         it.setToolTip(tip)
 
     def _why_it_commits(self, run: Run, key: str) -> str:
-        """Why a firm without a speed must have one, for its cell's tooltip: as it is, by what it really ordered (alone
-        here, it may still share nothing at all)."""
+        """Why a firm without a speed must have one, for its cell's tooltip, by what it really ordered: these pages
+        shared, some of its other pages shared, or neither (alone everywhere, it has a speed on its other pages, and
+        its invoice bills all of them one way)."""
         if len(run.keys) > 1:
             return "these pages are ordered with another firm, so it commits to a speed."
         if any(key in r.keys and len(r.keys) > 1 for r in self.runs):
@@ -593,7 +599,7 @@ class ExcerptsWindow(QDialog):
         return rule.run_note(max(kinds, key=lambda sp: order.get(sp, -1)))
 
     def _cell(self, r: int, c: int, text: str, editable: bool) -> QTableWidgetItem:
-        """Puts a text cell in the table (only a run's Pages can be typed in) and returns it."""
+        """Puts a text cell in the table (`editable` only for a run's Page numbers) and returns it."""
         it = QTableWidgetItem(text)
         flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
         it.setFlags(flags | Qt.ItemIsEditable if editable else flags)
@@ -603,10 +609,9 @@ class ExcerptsWindow(QDialog):
     def _summary(self, p, shown: list[str]) -> str:
         """The prices under the table: by the firms ordering together (at the speeds they ordered, when set:
         "Counsel & Counsel (Daily) + Smith Law (Immediate): 60 of your pages billed (60 total pages) - Counsel &
-        Counsel pays $345.00, Smith Law $435.00 (one original, at Immediate)", the split rule saying how:
-        SplitRule.run_note, the job's once billed, else the one its trial was first billed by (Job.trial_rule),
-        else Settings'), then each firm's invoice. Each firm a line is about has its colour's square (badge_html,
-        its name escaped: "Counsel & Counsel")."""
+        Counsel pays $345.00, Smith Law $435.00 (one original, at Immediate)", the split rule saying how: _run_note),
+        the pages nobody ordered, then each firm's invoice. Each firm a line is about has its colour's square
+        (badge_html, its name escaped: "Counsel & Counsel")."""
         names = {a.key(): a.label() for a in self.firms}
         if not shown and not p.ordered:
             return "<i>Tick a speed above to see the prices.</i>"
@@ -685,10 +690,12 @@ class ExcerptsWindow(QDialog):
 
     def _firm_speed_boxes(self, p) -> None:
         """Each firm's box in its heading: the speed all its pages of the case are billed at (p: Prices.speed_billed,
-        as its cells are priced, set on them or as Generate sets it; VARIES when they differ), CHOOSES for none;
-        choosing one sets it on every day (_firm_speed_chosen). A firm's box is kept from one showing to the next
-        (self._speed_box_of), so an open list and the focus stay. _heading_speed notes the speed each says, so the
-        firm's cells needn't say it (None for VARIES, CHOOSES and a firm that ordered nothing)."""
+        as its cells are priced, set on them or as Generate sets it; VARIES when they differ), else "The form's
+        (Expedite)" for a firm sharing pages that Generate gives the form's speed without asking, else CHOOSES; then
+        the rate sheet's speeds. Choosing one sets it on every day (_firm_speed_chosen). A firm that ordered nothing
+        has a box that can't be opened ("–"). A firm's box is kept from one showing to the next (self._speed_box_of),
+        so an open list and the focus stay. _heading_speed notes the speed each says, so the firm's cells needn't say
+        it (None for VARIES, CHOOSES and a firm that ordered nothing)."""
         self.firm_speed_boxes, self._heading_speed = {}, {}
         sheet = self.s.sheet()
         speeds = [sp.name for sp in sheet.speeds]
@@ -718,8 +725,9 @@ class ExcerptsWindow(QDialog):
                 form = default_speed(shared.day.job.case, self.s)
                 items.append((f"The form's ({form})", "", form))
             else:
-                # (sharing pages where Generate asks, it doesn't choose: it hasn't said. No wider than "Immediate",
-                # always in the list: the column doesn't jump as a tick makes it one of these)
+                # (sharing pages where Generate asks, it doesn't choose: its speed isn't set yet, "Not set". Both
+                # short labels are no wider than "Immediate", always in the list, so the column doesn't jump as a
+                # tick turns one into the other)
                 items.append((CHOOSES, "", "Not set" if shared is not None and courthouses.speed_upfront()
                                else "Chooses"))
             items += [(sp, sp, sp) for sp in speeds]
@@ -774,7 +782,7 @@ class ExcerptsWindow(QDialog):
         while self.speed_row.count():
             w = self.speed_row.takeAt(0).widget()
             if w is not None:
-                w.hide()  # (at once, as in _firm_speed_boxes)
+                w.hide()  # (at once: a box never laid out stayed over the window until the event loop deleted it)
                 w.deleteLater()
         self.speed_boxes = {}
         for sp in speeds:
@@ -926,9 +934,9 @@ class ExcerptsWindow(QDialog):
     def _split(self) -> None:
         """Split run…: asks after which page to cut the run chosen, starting from its middle (as it can be typed:
         Day.as_typed), and it becomes two there ("1-20" cut after 12: "1-12", "13-20"), both with its firms. A day
-        without page numbers to go by (one whose Pages field is typed in, whatever its transcripts print) asks for a
-        place, in those words: a number read there is no place in the number typed. The table can be read afresh while
-        it asks: the same run is found again, or, when it is gone, it says so."""
+        without page numbers to go by (one whose Pages field is typed in, whatever its transcripts print) asks
+        "after which place?": a number printed on its transcripts says nothing of a place in the number typed. The
+        table can be read afresh while it asks: the same run is found again, or, when it is gone, it says so."""
         run = self._chosen()
         if run is None:
             return

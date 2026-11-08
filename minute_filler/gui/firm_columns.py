@@ -6,9 +6,10 @@ name under it and, at the bottom, the speed it ordered all its pages at (FirmSpe
 have a stripe of the same colour at their left edge, and a click anywhere in one ticks it, not only on the box. No
 shade behind the name (the user, 2026-10-22: a pale orange read as the amber of a field to check; see badges.py).
 
-The speed boxes are children of the header's viewport, kept from one showing of the table to the next: the table is
-filled afresh on every change, here or in the main window (a read ending, a tick), and a box built afresh with it
-would close its list and lose the focus each time. hold() makes them stay as they are while the table is filled.
+The speed boxes are children of the header's viewport, kept from one showing of the table to the next
+(ExcerptsWindow._speed_box_of): the table is filled afresh on every change, here or in the main window (a read
+ending, a tick), and a box built afresh with it would close its list and lose the focus each time.
+FirmHeader.hold() makes them stay as they are while the table is filled.
 """
 from __future__ import annotations
 
@@ -57,8 +58,9 @@ class FirmSpeedBox(QuietCombo):
         return self.currentData(SHORT_ROLE) or self.currentText()
 
     def widest_short(self) -> int:
-        """The room, in pixels, the longest of its closed labels takes in the box: the box's padding, its frame and
-        the arrow's room around the text (about 43 at 100 %, from the theme's QComboBox rules)."""
+        """How wide the box must be, in pixels, for the longest of its closed labels: the label's width, plus the
+        box's padding, its frame and the arrow's room around it (z(43): 43 px at 100 %, from the theme's QComboBox
+        rules)."""
         fm = self.fontMetrics()
         labels = [self.itemData(i, SHORT_ROLE) or self.itemText(i) for i in range(self.count())]
         return max((fm.horizontalAdvance(x) for x in labels), default=0) + z(43)
@@ -223,8 +225,8 @@ class FirmCellDelegate(StripeDelegate):
         opt.rect = option.rect.adjusted(width, 0, 0, 0)
         widget = opt.widget
         style = widget.style() if widget is not None else QApplication.style()
-        # The text's place from the box's, the same on any row at any zoom: where the style would put the text, a
-        # selected row has it 3 px further left, and at 160 % over a box the zoom has made bigger
+        # The text placed from the box's right edge, the same on any row at any zoom: where the style puts it, a
+        # selected row has it 3 px further left, and at 160 % it ran over the box, which the zoom makes bigger
         box = style.subElementRect(QStyle.SE_ItemViewItemCheckIndicator, opt, widget)
         margin = style.pixelMetric(QStyle.PM_FocusFrameHMargin, None, widget) + 1
         room = QRect(opt.rect)
