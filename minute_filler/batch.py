@@ -369,12 +369,15 @@ class Job:
     # old_fixes: the takes the user corrected (origin_fixes) in those of its documents not read yet, by the record's
     # path, each as ({place: initials}, whether the record counted a Min-U-Script cover among the places:
     # counts_covers), given to each as it comes back (back_from_record), and kept by a record made meanwhile
-    # (_away_takes). Not kept with the records as they are.
+    # (_away_takes). Not kept with the records as they are. old_fixes_exact: they go to a document at their path only,
+    # never one known by its name: a trial's day's are of every day's documents still away, and its list names those
+    # of the other days too, so a day's own volume of the same name would take another day's corrected take.
     old_places: bool = False
     old_total: int = 0
     old_sources: list = field(default_factory=list)
     old_count: int = 0
     old_fixes: dict = field(default_factory=dict)
+    old_fixes_exact: bool = False
 
     def is_empty(self) -> bool:
         """Nothing dropped and nothing typed."""
@@ -1905,7 +1908,8 @@ def _rekeyed(chosen: dict, old: str, new: str) -> dict:
 def back_from_record(job: Job) -> None:
     """What the record a job was opened from keeps by a document's path (Doc.key()) follows the document back, whenever
     it comes: the takes the user corrected in it (Job.old_fixes) go on it, at its own path or known by its name
-    (_record_paths), as places without a Min-U-Script cover when the record counted it (fixes_without_cover), and
+    (_record_paths; a trial's day, at its path only: Job.old_fixes_exact), as places without a Min-U-Script cover when
+    the record counted it (fixes_without_cover), and
     Whose pages... (Job.page_basis, Job.front_owner) moves to the path one dropped back from another folder has now.
     Lost, the bill changed with no word: the whole transcript chosen, one back from another folder billed only the
     user's own pages. Takes the user has corrected in it since stay. A document the user took out of the job is no
@@ -1917,7 +1921,8 @@ def back_from_record(job: Job) -> None:
     for d in job.docs:
         p = known.get(id(d))
         # (by its path first: also one the record's list leaves out, added while another document was away)
-        mine = next((k for k in fixes if k.lower() == d.key().lower()), p if p in fixes else None)
+        mine = next((k for k in fixes if k.lower() == d.key().lower()),
+                    p if p in fixes and not job.old_fixes_exact else None)
         if mine is not None:
             kept, covers = fixes.pop(mine)
             if not d.fixes:
@@ -2496,6 +2501,7 @@ def group(docs: list[Doc], s: Settings, jobs: list[Job] | None = None) -> list[J
                 job.page_basis = {**other.page_basis, **job.page_basis}
                 job.front_owner = {**other.front_owner, **job.front_owner}
                 job.old_fixes = {**other.old_fixes, **job.old_fixes}  # (a record's, still to come back)
+                job.old_fixes_exact = job.old_fixes_exact or other.old_fixes_exact
                 job.speeds = {**other.speeds, **job.speeds}
                 job.not_ordered |= other.not_ordered
                 job.split_rule = job.split_rule or other.split_rule  # (one billed already: billed that way)

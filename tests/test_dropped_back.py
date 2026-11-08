@@ -4,7 +4,9 @@ what the record kept by its path: Whose pages... (Job.page_basis, Job.front_owne
 place later on (batch.back_from_record, Job.old_fixes). They were lost, and the bill changed with no word: the whole
 transcript chosen on Pat's 10 pages and DS's 20, 30 total pages billed, became 10 dropped back from another folder;
 DS's pages chosen, 20 became 10; a take corrected, 11 of Pat's pages billed became 10. Two documents of one name that
-nothing tells apart get nothing, as before. The real window. All names and numbers are made up."""
+nothing tells apart get nothing, as before, and so does a trial's document back from another folder (its record doesn't
+say which day a document is of: known by its name, another day's own volume took it). The real window. All names and
+numbers are made up."""
 import json
 from pathlib import Path
 
@@ -177,9 +179,15 @@ def test_a_record_that_counted_the_cover_gives_the_takes_without_it(window, tmp_
     assert cur.transcript_pages() == 30 and cur.invoice_pages() == cur.your_pages() == 11 and not cur.old_places
 
 
-def test_a_trial_s_day_gives_a_volume_dropped_back_its_takes(window, tmp_path, s):
+JUNE_4 = CAPTION_DPM.replace("June 3, 2026", "June 4, 2026")
+
+
+@pytest.mark.parametrize("from_elsewhere", [False, True])
+def test_a_trial_s_day_gives_a_volume_dropped_back_its_takes(window, tmp_path, s, from_elsewhere):
     """June 3 in two volumes (the second, Roe PM.pdf, 10 total pages: Pat's 5, then DS's, place 5 corrected to Pat's),
-    June 4 in one, all on one invoice. Opened again with Roe PM.pdf away, then dropped back from another folder."""
+    June 4 in one, all on one invoice. Opened again with Roe PM.pdf away, then dropped back in its own place: it gets
+    its corrected take. From another folder it gets none, as before: a trial's record doesn't say which day a document
+    is of, and known by its name, another day's own volume of that name took it (the test below)."""
     am = shared(tmp_path / "in" / "Roe AM.pdf", 20)
     pm = shared(tmp_path / "in" / "Roe PM.pdf", 10, mine=5)
     day2 = page_numbered_transcript(tmp_path / "in" / "Roe 6-4.pdf", 20, first=200,
@@ -197,11 +205,45 @@ def test_a_trial_s_day_gives_a_volume_dropped_back_its_takes(window, tmp_path, s
     moved = away(pm, tmp_path / "elsewhere")
     assert window.open_past_job(json.dumps(origin)) is True
     wait(window, lambda: len([j for j in window.jobs if j.docs]) == 2)
+    if not from_elsewhere:
+        moved = moved.rename(pm)
     window.add_files([str(moved)])
     wait(window, lambda: sum(len(j.docs) for j in window.jobs) == 3)
     june3 = next(j for j in window.jobs if j.case.get("dates") == "6/3/2026")
     back = next(d for d in june3.docs if d.path == str(moved))
-    assert back.fixes == {5: PR} and june3.your_pages() == 10 + 6
+    assert back.fixes == ({} if from_elsewhere else {5: PR})
+    assert june3.your_pages() == 10 + (5 if from_elsewhere else 6)
+
+
+def test_a_trial_day_takes_no_corrected_take_of_another_day_by_its_name(window, tmp_path, s):
+    """Each volume a "Transcript.pdf" in a folder of its own: June 3's AM and PM (place 5 of the PM one corrected to
+    Pat's), June 4's AM, on one invoice. Opened again with June 3's PM away, then June 4's own PM volume dropped in (DS's
+    6 pages, then Pat's 4). Known by its name as June 3's, it took that corrected take: a page of DS's billed as Pat's,
+    25 of your pages for 24, with no word said."""
+    am3 = shared(tmp_path / "6-3 AM" / "Transcript.pdf", 20)
+    pm3 = shared(tmp_path / "6-3 PM" / "Transcript.pdf", 10, mine=5)
+    (tmp_path / "6-4 AM").mkdir()
+    am4 = page_numbered_transcript(tmp_path / "6-4 AM" / "Transcript.pdf", 20, first=200, caption=JUNE_4)
+    docs, errors = read_docs([str(am3), str(pm3), str(am4)], s)
+    assert not errors
+    days = sorted(group(docs, s), key=lambda j: j.case.get("dates"))
+    assert [len(j.docs) for j in days] == [2, 1]
+    for j in days:
+        j.case.attorneys = [Attorney(**ALEX, checked=True), Attorney(**DANA, checked=True)]
+        j.att_touched = True
+    next(d for d in days[0].docs if d.path == str(pm3)).correct({5: PR})
+    origin = json.loads(json.dumps(joint_origin(days, split_rule="")))
+    away(pm3, tmp_path / "elsewhere")
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: len([j for j in window.jobs if j.docs]) == 2)
+    (tmp_path / "6-4 PM").mkdir()
+    pm4 = page_numbered_transcript(tmp_path / "6-4 PM" / "Transcript.pdf", 10, first=220, caption=JUNE_4,
+                                   initials=[DS] * 6 + [PR] * 4)
+    window.add_files([str(pm4)])
+    wait(window, lambda: sum(len(j.docs) for j in window.jobs) == 3)  # (June 3's PM still away)
+    june4 = next(j for j in window.jobs if j.case.get("dates") == "6/4/2026")
+    new = next(d for d in june4.docs if d.path == str(pm4))
+    assert new.fixes == {} and june4.your_pages() == 20 + 4
 
 
 # ------------------------------------------------------------------ not a guess

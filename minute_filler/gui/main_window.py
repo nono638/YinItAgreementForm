@@ -3099,9 +3099,10 @@ class MainWindow(QMainWindow):
                         days = [j for j in self.jobs if any(d is e for d in docs for e in j.docs)]
                         put_back_orders(days, orders, self.s)
                         read = {d.key().lower() for d in docs}  # (and the takes corrected in those still away)
-                        for j in days:
+                        for j in days:  # (each back at its path only: the record doesn't say whose day each is)
                             j.old_fixes = {p: (f, old_places) for p, f in (fixes or {}).items()
                                            if p.lower() not in read}
+                            j.old_fixes_exact = True
                     if self.cur not in self.jobs:  # (the first of the list: the earliest day, at first)
                         self.cur = self._jobs_in_list_order()[0]
                     self._auto_runsheet()
