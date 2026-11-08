@@ -216,6 +216,17 @@ def test_a_row_another_take_answers_to_isn_t_taken_for_the_take_left_off(tmp_pat
     assert again(job, s, path).added == 0 and total(path) == 50
 
 
+def test_a_take_typed_in_as_a_row_inserted_in_the_day_s_order_isn_t_added_again(tmp_path, s):
+    """AM.pdf Pat 1-20 then DS 21-40; PM.pdf, numbered from 1 again, Kim's 15 pages, left off by the released version.
+    The user inserted "Kim, 15" after Pat's row, its Start copied down as a formula: 21, DS's first number. Being among
+    DS's numbers didn't make it DS's: Kim's take was added beside it, 70 pages on the sheet of a 55-page day."""
+    job = job_of(s, pdf(tmp_path / "AM.pdf", list(range(1, 41)), [PR] * 20 + [DS] * 20),
+                 pdf(tmp_path / "PM.pdf", list(range(1, 16)), [KP] * 15))
+    path = released_sheet(tmp_path / "sheet.xlsx", [("Pat", 20, 1), ("Kim", 15, 21), ("DS", 20, 36)])
+    assert again(job, s, path).added == 0
+    assert total(path) == 55
+
+
 def test_a_draft_or_a_part_sent_ahead_still_stands_for_its_take(tmp_path, s):
     """Pat's AM.pdf with an unsigned draft of it, and the first 12 pages of it sent ahead: the released sheet has Pat's
     take once. Dana's PM.pdf, signed by another reporter, is put back; the draft and the part, which may be copies of

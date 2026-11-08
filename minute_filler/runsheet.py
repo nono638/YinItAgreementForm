@@ -663,8 +663,8 @@ def takes_to_add(rows: list[Row], old: list[Row]) -> list[Row]:
     with page numbers can be several takes (a stretch since cut in two), but not when it is exactly another take of the
     run (_exactly) that can't be this one (_other_take): an earlier version wrote that take and left this one off
     (a day whose numbers start again on a take's own first number, two volumes of a day each numbered from 1), unless
-    the user typed it in since: a row of its day and count, under its name or no other reporter's of the run, that no
-    other take of the run answers to (by its Start and count, or by its name or initials). One with
+    the user typed it in since: a row of its day and count, under its name or no other reporter's of the run, that is
+    no other take of the run (exactly, by its Start and count, or by its name or initials). One with
     none (its Start blank, or 0) is known only by its reporter and its count, so it answers for one take: "Pat, 25
     pages" was a cover and 24, and a later take of Pat's of 25 pages isn't that row, or it could never be put back on
     the sheet."""
@@ -682,13 +682,15 @@ def takes_to_add(rows: list[Row], old: list[Row]) -> list[Row]:
         if free is None and len(hits) < len(near):
             # (left off by an earlier version, the take may have been typed in since by the user: a row of its day and
             # count, under its reporter's name or one no other reporter of the run has, that is no other take's. Not
-            # one another take answers to, by its Start and count or by its name or initials: "Kimberly, 15 from 16"
-            # or "KP, 15" is Kim's take typed in, and taken for this one, it would leave this take off or add Kim's
-            # twice)
+            # one that is exactly another take by its Start and count, nor under another take's name or initials:
+            # "Kimberly, 15 from 16" or "KP, 15" is Kim's take typed in, and taken for this one, it would leave this
+            # take off or add Kim's twice. A row merely among another take's numbers can be this one: inserted in the
+            # day's order, its Start copied down as a formula lands on the next take's first number)
             others = [t for t in takes if t is not r]
             free = next((o for o in old if o.day == r.day and o.pages == r.pages and id(o) not in whose
                          and not any(o is u for u in used) and not any(o is n for n in near)
-                         and not any(t.same_take(o, among) for t in others)
+                         and not any(o.start and (t.day, t.start, t.pages) == (o.day, o.start, o.pages)
+                                     for t in others)
                          and not any(t._same_reporter(o) and not t._same_reporter(r) for t in others)
                          and (r._same_reporter(o) or o.reporter.lower() not in among)), None)
         if free is None:

@@ -111,7 +111,7 @@ from ..batch import (BATCH_EXT, HELD, MISMATCH_LEAD, NOT_INVOICED, Doc, Job, cas
                      billed_split_rule, job_from_origin, job_origin, join_entries, new_invoice_set, origin_fixes,
                      copy_inputs, counts_covers, cover_note, documents_not_here, fixes_without_cover, follow_moves,
                      move_case_folders, moved_path, out_dir_for, read_loaders, record_documents, remerge, same_case,
-                     split_forgotten)
+                     split_forgotten, trial_day_only)
 from ..extract_llm import OllamaExtractor
 from ..extract_regex import find_dates, use_firm_answers
 from ..dates import us_date
@@ -2976,7 +2976,8 @@ class MainWindow(QMainWindow):
         self._ingest([lambda: ingest_pil(pil, "Pasted image")], ["Pasted image"])
 
     def add_files(self, paths: list[str], batch: bool = False, same_job: bool = False, split_rule: str = "",
-                  fixes: dict | None = None, orders: dict | None = None, old_places: bool = False):
+                  fixes: dict | None = None, orders: dict | None = None, old_places: bool = False,
+                  day_only: bool = False):
         """Reads files, and the documents in folders. Files already loaded or still being read are skipped.
         Several documents about different cases (or batch=True) start a batch; same_job: they all go to the job
         on screen whatever they say (a past job opened again: that is how it was put together). split_rule: the
@@ -2985,7 +2986,9 @@ class MainWindow(QMainWindow):
         one day keeps its record's itself, Job.old_fixes).
         orders: the record of a trial opened again (its origin): who ordered each day comes back as it kept it
         (batch.put_back_orders). old_places: the record opened again counted Min-U-Script covers among the pages, so
-        `fixes` does too (batch.counts_covers). What was opened is kept for File -> Open recent."""
+        `fixes` does too (batch.counts_covers). day_only: a trial's day's own record opened again: of the trial's
+        documents it names, the job on screen takes only those dated this day (batch.trial_day_only). What was opened
+        is kept for File -> Open recent."""
         gen = self.gen
         for p in reversed(paths):
             self.s.remember_file(p)
@@ -3005,7 +3008,8 @@ class MainWindow(QMainWindow):
             if fresh:
                 files = [p for p, _ in fresh]
                 self._ingest([(lambda p=p: ingest_file(p)) for p in files], [Path(p).name for p in files],
-                             files, batch, {key for _, key in fresh}, same_job, split_rule, fixes, orders, old_places)
+                             files, batch, {key for _, key in fresh}, same_job, split_rule, fixes, orders, old_places,
+                             day_only)
             else:
                 self._update_status()
                 if not everything:
@@ -3033,7 +3037,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _ingest(self, loaders, names, paths=None, batch=False, keys=frozenset(), same_job=False, split_rule="",
-                fixes=None, orders=None, old_places=False):
+                fixes=None, orders=None, old_places=False, day_only=False):
         """Reads inputs in the background and adds them to the jobs.
 
         loaders: one function per input that returns the Ingested document; names: what to call each in
@@ -3049,7 +3053,9 @@ class MainWindow(QMainWindow):
         ordered them as it kept it (batch.put_back_orders). old_places: that record counted Min-U-Script covers among
         the pages: the corrected takes are moved to places without them (the Excerpts... rows are moved on the jobs:
         batch.settle_old_places), and a toast says the count changed once a job has all its transcripts, this read
-        or a later one (until then the Pages field still shows the record's count). A cell of the attorney table
+        or a later one (until then the Pages field still shows the record's count). day_only: a trial's day's own
+        record opened again: the documents of its list not dated this day are left out, and a toast names them
+        (batch.trial_day_only: nothing says which day's they are). A cell of the attorney table
         being typed in when the read ends is taken as typed, and opened again afterwards while the same job is on
         screen (_resume_edit).
         """
@@ -3079,6 +3085,9 @@ class MainWindow(QMainWindow):
                     self._toast(w)
                 if fixes and fixes.get(d.key()):  # (a trial opened again: its takes as they were corrected)
                     d.fixes = fixes_without_cover(fixes[d.key()], cover_pages(d.ing) if old_places else 0)
+            left_out = []
+            if day_only and target in self.jobs:  # (a trial's day's own record: no other day's document)
+                docs, left_out = trial_day_only(target, docs)
             if docs:
                 typing = self._sync_from_ui()
                 shown = self.cur
@@ -3126,6 +3135,11 @@ class MainWindow(QMainWindow):
                     self._toast(cover_note(moved))
             else:
                 self._update_status()
+            if left_out:  # (last: what was left out must be seen)
+                self._toast(f"{left_out[0].ing.name}, of this trial, isn't dated this day: left out (drop it here if "
+                            "it is this day's)." if len(left_out) == 1 else
+                            f"{len(left_out)} documents of this trial aren't dated this day: left out (drop any of "
+                            "this day's here).")
             log.info("read %d of %d document(s)%s", len(docs), len(loaders), " (batch)" if batch else "")
             if errors:
                 self._unreadable(errors, len(loaders))
@@ -6942,9 +6956,11 @@ class MainWindow(QMainWindow):
             self._clear_jobs(job)
             self._show_job()
         if there:
+            # (a trial's day's own record names the other days' documents too: only those dated this day are its own)
+            trial_day = not several_days and isinstance(data.get("job"), dict) and data["job"].get("trial_day") is True
             self.add_files(there, batch=bool(several_days), same_job=not several_days,
                            split_rule=rule if several_days else "", fixes=origin_fixes(data) if several_days else None,
-                           orders=data if several_days else None, old_places=counts_covers(data))
+                           orders=data if several_days else None, old_places=counts_covers(data), day_only=trial_day)
         gone = len(sources) - len(there)
         if gone:
             self._toast(f"{plural(gone, 'document')} of this job {'is' if gone == 1 else 'are'} no longer where "

@@ -260,11 +260,12 @@ def trial_record(s, *paths, fix=None) -> dict:
     return json.loads(json.dumps(joint_origin(days, split_rule="")))
 
 
-def test_a_trial_day_s_own_record_reads_back_no_other_day_s_transcript(window, tmp_path, s):
+def test_a_trial_day_s_own_record_reads_back_no_other_day_s_transcript(window, tmp_path, s, monkeypatch):
     """June 3 in two volumes and June 4 in one, on one invoice. Opened again with June 3's PM volume away, which is then
     dropped back in its own place (it goes to June 3). June 4's own record, made then, named June 3's PM volume among
     the trial's documents (nothing says which day's each is), and opened again it read it into June 4's job: 25 of your
-    pages billed on June 4 (30 total pages) for its 20 (20 total pages), with no word said."""
+    pages billed on June 4 (30 total pages) for its 20 (20 total pages), with no word said. Now it is left out, as
+    it is dated June 3, and a toast says so."""
     am3 = shared(tmp_path / "in" / "Roe 6-3 AM.pdf", 20)
     pm3 = shared(tmp_path / "in" / "Roe 6-3 PM.pdf", 10, mine=5)
     am4 = page_numbered_transcript(tmp_path / "in" / "Roe 6-4.pdf", 20, first=200, caption=JUNE_4)
@@ -277,9 +278,56 @@ def test_a_trial_day_s_own_record_reads_back_no_other_day_s_transcript(window, t
     june4 = next(j for j in window.jobs if j.case.get("dates") == "6/4/2026")
     rec4 = record_of(june4)
     assert rec4["job"].get("trial_day") is True and str(pm3) in rec4["job"]["old_sources"]
+    toasts = []
+    monkeypatch.setattr(window, "_toast", toasts.append)
     cur = open_again(window, rec4)
     assert [d.path for d in cur.docs] == [str(am4)] and cur.case.get("dates") == "6/4/2026"
     assert cur.your_pages() == cur.invoice_pages() == cur.transcript_pages() == 20
+    assert any(t.startswith("Roe 6-3 PM.pdf, of this trial, isn't dated this day: left out") for t in toasts)
+
+
+def test_a_trial_day_s_own_record_reads_back_its_own_volume_that_was_away(window, tmp_path, s):
+    """June 3 in two volumes (the PM one: Pat's 5 pages, then DS's 5, place 5 corrected to Pat's) and June 4 in one, on
+    one invoice. Opened again with June 3's own PM volume away, June 3's own record is made then. That record kept
+    the PM's corrected take (left out, it came back uncorrected: 15 of your pages billed for 16), and opened again
+    with the PM back in its place, it reads it: 16 of your pages billed (30 total pages), not 10 (20 total pages)."""
+    am3 = shared(tmp_path / "in" / "Roe 6-3 AM.pdf", 20)
+    pm3 = shared(tmp_path / "in" / "Roe 6-3 PM.pdf", 10, mine=5)
+    am4 = page_numbered_transcript(tmp_path / "in" / "Roe 6-4.pdf", 20, first=200, caption=JUNE_4)
+    origin = trial_record(s, am3, pm3, am4, fix=(pm3, {5: PR}))
+    moved = away(pm3, tmp_path / "elsewhere")
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: len([j for j in window.jobs if j.docs]) == 2)
+    june3 = next(j for j in window.jobs if j.case.get("dates") == "6/3/2026")
+    rec3 = record_of(june3)
+    assert rec3["job"].get("trial_day") is True and rec3["job"]["page_fixes"] == {str(pm3): {"5": PR}}
+    moved.rename(pm3)
+    cur = open_again(window, rec3)
+    assert sorted(d.path for d in cur.docs) == sorted([str(am3), str(pm3)])
+    assert next(d for d in cur.docs if d.path == str(pm3)).fixes == {5: PR}
+    assert cur.transcript_pages() == 30 and cur.your_pages() == cur.invoice_pages() == 10 + 6
+
+
+def test_a_trial_day_s_own_record_gives_its_own_document_its_takes_by_name(window, tmp_path, s):
+    """June 3 in two volumes, June 4 in one (Roe 6-4.pdf: Pat's 10 pages, then DS's 10, place 11 corrected to Pat's),
+    on one invoice; opened again with June 3's PM away, June 4's own record made then. Roe 6-4.pdf, which that record
+    read, is then moved to another folder and dropped back from there: it is this day's, no doubt, and gets its
+    corrected take, 11 of your pages billed, not 10."""
+    am3 = shared(tmp_path / "in" / "Roe 6-3 AM.pdf", 20)
+    pm3 = shared(tmp_path / "in" / "Roe 6-3 PM.pdf", 10, mine=5)
+    am4 = page_numbered_transcript(tmp_path / "in" / "Roe 6-4.pdf", 20, first=200, caption=JUNE_4,
+                                   initials=[PR] * 10 + [DS] * 10)
+    origin = trial_record(s, am3, pm3, am4, fix=(am4, {11: PR}))
+    away(pm3, tmp_path / "elsewhere")
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: len([j for j in window.jobs if j.docs]) == 2)
+    rec4 = record_of(next(j for j in window.jobs if j.case.get("dates") == "6/4/2026"))
+    assert rec4["job"].get("trial_day") is True
+    moved4 = away(am4, tmp_path / "archive")
+    cur = open_again(window, rec4)
+    assert cur.docs == []
+    drop(window, moved4, 1)
+    assert window.cur.docs[0].fixes == {11: PR} and window.cur.your_pages() == window.cur.invoice_pages() == 11
 
 
 def test_a_trial_day_s_own_record_gives_no_other_day_s_corrected_take_by_its_name(window, tmp_path, s):

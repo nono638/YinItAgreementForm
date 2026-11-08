@@ -375,13 +375,15 @@ class Job:
     # (_away_takes). Not kept with the records as they are. old_fixes_exact: they go to a document at their path only,
     # never one known by its name: a trial's day's are of every day's documents still away, and its list names those
     # of the other days too, so a day's own volume of the same name would take another day's corrected take. A record
-    # of such a day alone says so ("trial_day": job_origin), and opened again it is a trial's day still.
+    # of such a day alone says so ("trial_day": job_origin), and opened again it is a trial's day still. old_read: the
+    # documents that record read (its "sources"): this day's, no doubt, so theirs are given by name too.
     old_places: bool = False
     old_total: int = 0
     old_sources: list = field(default_factory=list)
     old_count: int = 0
     old_fixes: dict = field(default_factory=dict)
     old_fixes_exact: bool = False
+    old_read: list = field(default_factory=list)
 
     def is_empty(self) -> bool:
         """Nothing dropped and nothing typed."""
@@ -1681,19 +1683,29 @@ def job_origin(job: Job) -> dict:
     without a Min-U-Script cover ("cover_out": see counts_covers; a job still waiting for its transcripts,
     Job.old_places, counts the covers, in its corrected takes too), and what a job opened again still keeps from its
     record: its list of documents (_kept_from_record), the takes corrected in those still away (_away_takes, those
-    counted as it counts its places: _kept_alike) and the count it still holds (Job.old_count). A day of a trial
+    counted as it counts its places: _kept_alike) and the count it still holds (Job.old_count). It is all one way of
+    counting: while the job waits for its transcripts, or the documents still away all have their takes kept with
+    the covers among the places (a trial's record without "cover_out"), it counts the covers everywhere, its rows
+    given theirs back; else those takes were left out, and the documents came back uncorrected. (Kept both ways,
+    those kept without the covers win, as before: either way the others would need a cover not here.) A day of a trial
     opened again with a document away says so ("trial_day": Job.old_fixes_exact): its list names the other days'
-    documents too, and nothing says which are its own, so opened again that record reads only what it read
-    (record_documents) and gives a corrected take to a document at its path only. Read in, another day's transcript
-    was billed on this day with no word, or a volume of this day of the same name took another day's corrected take."""
-    fixes = {**page_fixes(job.docs, job.old_places), **_kept_alike(_away_takes([job]), job.old_places)}
+    documents too, and nothing says which are its own, so opened again that record takes one of those only when it is
+    of this day (MainWindow.open_past_job) and gives such a document a corrected take at its path only. Read in,
+    another day's transcript was billed on this day with no word, or a volume of this day of the same name took
+    another day's corrected take."""
+    away = _away_takes([job])
+    waiting = job.old_places or (bool(away) and all(covers for _, covers in away.values()))
+    fixes = {**page_fixes(job.docs, waiting), **_kept_alike(away, waiting)}
+    choices = {k: getattr(job, k) for k in _ORIGIN_CHOICES}
+    if waiting and not job.old_places and job.portions is not None:
+        choices["portions"] = _rows_with_covers(job)
     kept = _kept_from_record(job)
     return {"sources": [d.path for d in job.docs if d.path],
-            "job": {**{k: getattr(job, k) for k in _ORIGIN_CHOICES},
+            "job": {**choices,
                     "proc_touched": job.proc_touched, "att_touched": job.att_touched,
                     **({"not_ordered": sorted(job.not_ordered)} if job.not_ordered else {}),
                     **({"page_fixes": fixes} if fixes else {}),
-                    **({"cover_out": True} if _places_without_cover([job]) else {}),
+                    **({"cover_out": True} if not waiting and _places_without_cover([job]) else {}),
                     **kept,
                     **({"trial_day": True} if kept and job.old_fixes_exact else {}),
                     **({"old_count": job.old_count} if job.old_count else {})}}
@@ -1845,6 +1857,22 @@ def documents_not_here(named: list[str], here: list[str]) -> list[str]:
     return out
 
 
+def trial_day_only(job: Job, docs: list[Doc]) -> tuple[list[Doc], list[Doc]]:
+    """Of the documents read again for a trial's day's own record opened again ("trial_day": job_origin; Job.old_read),
+    (those it takes, those it leaves out): the ones it read, and of the trial's others its list names, those dated this
+    day (the dates read from them, Doc.ident, all among the job's). Nothing says which day's those are: one of another
+    day was billed on this day with no word, and one with no date read can't be told. Any other job takes them all."""
+    if not (job.old_fixes_exact and job.old_read):
+        return docs, []
+    own = {p.lower() for p in job.old_read}
+    days = ident(job.case).dates
+    taken: list[Doc] = []
+    out: list[Doc] = []
+    for d in docs:
+        (taken if d.key().lower() in own or (d.ident.dates and d.ident.dates <= days) else out).append(d)
+    return taken, out
+
+
 def _all_back(job: Job) -> bool:
     """Every transcript the record of a job opened again counted is read: every PDF it was made from is here (see
     documents_not_here), or the pages here, with the covers it counted, come to the day's pages as it counted them
@@ -1939,11 +1967,12 @@ def back_from_record(job: Job) -> None:
         return
     fixes = dict(job.old_fixes)
     known = _record_paths(job)
+    own = {p.lower() for p in job.old_read}  # (a trial's day's own record: those it read, no doubt whose)
     for d in job.docs:
         p = known.get(id(d))
         # (by its path first: also one the record's list leaves out, added while another document was away)
         mine = next((k for k in fixes if k.lower() == d.key().lower()),
-                    p if p in fixes and not job.old_fixes_exact else None)
+                    p if p in fixes and (not job.old_fixes_exact or p.lower() in own) else None)
         if mine is not None:
             kept, covers = fixes.pop(mine)
             if not d.fixes:
@@ -2024,13 +2053,12 @@ def _paths_of(value) -> list[str]:
 
 def record_documents(origin: dict) -> list[str]:
     """Every document a record was made from: those read ("sources"), then those it says were away when it was made
-    (_kept_from_record), for what the window says when it is opened again. Not those of a trial's day's own record
-    ("trial_day": job_origin): its list names the other days' documents too, and read back into this one job, another
-    day's transcript would be billed on this day."""
+    (_kept_from_record), for what the window says when it is opened again. A trial's day's own record ("trial_day":
+    job_origin) names the other days' documents too: the window takes in only those of this day (trial_day_only)."""
     named = _paths_of(origin.get("sources"))
     choices = origin.get("job") if isinstance(origin.get("job"), dict) else {}
     days = origin.get("orders") if isinstance(origin.get("orders"), list) else []
-    for kept in ([] if choices.get("trial_day") is True else [choices]) + [d for d in days if isinstance(d, dict)]:
+    for kept in [choices] + [d for d in days if isinstance(d, dict)]:
         named += documents_not_here(_paths_of(kept.get("old_sources")), named)
     return named
 
@@ -2240,8 +2268,10 @@ def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
     job.old_places = counts_covers(origin)
     # (a record made while a document was away says what the record before it said: _kept_from_record, job_origin)
     job.old_sources = _paths_of(choices.get("old_sources")) or _paths_of(origin.get("sources"))
-    # (a trial's day alone: its list names other days' documents, and its corrected takes go by path only)
+    # (a trial's day alone: its list names other days' documents, and their corrected takes go by path only; those it
+    # read are its own, known by name too)
     job.old_fixes_exact = choices.get("trial_day") is True
+    job.old_read = _paths_of(origin.get("sources")) if job.old_fixes_exact else []
     est = job.case.fields["est_pages"]
     kept = choices.get("old_count")
     job.old_count = (kept if isinstance(kept, int) and not isinstance(kept, bool) and kept > 0 else
@@ -2532,6 +2562,7 @@ def group(docs: list[Doc], s: Settings, jobs: list[Job] | None = None) -> list[J
                 job.front_owner = {**other.front_owner, **job.front_owner}
                 job.old_fixes = {**other.old_fixes, **job.old_fixes}  # (a record's, still to come back)
                 job.old_fixes_exact = job.old_fixes_exact or other.old_fixes_exact
+                job.old_read = job.old_read or other.old_read
                 job.speeds = {**other.speeds, **job.speeds}
                 job.not_ordered |= other.not_ordered
                 job.split_rule = job.split_rule or other.split_rule  # (one billed already: billed that way)
@@ -2957,8 +2988,8 @@ def follow_moves(jobs: list[Job], moves: list[tuple[Path, Path]]) -> None:
     """The folders `moves` ((the folder, its new path)) were renamed: these jobs' documents read from them, what
     is kept by a document's path (Doc.key(): Whose pages..., Job.page_basis and Job.front_owner, which would
     otherwise be lost and the pages billed otherwise; the documents kept together though their index numbers
-    differ, Job.index_numbers_ok; the documents of a job's record, Job.old_sources, and the takes corrected in those
-    still to come back, Job.old_fixes) and the run sheet chosen for them (Job.runsheet_to) follow.
+    differ, Job.index_numbers_ok; the documents of a job's record, Job.old_sources and Job.old_read, and the takes
+    corrected in those still to come back, Job.old_fixes) and the run sheet chosen for them (Job.runsheet_to) follow.
     Generate all's copies of the jobs have dicts of their own: they are given here too (MainWindow._run_batch)."""
     for src, dst in moves:
         for d in {id(d): d for j in jobs for d in j.docs}.values():
@@ -2968,6 +2999,7 @@ def follow_moves(jobs: list[Job], moves: list[tuple[Path, Path]]) -> None:
             j.front_owner = {moved_path(k, src, dst): v for k, v in j.front_owner.items()}
             j.index_numbers_ok = [moved_path(k, src, dst) for k in j.index_numbers_ok]
             j.old_sources = [moved_path(k, src, dst) for k in j.old_sources]
+            j.old_read = [moved_path(k, src, dst) for k in j.old_read]
             j.old_fixes = {moved_path(k, src, dst): v for k, v in j.old_fixes.items()}
             if j.runsheet_to:
                 j.runsheet_to = moved_path(j.runsheet_to, src, dst)
