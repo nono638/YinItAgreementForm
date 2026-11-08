@@ -662,7 +662,8 @@ def takes_to_add(rows: list[Row], old: list[Row]) -> list[Row]:
     """Those of a run's takes not on the run sheet already (Row.same_take, among the reporters of the run). A row there
     with page numbers can be several takes (a stretch since cut in two), but not when it is exactly another take of the
     run (_exactly) that can't be this one (_other_take): an earlier version wrote that take and left this one off
-    (a day whose numbers start again on a take's own first number, two volumes of a day each numbered from 1). One with
+    (a day whose numbers start again on a take's own first number, two volumes of a day each numbered from 1), unless
+    the user typed it in since: a row of its day and count, under its name or no other reporter's of the run. One with
     none (its Start blank, or 0) is known only by its reporter and its count, so it answers for one take: "Pat, 25
     pages" was a cover and 24, and a later take of Pat's of 25 pages isn't that row, or it could never be put back on
     the sheet."""
@@ -672,10 +673,17 @@ def takes_to_add(rows: list[Row], old: list[Row]) -> list[Row]:
     used: list[Row] = []
     out: list[Row] = []
     for r in takes:
-        hits = [o for o in old if r.same_take(o, among) and not _other_take(r, whose.get(id(o)))]
+        near = [o for o in old if r.same_take(o, among)]
+        hits = [o for o in near if not _other_take(r, whose.get(id(o)))]
         if any(o._span() and r._span() for o in hits):
             continue
         free = next((o for o in hits if not any(o is u for u in used)), None)
+        if free is None and len(hits) < len(near):
+            # (left off by an earlier version, the take may have been typed in since by the user: a row of its day and
+            # count, under its reporter's name or one no other reporter of the run has, that is no other take's)
+            free = next((o for o in old if o.day == r.day and o.pages == r.pages and id(o) not in whose
+                         and not any(o is u for u in used) and not any(o is n for n in near)
+                         and (r._same_reporter(o) or o.reporter.lower() not in among)), None)
         if free is None:
             out.append(r)
         else:

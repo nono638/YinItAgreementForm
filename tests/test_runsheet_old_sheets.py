@@ -160,6 +160,26 @@ def test_two_volumes_each_numbered_from_1_get_the_take_left_off(tmp_path, s, sha
     assert again(job, s, path).added == 0
 
 
+@pytest.mark.parametrize("typed", [("Dee", 15, None), ("Dee", 15, 21), ("DS", 15, 21), ("DS", 15, 1),
+                                   ("Dee", 15, 1), ("DS", 15, None)])
+def test_a_take_the_user_typed_in_after_it_was_left_off_isn_t_added_again(tmp_path, s, typed):
+    """DS's PM.pdf was left off; the user typed it in by hand, under a name of their own or the initials, its Start left
+    blank or not its first page number. Taken for missing, it was added beside it: 50 pages on a sheet of a 35-page
+    day."""
+    job = job_of(s, pdf(tmp_path / "AM.pdf", list(range(1, 21)), [PR] * 20),
+                 pdf(tmp_path / "PM.pdf", list(range(1, 16)), [DS] * 15))
+    path = released_sheet(tmp_path / "sheet.xlsx", [("Pat", 20, 1)])
+    wb = load_workbook(path)
+    ws = wb["Run Sheet"]
+    ws.cell(6, 1, DAY).number_format = "m/d/yyyy"
+    ws.cell(6, 3, typed[0])
+    ws.cell(6, 6, typed[1])
+    ws.cell(6, 7, typed[2])
+    wb.save(path)
+    assert again(job, s, path).added == 0
+    assert total(path) == 35
+
+
 def test_a_draft_or_a_part_sent_ahead_still_stands_for_its_take(tmp_path, s):
     """Pat's AM.pdf with an unsigned draft of it, and the first 12 pages of it sent ahead: the released sheet has Pat's
     take once. Dana's PM.pdf, signed by another reporter, is put back; the draft and the part, which may be copies of
