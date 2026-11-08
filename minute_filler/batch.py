@@ -368,7 +368,8 @@ class Job:
     # away (MainWindow.open_past_job); 0 when its number was typed: a number typed says nothing of the pages read.
     # old_fixes: the takes the user corrected (origin_fixes) in those of its documents not read yet, by the record's
     # path, each as ({place: initials}, whether the record counted a Min-U-Script cover among the places:
-    # counts_covers), given to each as it comes back (back_from_record). Not kept with the records.
+    # counts_covers), given to each as it comes back (back_from_record), and kept by a record made meanwhile
+    # (_away_takes). Not kept with the records as they are.
     old_places: bool = False
     old_total: int = 0
     old_sources: list = field(default_factory=list)
@@ -1663,8 +1664,9 @@ def job_origin(job: Job) -> dict:
     the documents read (their paths; pasted text has none) and the invoice's own choices (Peripherals, Excerpts...,
     the speed each firm ordered, Whose pages..., the takes corrected: page_fixes), whether its places are counted
     without a Min-U-Script cover ("cover_out": see counts_covers; a job still waiting for its transcripts counts them
-    all, its corrected takes too), and what a job opened again still keeps from its record (_kept_from_record)."""
-    fixes = page_fixes(job.docs, job.old_places)
+    all, its corrected takes too), and what a job opened again still keeps from its record (_kept_from_record), the
+    takes corrected in its documents still away among them (_away_takes, kept as it counts its places)."""
+    fixes = {**page_fixes(job.docs, job.old_places), **_kept_alike(_away_takes([job]), job.old_places)}
     return {"sources": [d.path for d in job.docs if d.path],
             "job": {**{k: getattr(job, k) for k in _ORIGIN_CHOICES},
                     "proc_touched": job.proc_touched, "att_touched": job.att_touched,
@@ -1685,6 +1687,30 @@ def _kept_from_record(job: Job) -> dict:
     return {"old_sources": list(job.old_sources)} if away else {}
 
 
+def _away_takes(days: list[Job]) -> dict:
+    """The takes the user corrected in the documents of a record that are still away (Job.old_fixes, of those its list
+    names: _kept_from_record), for a record made now to keep beside those read (page_fixes): left out, they were lost to
+    a record of that record, and the document came back with its takes uncorrected, the bill changed with no word. By
+    the record's path, as Job.old_fixes has them; {} once they are all here (earlier records are compared by their
+    text)."""
+    here = [d.key() for j in days for d in j.docs]
+    away = {p.lower() for j in days for p in documents_not_here(j.old_sources, here)}
+    out: dict = {}
+    for j in days:  # (a trial's days each keep the takes of every document still away)
+        for path, (kept, covers) in j.old_fixes.items():
+            if path.lower() in away and kept:
+                out.setdefault(path, (kept, covers))
+    return out
+
+
+def _kept_alike(takes: dict, with_covers: bool) -> dict:
+    """Those of _away_takes whose places are counted as the record made now counts them (with_covers: no "cover_out"),
+    as page_fixes keeps them. The others would need the cover of a document not here to be put right: left out, never
+    kept at the wrong place."""
+    return {path: {str(i): v for i, v in sorted(kept.items())} for path, (kept, covers) in takes.items()
+            if covers == with_covers}
+
+
 def page_fixes(docs: list[Doc], with_covers: bool = False) -> dict:
     """The takes the user corrected in these documents (Doc.fixes), as a record keeps them: by Doc.key(), the
     pages' places as text ({"...\\Roe 6-3.pdf": {"5": "ds"}}); {} when none was (and the record is then as it
@@ -1697,16 +1723,20 @@ def page_fixes(docs: list[Doc], with_covers: bool = False) -> dict:
 def joint_origin(days: list[Job], **more) -> dict:
     """The record of a file made for several days at once (their run sheet, the trial's forms, a joint invoice):
     their documents (opened again, they are read a job per day: MainWindow.open_past_job), `more`, the takes
-    corrected in them (page_fixes; left out when none was), whether its places are counted without a Min-U-Script
-    cover (see counts_covers) and who ordered each day (trial_orders: opened again, the days come back with it,
-    put_back_orders). One mark says it for the whole record, so a record is all one way of counting: while a day still
-    waits for its transcripts (Job.old_places) it counts the covers everywhere, the days moved over given theirs back,
-    or those days would be moved a second time when it is opened again."""
-    waiting = any(j.old_places for j in days)
-    fixes = page_fixes([d for j in days for d in j.docs], waiting)
+    corrected in them and in those still away (page_fixes, _away_takes; left out when none was), whether its places
+    are counted without a Min-U-Script cover (see counts_covers) and who ordered each day (trial_orders: opened again,
+    the days come back with it, put_back_orders). One mark says it for the whole record, so a record is all one way of
+    counting: while a day still waits for its transcripts (Job.old_places), or a document still away has its takes
+    kept with the covers among the places (a day without Excerpts... rows never waits), it counts the covers
+    everywhere, the days moved over given theirs back, or those days would be moved a second time when it is opened
+    again."""
+    away = _away_takes(days)
+    waiting = any(j.old_places for j in days) or any(covers for _, covers in away.values())
+    fixes = {**page_fixes([d for j in days for d in j.docs], waiting), **_kept_alike(away, waiting)}
     return {"sources": [d.path for j in days for d in j.docs if d.path], "joint": True, **more,
             **({"page_fixes": fixes} if fixes else {}),
-            **({"cover_out": True} if _places_without_cover(days) else {}), "orders": trial_orders(days, waiting)}
+            **({"cover_out": True} if not waiting and _places_without_cover(days) else {}),
+            "orders": trial_orders(days, waiting)}
 
 
 def _places_without_cover(days: list[Job]) -> bool:

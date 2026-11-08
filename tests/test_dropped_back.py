@@ -10,8 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from minute_filler.batch import Job, back_from_record, follow_moves, group, job_origin, joint_origin, read_docs
-from minute_filler.deliver import case_snapshot
+from minute_filler.batch import (Job, back_from_record, fill_jobs, follow_moves, group, job_origin, joint_origin,
+                                 read_docs)
+from minute_filler.deliver import case_snapshot, ledger_for
 from minute_filler.models import Attorney
 
 from helpers import CAPTION_DPM, MIN_U_SCRIPT_COVER as COVER, page_numbered_transcript, pat_settings
@@ -19,6 +20,7 @@ from helpers import CAPTION_DPM, MIN_U_SCRIPT_COVER as COVER, page_numbered_tran
 PR, DS = "pr", "ds"
 ALEX = dict(name="Alex B. Counsel", firm="Counsel & Counsel", party="Defendant")
 DANA = dict(name="Dana Smith", firm="Smith Law", party="Plaintiff")
+A, D = Attorney(**ALEX).key(), Attorney(**DANA).key()
 
 
 @pytest.fixture
@@ -289,3 +291,144 @@ def test_the_takes_still_to_come_back_follow_a_folder_renamed(tmp_path):
     job = Job(old_sources=[str(old / "a.pdf")], old_fixes={str(old / "a.pdf"): ({5: DS}, True)})
     follow_moves([job], [(old, new)])
     assert job.old_fixes == {str(new / "a.pdf"): ({5: DS}, True)}
+
+
+# ------------------------------------------------------------------ a record made while a document is away
+def billed(job: Job, s, led) -> dict:
+    """Generate (fill_jobs, into the test's own records): the record its invoice keeps."""
+    before = {i.invoice_no for i in led.invoices()}
+    fill_jobs([job], s, outputs=["invoice"], ledger=led)
+    assert not job.error
+    made = [i for i in led.invoices() if i.invoice_no not in before]
+    return json.loads(led.origin_of(made[0].invoice_no))
+
+
+def test_a_record_made_while_a_document_is_away_keeps_its_takes(window, tmp_path, s):
+    """b.pdf (Pat's 5 of its 10 total pages, place 5 corrected to Pat's) away when the job opened again was billed: the
+    record made then kept a.pdf's takes alone. Opened again from it with b.pdf back, 16 of Pat's pages were billed for
+    17, with no word said."""
+    a = shared(tmp_path / "in" / "a.pdf", 20)
+    b = shared(tmp_path / "in" / "b.pdf", 10, mine=5)
+    job = job_of(s, a, b)
+    for d in job.docs:
+        d.correct({10: PR} if d.path == str(a) else {5: PR})
+    assert job.your_pages() == 11 + 6
+    led = ledger_for(s)
+    first = billed(job, s, led)
+    gone = away(b, tmp_path / "elsewhere")
+    cur = open_again(window, first)
+    assert [d.path for d in cur.docs] == [str(a)]
+    made = billed(cur, s, led)
+    assert made["sources"] == [str(a)] and made["job"]["page_fixes"] == {str(a): {"10": PR}, str(b): {"5": PR}}
+    gone.rename(b)
+    cur = open_again(window, made)
+    assert {d.path: d.fixes for d in cur.docs} == {str(a): {10: PR}, str(b): {5: PR}} and not cur.old_fixes
+    assert cur.invoice_pages() == cur.your_pages() == 17
+    assert record_of(cur)["job"]["page_fixes"] == {str(a): {"10": PR}, str(b): {"5": PR}}  # (all here: as always)
+
+
+def test_so_on_an_older_record_that_counted_the_cover(window, tmp_path, s):
+    """The job still waits for b.pdf, so the record made meanwhile counts the covers as its record did: b.pdf's place 6
+    (its cover at place 0), place 5 once it is back."""
+    a = shared(tmp_path / "in" / "a.pdf", 20)
+    b = shared(tmp_path / "in" / "b.pdf", 10, mine=5, cover=COVER)
+    job = job_of(s, a, b)
+    next(d for d in job.docs if d.path == str(b)).correct({5: PR})
+    origin = record_of(job)
+    assert origin["job"]["cover_out"] is True
+    del origin["job"]["cover_out"]  # (made before the cover stopped counting: the cover among the places)
+    origin["job"]["page_fixes"] = {str(b): {"6": PR}}
+    origin["case"]["fields"]["est_pages"][0] = "31"
+    gone = away(b, tmp_path / "elsewhere")
+    made = record_of(open_again(window, origin))
+    assert "cover_out" not in made["job"] and made["job"]["page_fixes"] == {str(b): {"6": PR}}
+    gone.rename(b)
+    cur = open_again(window, made)
+    back = next(d for d in cur.docs if d.path == str(b))
+    assert back.fixes == {5: PR} and back.owners()[5] == PR and back.owners()[6] == DS
+    assert cur.invoice_pages() == cur.your_pages() == 10 + 6 and not cur.old_places
+
+
+def test_a_record_made_meanwhile_keeps_the_takes_away_only_at_places_it_counts_alike(tmp_path, s):
+    """b.pdf's takes, kept without the covers, go in a record of a day settled while it is away. c.pdf's, kept with
+    them, would need c.pdf's cover to be put right: left out, never at the wrong place."""
+    a = shared(tmp_path / "in" / "a.pdf", 20)
+    b, c = tmp_path / "in" / "b.pdf", tmp_path / "in" / "c.pdf"
+    job = job_of(s, a)
+    job.old_sources = [str(a), str(b), str(c)]
+    job.old_fixes = {str(b): ({5: PR}, False), str(c): ({6: PR}, True)}
+    made = record_of(job)
+    assert made["job"]["cover_out"] is True and made["job"]["page_fixes"] == {str(b): {"5": PR}}
+
+
+def trial_with_a_volume_corrected(tmp_path, s, cover: bool):
+    """June 3 in two volumes (Roe PM.pdf: Pat's 5 of its 10 total pages, place 5 corrected to Pat's), June 4 (20 total
+    pages, after a Min-U-Script cover when `cover` says), both firms ticked: the days and the volume's path."""
+    am = shared(tmp_path / "in" / "Roe AM.pdf", 20)
+    pm = shared(tmp_path / "in" / "Roe PM.pdf", 10, mine=5)
+    day2 = page_numbered_transcript(tmp_path / "in" / "Roe 6-4.pdf", 20, first=200,
+                                    cover=COVER.replace("June 3, 2026", "June 4, 2026") if cover else "",
+                                    caption=CAPTION_DPM.replace("June 3, 2026", "June 4, 2026"))
+    docs, errors = read_docs([str(am), str(pm), str(day2)], s)
+    assert not errors
+    days = sorted(group(docs, s), key=lambda j: j.case.get("dates"))
+    assert [len(j.docs) for j in days] == [2, 1]
+    for j in days:
+        j.case.attorneys = [Attorney(**ALEX, checked=True), Attorney(**DANA, checked=True)]
+        j.att_touched = True
+    next(d for d in days[0].docs if d.path == str(pm)).correct({5: PR})
+    return days, pm
+
+
+def trial_again(window, origin) -> list[Job]:
+    """The trial opened again from this record (a record of the days, as their invoice keeps it): its days, once read."""
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: len([j for j in window.jobs if j.docs]) == 2)
+    return sorted(window.jobs, key=lambda j: j.case.get("dates"))
+
+
+@pytest.mark.parametrize("cover", [True, False])
+def test_a_trial_s_record_made_while_a_volume_is_away_keeps_its_takes(window, tmp_path, s, cover):
+    """All on one invoice, billed again with Roe PM.pdf away, then opened from that record with it back: Pat's 15 pages
+    of June 3 billed for 16. Without a cover anywhere, the record that kept the take counts the covers among the places
+    (it has no "cover_out"), so the record made meanwhile waits for the volume, and counts them too."""
+    days, pm = trial_with_a_volume_corrected(tmp_path, s, cover)
+    origin = json.loads(json.dumps(joint_origin(days, split_rule="")))
+    assert ("cover_out" in origin) is cover and origin["page_fixes"] == {str(pm): {"5": PR}}
+    gone = away(pm, tmp_path / "elsewhere")
+    made = json.loads(json.dumps(joint_origin(trial_again(window, origin), split_rule="")))
+    assert ("cover_out" in made) is cover and made["page_fixes"] == {str(pm): {"5": PR}}
+    gone.rename(pm)
+    assert window.open_past_job(json.dumps(made)) is True
+    wait(window, lambda: sum(len(j.docs) for j in window.jobs) == 3)
+    june3 = next(j for j in window.jobs if j.case.get("dates") == "6/3/2026")
+    back = next(d for d in june3.docs if d.path == str(pm))
+    assert back.fixes == {5: PR} and june3.your_pages() == 10 + 6
+
+
+def test_a_day_s_rows_come_back_where_they_were_in_a_record_that_waits_for_a_volume(window, tmp_path, s):
+    """An older record of the trial (the cover among June 4's places: Alex B. Counsel's rows ending on places 6 and
+    21, page 203 corrected to DS's at place 4). June 4 settles by its own pages, its rows on 5 and 20, the take on 3;
+    the record made while Roe PM.pdf is away counts the covers for the volume's take, so it gives June 4's rows and
+    take their cover back, and they are moved once, not twice."""
+    days, pm = trial_with_a_volume_corrected(tmp_path, s, cover=True)
+    days[1].portions = [(5, [A]), (20, [A, D])]
+    day2 = days[1].docs[0]
+    day2.correct({3: DS})
+    origin = json.loads(json.dumps(joint_origin(days, split_rule="")))
+    del origin["cover_out"]  # (made before the cover stopped counting)
+    origin["orders"][1]["portions"] = [[6, [A]], [21, [A, D]]]
+    origin["page_fixes"][day2.key()] = {"4": DS}
+    gone = away(pm, tmp_path / "elsewhere")
+    june3, june4 = trial_again(window, origin)
+    assert not june4.old_places and june4.portions == [(5, [A]), (20, [A, D])] and june4.docs[0].fixes == {3: DS}
+    made = json.loads(json.dumps(joint_origin([june3, june4], split_rule="")))
+    assert "cover_out" not in made and made["orders"][1]["portions"] == [[6, [A]], [21, [A, D]]]
+    assert made["page_fixes"] == {day2.key(): {"4": DS}, str(pm): {"5": PR}}
+    gone.rename(pm)
+    assert window.open_past_job(json.dumps(made)) is True
+    wait(window, lambda: sum(len(j.docs) for j in window.jobs) == 3)
+    june3, june4 = sorted(window.jobs, key=lambda j: j.case.get("dates"))
+    assert june4.portions == [(5, [A]), (20, [A, D])] and not june4.portions_problem()
+    assert june4.docs[0].fixes == {3: DS} and june4.your_pages() == 19
+    assert next(d for d in june3.docs if d.path == str(pm)).fixes == {5: PR} and june3.your_pages() == 10 + 6
