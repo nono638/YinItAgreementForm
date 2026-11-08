@@ -2976,7 +2976,8 @@ class MainWindow(QMainWindow):
         Several documents about different cases (or batch=True) start a batch; same_job: they all go to the job
         on screen whatever they say (a past job opened again: that is how it was put together). split_rule: the
         jobs made of them were billed by that split rule (an invoice of several days opened again: Job.split_rule).
-        fixes: the takes corrected in them, by Doc.key() (a past job opened again: batch.origin_fixes; Doc.fixes).
+        fixes: the takes corrected in them, by Doc.key() (a trial opened again: batch.origin_fixes; Doc.fixes; a job of
+        one day keeps its record's itself, Job.old_fixes).
         orders: the record of a trial opened again (its origin): who ordered each day comes back as it kept it
         (batch.put_back_orders). old_places: that record counted Min-U-Script covers among the pages, fixes too
         (batch.counts_covers). What was opened is kept for File -> Open recent."""
@@ -3035,8 +3036,9 @@ class MainWindow(QMainWindow):
         self._loading until the read ends. With a single job and documents all about one case, they are
         added to that job (with same_job, whatever they are about); otherwise (or with batch=True) they are
         sorted into jobs by case and date, the new ones billed by split_rule when one is given (the days of an
-        invoice opened again: Job.split_rule). fixes: the takes corrected in the documents, by Doc.key() (a past
-        job opened again: batch.origin_fixes); each document read whose key is there gets them (Doc.fixes).
+        invoice opened again: Job.split_rule). fixes: the takes corrected in the documents, by Doc.key() (a trial
+        opened again: batch.origin_fixes); each document read whose key is there gets them (Doc.fixes), and the days
+        made of them keep those of the documents not read, for each as it comes back (Job.old_fixes).
         orders: a trial's record opened again (its origin, add_files): the days made of these documents get who
         ordered them as it kept it (batch.put_back_orders). old_places: that record counted Min-U-Script covers among
         the pages: the corrected takes are moved to places without them (the rows are the jobs':
@@ -3094,8 +3096,12 @@ class MainWindow(QMainWindow):
                             j.split_rule = split_rule
                     if orders:  # (a trial opened again: who ordered each day, as its record kept it)
                         from ..batch import put_back_orders
-                        put_back_orders([j for j in self.jobs if any(d is e for d in docs for e in j.docs)],
-                                        orders, self.s)
+                        days = [j for j in self.jobs if any(d is e for d in docs for e in j.docs)]
+                        put_back_orders(days, orders, self.s)
+                        read = {d.key().lower() for d in docs}  # (and the takes corrected in those still away)
+                        for j in days:
+                            j.old_fixes = {p: (f, old_places) for p, f in (fixes or {}).items()
+                                           if p.lower() not in read}
                     if self.cur not in self.jobs:  # (the first of the list: the earliest day, at first)
                         self.cur = self._jobs_in_list_order()[0]
                     self._auto_runsheet()
@@ -6852,7 +6858,8 @@ class MainWindow(QMainWindow):
         another day of the case. origin: Activity.origin (JSON), or what the Records window put together from
         an older record's columns. The case comes back as it was filled in (batch.job_from_origin) and the
         documents it was read from are read again when they are still where they were, their takes as the user
-        corrected them (batch.origin_fixes, given to add_files). An invoice of several
+        corrected them (batch.origin_fixes: kept by the job for each document until it is back, Job.old_fixes; a
+        trial's given to add_files). An invoice of several
         days is read from its documents, a job per day, each with who ordered it as the record kept it
         (batch.put_back_orders; a record made before 2.13 keeps none). What an older record kept by a page's place
         counts a Min-U-Script cover among the pages, and is moved as its documents are read (batch.counts_covers). Asks
@@ -6918,11 +6925,14 @@ class MainWindow(QMainWindow):
                             f.source == SRC_PDF and pdf_back) and key != "delivery":
                         f.source = SRC_USER
             apply_defaults(job.case, self.s)
+            # (the takes corrected in the record's documents: each document gets its own as it is read, now or once it
+            # is back, at its own path or from another folder: batch.back_from_record)
+            job.old_fixes = {p: (fixes, counts_covers(data)) for p, fixes in origin_fixes(data).items()}
             self._clear_jobs(job)
             self._show_job()
         if there:
             self.add_files(there, batch=bool(several_days), same_job=not several_days,
-                           split_rule=rule if several_days else "", fixes=origin_fixes(data),
+                           split_rule=rule if several_days else "", fixes=origin_fixes(data) if several_days else None,
                            orders=data if several_days else None, old_places=counts_covers(data))
         gone = len(sources) - len(there)
         if gone:

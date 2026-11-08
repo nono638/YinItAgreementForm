@@ -18,7 +18,8 @@ pages are someone else's, or that begins with pages nobody's initials are on,
 gets no invoice until the user says whose pages to bill (Job.ownership_problem). Where the
 initials put pages in the wrong take, the user corrects where a take ends (Doc.fixes, Doc.correct): the
 corrections count wherever the initials do (the takes, the run sheet, Yours, the pages billed) and are kept with
-the records of the files made (job_origin, joint_origin: "page_fixes"), for the job opened again (origin_fixes).
+the records of the files made (job_origin, joint_origin: "page_fixes"), for the job opened again (origin_fixes), each
+document's given to it as it is read, or once it is back (back_from_record, with Whose pages...).
 A Min-U-Script cover isn't one of a transcript's pages (takes.without_cover); what a record made before that keeps by
 a page's place counts it, and is moved over when the job is opened again, once every transcript it counted is back
 (counts_covers, settle_old_places). A job opened again keeps its record's list of documents and the count it read until
@@ -365,10 +366,14 @@ class Job:
     # pages (no "cover_out" in it, counts_covers). old_total: the day's pages as it counted them (0 when it doesn't
     # say). old_count: the count it read from the transcripts, which the Pages field holds as if typed while a PDF is
     # away (MainWindow.open_past_job); 0 when its number was typed: a number typed says nothing of the pages read.
+    # old_fixes: the takes the user corrected (origin_fixes) in those of its documents not read yet, by the record's
+    # path, each as ({place: initials}, whether the record counted a Min-U-Script cover among the places:
+    # counts_covers), given to each as it comes back (back_from_record). Not kept with the records.
     old_places: bool = False
     old_total: int = 0
     old_sources: list = field(default_factory=list)
     old_count: int = 0
+    old_fixes: dict = field(default_factory=dict)
 
     def is_empty(self) -> bool:
         """Nothing dropped and nothing typed."""
@@ -1833,6 +1838,66 @@ def in_record_order(job: Job) -> bool:
     return len(docs) == 1 or not any(id(d) in unknown for d in docs)
 
 
+def _record_paths(job: Job) -> dict[int, str]:
+    """Which of the documents of the record a job was opened from (Job.old_sources) each of its documents is, by id():
+    the one at its path, else the one of its file name, when that is the only one of the record's of that name not here
+    at its path, and the only document of the job of that name not at a path of the record's. Two documents of a day
+    can share a name ("AM\\Transcript.pdf", "PM\\Transcript.pdf"): back from other folders, nothing says which is which,
+    and a document not known isn't in it (never a guess, as in_record_order)."""
+    left = list(job.old_sources)
+    out: dict[int, str] = {}
+    for d in job.docs:
+        p = next((p for p in left if p.lower() == d.key().lower()), None)
+        if p is not None:
+            out[id(d)] = p
+            left.remove(p)
+
+    def name(path: str) -> str:
+        return Path(path).name.lower()
+    rest = [d for d in job.docs if id(d) not in out]
+    for d in rest:
+        same = [p for p in left if name(p) == name(d.key())]
+        if len(same) == 1 and sum(name(e.key()) == name(d.key()) for e in rest) == 1:
+            out[id(d)] = same[0]
+    return out
+
+
+def _rekeyed(chosen: dict, old: str, new: str) -> dict:
+    """Whose pages... (Job.page_basis or Job.front_owner) with what was chosen for the document at `old` now under
+    `new`, in its place; a choice made since for `new` itself stays."""
+    if old not in chosen:
+        return chosen
+    if new in chosen:
+        return {k: v for k, v in chosen.items() if k != old}
+    return {(new if k == old else k): v for k, v in chosen.items()}
+
+
+def back_from_record(job: Job) -> None:
+    """What the record a job was opened from keeps by a document's path (Doc.key()) follows the document back, whenever
+    it comes: the takes the user corrected in it (Job.old_fixes) go on it, at its own path or known by its name
+    (_record_paths), as places without a Min-U-Script cover when the record counted it (fixes_without_cover), and
+    Whose pages... (Job.page_basis, Job.front_owner) moves to the path one dropped back from another folder has now.
+    Lost, the bill changed with no word: the whole transcript chosen, one back from another folder billed only the
+    user's own pages. Takes the user has corrected in it since stay. A document the user took out of the job is no
+    longer one of the record's (MainWindow._remove_doc), and its own were given to it when it was read."""
+    if not (job.old_sources or job.old_fixes):
+        return
+    fixes = dict(job.old_fixes)
+    known = _record_paths(job)
+    for d in job.docs:
+        p = known.get(id(d))
+        # (by its path first: also one the record's list leaves out, added while another document was away)
+        mine = next((k for k in fixes if k.lower() == d.key().lower()), p if p in fixes else None)
+        if mine is not None:
+            kept, covers = fixes.pop(mine)
+            if not d.fixes:
+                d.fixes = fixes_without_cover(kept, cover_pages(d.ing) if covers else 0)
+        if p is not None and p != d.key():
+            job.page_basis = _rekeyed(job.page_basis, p, d.key())
+            job.front_owner = _rekeyed(job.front_owner, p, d.key())
+    job.old_fixes = fixes
+
+
 def settle_old_places(job: Job) -> None:
     """A job opened again from a record, now that every transcript the record counted is read (_all_back: until then the
     record's numbers stay as they are, so a day settled on part of its documents would bill wrong once the rest came
@@ -1969,7 +2034,8 @@ def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
 def origin_fixes(origin: dict) -> dict[str, dict[int, str]]:
     """The corrected takes a record kept (page_fixes: in its "job" choices, job_origin, or at the top for a file
     made for several days at once, joint_origin), by Doc.key(), for the documents read again when it is opened
-    again (MainWindow.open_past_job): {"...\\Roe 6-3.pdf": {5: "ds"}}. Anything not as expected is left out."""
+    again (MainWindow.open_past_job), or once they are back (Job.old_fixes): {"...\\Roe 6-3.pdf": {5: "ds"}}. Anything
+    not as expected is left out."""
     choices = origin.get("job") if isinstance(origin.get("job"), dict) else {}
     kept = choices.get("page_fixes", origin.get("page_fixes"))
     if not isinstance(kept, dict):
@@ -2236,8 +2302,10 @@ def remerge(job: Job, s: Settings) -> None:
     """Rebuilds job.case from its documents, keeping what the user entered: typed fields, and the proceeding
     types and attorneys (with their ticks) once the user has changed them (Job.proc_touched, Job.att_touched).
     The dates of a batch job, its pages, copies, rate and delivery date are then worked out again. A job opened again
-    from a record first has its documents put in the record's order (in_record_order) and, as soon as all its
-    transcripts are here, what it kept of the record settled (settle_old_places)."""
+    from a record first gives the documents back what the record kept by their paths (back_from_record), has them put
+    in the record's order (in_record_order) and, as soon as all its transcripts are here, what it kept of the record
+    settled (settle_old_places)."""
+    back_from_record(job)  # (first: settling counts the pages billed, and so whose they are)
     settle_old_places(job)
     prev = job.case
     new = merge([e for d in job.docs for e in d.extractions()], s, previous=prev)
@@ -2397,6 +2465,7 @@ def group(docs: list[Doc], s: Settings, jobs: list[Job] | None = None) -> list[J
                         setattr(job, name, getattr(other, name))
                 job.page_basis = {**other.page_basis, **job.page_basis}
                 job.front_owner = {**other.front_owner, **job.front_owner}
+                job.old_fixes = {**other.old_fixes, **job.old_fixes}  # (a record's, still to come back)
                 job.speeds = {**other.speeds, **job.speeds}
                 job.not_ordered |= other.not_ordered
                 job.split_rule = job.split_rule or other.split_rule  # (one billed already: billed that way)
@@ -2822,8 +2891,8 @@ def follow_moves(jobs: list[Job], moves: list[tuple[Path, Path]]) -> None:
     """The folders `moves` ((the folder, its new path)) were renamed: these jobs' documents read from them, what
     is kept by a document's path (Doc.key(): Whose pages..., Job.page_basis and Job.front_owner, which would
     otherwise be lost and the pages billed otherwise; the documents kept together though their index numbers
-    differ, Job.index_numbers_ok; the documents of a job's record, Job.old_sources) and the run sheet chosen for them
-    (Job.runsheet_to) follow.
+    differ, Job.index_numbers_ok; the documents of a job's record, Job.old_sources, and the takes corrected in those
+    still to come back, Job.old_fixes) and the run sheet chosen for them (Job.runsheet_to) follow.
     Generate all's copies of the jobs have dicts of their own: they are given here too (MainWindow._run_batch)."""
     for src, dst in moves:
         for d in {id(d): d for j in jobs for d in j.docs}.values():
@@ -2833,6 +2902,7 @@ def follow_moves(jobs: list[Job], moves: list[tuple[Path, Path]]) -> None:
             j.front_owner = {moved_path(k, src, dst): v for k, v in j.front_owner.items()}
             j.index_numbers_ok = [moved_path(k, src, dst) for k in j.index_numbers_ok]
             j.old_sources = [moved_path(k, src, dst) for k in j.old_sources]
+            j.old_fixes = {moved_path(k, src, dst): v for k, v in j.old_fixes.items()}
             if j.runsheet_to:
                 j.runsheet_to = moved_path(j.runsheet_to, src, dst)
 
