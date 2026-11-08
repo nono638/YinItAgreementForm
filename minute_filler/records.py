@@ -350,8 +350,8 @@ def _inside(path: str, folder: Path) -> bool:
 def moved_origin(data: dict, old: Path, new: Path) -> bool:
     """A record's origin (batch.job_origin, joint_origin) once the folder `old` is `new`: the documents read
     ("sources"), those it says were away ("old_sources": the job's, or a day's) and what is kept by their path
-    (page_fixes; the job's page_basis and front_owner) that were in it are now in `new`. Changed in place; True when
-    anything was."""
+    (page_fixes; the page_basis and front_owner of the job, or of each day of a trial: batch.trial_orders) that were
+    in it are now in `new`. Changed in place; True when anything was."""
     changed = False
 
     def moved(p):
@@ -368,14 +368,14 @@ def moved_origin(data: dict, old: Path, new: Path) -> bool:
         data["sources"] = [moved(p) for p in data["sources"]]
     if "page_fixes" in data:
         data["page_fixes"] = keys(data["page_fixes"])
-    job = data.get("job")
-    if isinstance(job, dict):
-        for k in ("page_basis", "front_owner", "page_fixes"):
-            if k in job:
-                job[k] = keys(job[k])
     days = data.get("orders") if isinstance(data.get("orders"), list) else []
-    for kept in [job] + days:
-        if isinstance(kept, dict) and isinstance(kept.get("old_sources"), list):
+    for kept in [data.get("job")] + days:
+        if not isinstance(kept, dict):
+            continue
+        for k in ("page_basis", "front_owner", "page_fixes"):
+            if k in kept:
+                kept[k] = keys(kept[k])
+        if isinstance(kept.get("old_sources"), list):
             kept["old_sources"] = [moved(p) for p in kept["old_sources"]]
     return changed
 

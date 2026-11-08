@@ -1619,6 +1619,38 @@ _ORIGIN_CHOICES = ("parties", "invoice_email", "invoice_index", "index_on_typed"
                    "portions", "speeds", "page_basis", "front_owner", "split_rule")
 # Not put back when a job is opened again: they are worked out afresh (today's date, the delivery date from it)
 _ORIGIN_SKIP = ("agreement_date", "delivery_date")
+# Those each day of a trial keeps in the record of a file made for several days (trial_orders): its rows and speeds
+# have keys of their own there, and the split rule is the record's
+_DAY_CHOICES = tuple(k for k in _ORIGIN_CHOICES if k not in ("portions", "speeds", "split_rule"))
+
+
+def _put_back_choices(job: Job, choices: dict) -> None:
+    """The invoice's own choices a record kept for a job (job_origin's, or a trial's day's: trial_orders), put back
+    on it: Parties, the Peripherals, the granular detail and Whose pages... Anything not as expected is left as the
+    job has it."""
+    if isinstance(choices.get("parties"), int) and not isinstance(choices.get("parties"), bool):
+        job.parties = max(0, choices["parties"])
+    if isinstance(choices.get("invoice_email"), bool):
+        job.invoice_email = choices["invoice_email"]
+    if choices.get("invoice_index") in ("auto", "on", "off"):
+        job.invoice_index = choices["invoice_index"]
+    if isinstance(choices.get("index_on_typed"), bool):
+        job.index_on_typed = choices["index_on_typed"]
+    if isinstance(choices.get("invoice_show"), list):
+        job.invoice_show = [k for k in choices["invoice_show"] if isinstance(k, str)]
+    job.invoice_detail = choices.get("invoice_detail") is True
+    for name in ("page_basis", "front_owner"):
+        value = choices.get(name)
+        if isinstance(value, dict):  # (page_basis: a list of reporters too, see Job.basis_of)
+            setattr(job, name, {k: v for k, v in value.items() if isinstance(k, str) and (
+                isinstance(v, str) or name == "page_basis" and isinstance(v, list)
+                and all(isinstance(x, str) for x in v))})
+
+
+def _typed_of(job: Job) -> dict[str, str]:
+    """The fields typed in on a day (an emptied one too: it must not come back from the documents), as a trial's record
+    keeps them for it (trial_orders): read again from its documents, the day has only what they say."""
+    return {k: f.value for k, f in job.case.fields.items() if f.source == SRC_USER and k not in _ORIGIN_SKIP}
 
 
 def job_origin(job: Job) -> dict:
@@ -1844,7 +1876,10 @@ def trial_orders(days: list[Job], with_covers: bool = False) -> list[dict]:
     """Who ordered each of these days (a trial's), as the record of a file made for them keeps it (joint_origin's
     "orders"), so a trial opened again comes back with who ordered (put_back_orders): each day's dates, its
     attorneys as they were (ticks included), the firms it says don't order it (Job.not_ordered), the speeds and its
-    Excerpts... rows (the pages each firm ordered: without them every firm ticked would order the whole day).
+    Excerpts... rows (the pages each firm ordered: without them every firm ticked would order the whole day), and the
+    day's own choices of its invoice (_DAY_CHOICES: Parties, the Peripherals, Whose pages...) and the fields typed in
+    on it ("typed": its Pages typed among them). Each of those changes the bill: an older record has none, and its days
+    come back with what their documents and Settings say.
     with_covers: in a record that counts Min-U-Script covers among the pages, the days moved over given theirs back."""
     def rows_of(j: Job) -> list:
         """The day's rows as this record counts them."""
@@ -1853,6 +1888,8 @@ def trial_orders(days: list[Job], with_covers: bool = False) -> list[dict]:
              "not_ordered": sorted(j.not_ordered), "speeds": dict(j.speeds),
              "portions": [[r[0], list(r[1])] + ([dict(r[2])] if len(r) > 2 and isinstance(r[2], dict) else [])
                           for r in rows_of(j)] if j.portions is not None else None,
+             **{k: getattr(j, k) for k in _DAY_CHOICES},
+             **({"typed": _typed_of(j)} if _typed_of(j) else {}),
              **_kept_from_record(j)} for j in days]
 
 
@@ -1876,10 +1913,11 @@ def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
     """Who ordered each day of a trial opened again, as its record kept it (trial_orders, in origin["orders"]):
     each of `jobs` (read again from the record's documents, a job per day) whose dates a day of it has gets that
     day's attorneys and ticks (the user's, Job.att_touched), the firms it doesn't order, the speeds and the Excerpts...
-    rows (as places without a Min-U-Script cover, when the record counted it: settle_old_places), and the record's
-    documents but those read into its other days (Job.old_sources: a trial's record names every day's);
-    No. of copies follows. An invoiced day is left as it is. Returns the jobs changed; anything not as expected is left
-    out."""
+    rows (as places without a Min-U-Script cover, when the record counted it: settle_old_places), its own choices of
+    the invoice and the fields typed in on it (each as the user left it: _put_back_choices, as a job's own record
+    gives them back), and the record's documents but those read into its other days (Job.old_sources: a trial's
+    record names every day's); No. of copies follows. An invoiced day is left as it is. Returns the jobs changed;
+    anything not as expected is left out."""
     rows = origin.get("orders")
     if not isinstance(rows, list):
         return []
@@ -1902,6 +1940,11 @@ def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
             job.not_ordered = {k for k in row["not_ordered"] if isinstance(k, str) and k}
         if isinstance(row.get("speeds"), dict):
             job.speeds = {k: v for k, v in row["speeds"].items() if isinstance(k, str) and isinstance(v, str) and v}
+        _put_back_choices(job, row)
+        typed = {k: v for k, v in (row["typed"] if isinstance(row.get("typed"), dict) else {}).items()
+                 if k in job.case.fields and k not in _ORIGIN_SKIP and isinstance(v, str)}
+        for key, value in typed.items():
+            job.case.fields[key] = FieldState(value, SRC_USER, 1.0, [value] if value else [])
         others = {d.key().lower() for j in jobs if j is not job for d in j.docs}
         job.old_sources = [p for p in _paths_of(row.get("old_sources")) or sources if p.lower() not in others]
         runs = row.get("portions")
@@ -1911,9 +1954,13 @@ def put_back_orders(jobs: list[Job], origin: dict, s: Settings) -> list[Job]:
                                         {k: v for k, v in r[2].items() if isinstance(k, str) and isinstance(v, str)
                                          and v} if len(r) > 2 and isinstance(r[2], dict) else None) for r in runs]
             job.old_places = counts_covers(origin)
-            # (the day's own: the record has no count, its rows end on the day's pages)
-            job.old_total = job.old_count = int(job.portions[-1][0]) if job.portions else 0
+            # (the day's own: the record has no count, its rows end on the day's pages; under a Pages number typed,
+            # on that number, which is no count of the pages read: taken for one, settling would clear it)
+            job.old_total = int(job.portions[-1][0]) if job.portions else 0
+            job.old_count = 0 if job.pages_typed() else job.old_total
         settle_old_places(job)
+        if typed:  # (what follows from them worked out again: the rate of a speed typed, the delivery date)
+            remerge(job, s)
         job.refresh_copies(s)
         changed.append(job)
     return changed
@@ -2044,17 +2091,8 @@ def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
     job.att_touched = bool(job.case.attorneys) or choices.get("att_touched") is True
     job.case.proc_types = {p for p in listed("proc") if isinstance(p, str)}
     job.proc_touched = bool(job.case.proc_types) or choices.get("proc_touched") is True
-    if isinstance(choices.get("parties"), int) and not isinstance(choices.get("parties"), bool):
-        job.parties = max(0, choices["parties"])
-    if isinstance(choices.get("invoice_email"), bool):
-        job.invoice_email = choices["invoice_email"]
-    if choices.get("invoice_index") in ("auto", "on", "off"):
-        job.invoice_index = choices["invoice_index"]
-    if isinstance(choices.get("index_on_typed"), bool):
-        job.index_on_typed = choices["index_on_typed"]
-    if isinstance(choices.get("invoice_show"), list):
-        job.invoice_show = [k for k in choices["invoice_show"] if isinstance(k, str)]
-    job.invoice_detail = choices.get("invoice_detail") is True
+    _put_back_choices(job, choices)
+
     def speeds(value) -> dict:
         """Speeds by firm key as kept ({} when it isn't one)."""
         return {k: v for k, v in value.items() if isinstance(k, str) and isinstance(v, str) and v} \
@@ -2069,12 +2107,6 @@ def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
     if isinstance(choices.get("not_ordered"), list):
         job.not_ordered = {k for k in choices["not_ordered"] if isinstance(k, str) and k}
     job.split_rule = recorded_split_rule(split_rule) if split_rule else ""  # (one this courthouse has)
-    for name in ("page_basis", "front_owner"):
-        value = choices.get(name)
-        if isinstance(value, dict):  # (page_basis: a list of reporters too, see Job.basis_of)
-            setattr(job, name, {k: v for k, v in value.items() if isinstance(k, str) and (
-                isinstance(v, str) or name == "page_basis" and isinstance(v, list)
-                and all(isinstance(x, str) for x in v))})
     one_row_per_firm(job)
     job.own = tuple(sorted(my_initials(s.profile.name, s.profile.initials)))
     job.old_places = counts_covers(origin)
