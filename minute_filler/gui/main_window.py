@@ -6920,6 +6920,13 @@ class MainWindow(QMainWindow):
         sources = record_documents(data)
         there = [p for p in sources if Path(p).is_file()]
         several_days = data.get("joint") is True and there
+        # (a trial's day's own record names the other days' documents too: only those it read are surely its own, what
+        # it says of the missing ones goes by those, and of the others it takes only those dated this day,
+        # batch.trial_day_only. Told to drop another day's here, the user billed its pages on this day)
+        trial_day = not several_days and isinstance(data.get("job"), dict) and data["job"].get("trial_day") is True
+        read = data.get("sources") if isinstance(data.get("sources"), list) else []
+        own = [p for p in sources if p in read] if trial_day else sources
+        own_there = [p for p in own if p in there]
         try:  # (billed one way: that way again)
             rule = billed_split_rule(origin, ledger_for(self.s))
         except Exception as e:
@@ -6934,7 +6941,7 @@ class MainWindow(QMainWindow):
                 logfile.error("could not open a past job", e)
                 QMessageBox.information(self, "Open this job again", "This record can't be opened again.")
                 return False
-            if len(there) < len(sources) or not sources:
+            if len(own_there) < len(own) or not own:
                 # Not every document will be read again: what was read from the missing ones would be lost
                 # when the others are merged, so it is kept as if typed (not the defaults: they are worked out).
                 # Not a page count of a transcript (SRC_PDF) when every PDF is read again: it is counted again
@@ -6943,7 +6950,7 @@ class MainWindow(QMainWindow):
                 # a PDF is missing, it may be the transcript: an order letter saved as a PDF is no count.)
                 # Nor a speed a document named: the agreement form's speed is the Settings rule's unless the user
                 # chose one (merge.refresh_speed), and an e-mail's speed was never the user's choice.
-                pdfs = [p for p in sources if p.lower().endswith(".pdf")]
+                pdfs = [p for p in own if p.lower().endswith(".pdf")]
                 pdf_back = bool(pdfs) and all(p in there for p in pdfs)
                 for key, f in job.case.fields.items():
                     if f.value and f.source not in (SRC_DEFAULT, SRC_DERIVED) and not (
@@ -6956,16 +6963,23 @@ class MainWindow(QMainWindow):
             self._clear_jobs(job)
             self._show_job()
         if there:
-            # (a trial's day's own record names the other days' documents too: only those dated this day are its own)
-            trial_day = not several_days and isinstance(data.get("job"), dict) and data["job"].get("trial_day") is True
             self.add_files(there, batch=bool(several_days), same_job=not several_days,
                            split_rule=rule if several_days else "", fixes=origin_fixes(data) if several_days else None,
                            orders=data if several_days else None, old_places=counts_covers(data), day_only=trial_day)
-        gone = len(sources) - len(there)
+        gone = len(own) - len(own_there)
+        trial_gone = [p for p in sources if p not in own and p not in there]  # (a trial's day's own record only)
+        notes = []
         if gone:
-            self._toast(f"{plural(gone, 'document')} of this job {'is' if gone == 1 else 'are'} no longer where "
-                        f"{'it was' if gone == 1 else 'they were'}: drop {'it' if gone == 1 else 'them'} here to "
-                        "make an invoice again.")
+            notes.append(f"{plural(gone, 'document')} of this job {'is' if gone == 1 else 'are'} no longer where "
+                         f"{'it was' if gone == 1 else 'they were'}: drop {'it' if gone == 1 else 'them'} here to "
+                         "make an invoice again.")
+        if trial_gone:
+            notes.append(f"{Path(trial_gone[0]).name}, of this trial, is no longer where it was: drop it here if it is "
+                         "this day's." if len(trial_gone) == 1 else
+                         f"{len(trial_gone)} documents of this trial are no longer where they were: drop any of this "
+                         "day's here.")
+        if notes:
+            self._toast(" ".join(notes))
         self.raise_()
         self.activateWindow()
         return True

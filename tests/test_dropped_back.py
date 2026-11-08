@@ -15,7 +15,7 @@ import pytest
 from minute_filler.batch import (Job, back_from_record, fill_jobs, follow_moves, group, job_origin, joint_origin,
                                  read_docs)
 from minute_filler.deliver import case_snapshot, ledger_for
-from minute_filler.models import Attorney
+from minute_filler.models import SRC_USER, Attorney
 
 from helpers import CAPTION_DPM, MIN_U_SCRIPT_COVER as COVER, page_numbered_transcript, pat_settings
 
@@ -306,6 +306,33 @@ def test_a_trial_day_s_own_record_reads_back_its_own_volume_that_was_away(window
     assert sorted(d.path for d in cur.docs) == sorted([str(am3), str(pm3)])
     assert next(d for d in cur.docs if d.path == str(pm3)).fixes == {5: PR}
     assert cur.transcript_pages() == 30 and cur.your_pages() == cur.invoice_pages() == 10 + 6
+
+
+def test_a_trial_day_s_own_record_doesn_t_call_another_day_s_document_its_own(window, tmp_path, s, monkeypatch):
+    """June 3's PM volume moved to a new folder; the trial opened again, and the PM dropped back from there (it goes to
+    June 3); June 4's own record made then. Opened again, it said "1 document of this job is no longer where it was:
+    drop it here", and the PM dropped as told billed 15 of your pages on June 4 (30 total pages) for its 10 (20). It
+    now says the PM is of the trial, to drop here only if it is this day's, and bills June 4's own pages, counted
+    from its transcript (nothing kept as typed: every document it read is here)."""
+    am3 = shared(tmp_path / "in" / "Roe 6-3 AM.pdf", 20)
+    pm3 = shared(tmp_path / "in" / "Roe 6-3 PM.pdf", 10, mine=5)
+    am4 = page_numbered_transcript(tmp_path / "in" / "Roe 6-4.pdf", 20, first=200, caption=JUNE_4,
+                                   initials=[PR] * 10 + [DS] * 10)
+    origin = trial_record(s, am3, pm3, am4)
+    moved = away(pm3, tmp_path / "June 3 PM")
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: len([j for j in window.jobs if j.docs]) == 2)
+    window.add_files([str(moved)])
+    wait(window, lambda: sum(len(j.docs) for j in window.jobs) == 3)
+    rec4 = record_of(next(j for j in window.jobs if j.case.get("dates") == "6/4/2026"))
+    assert rec4["job"].get("trial_day") is True and str(pm3) in rec4["job"]["old_sources"]
+    toasts = []
+    monkeypatch.setattr(window, "_toast", toasts.append)
+    cur = open_again(window, rec4)
+    assert [d.path for d in cur.docs] == [str(am4)]
+    assert toasts == ["Roe 6-3 PM.pdf, of this trial, is no longer where it was: drop it here if it is this day's."]
+    assert cur.case.fields["est_pages"].source != SRC_USER and not cur.record_count_held()
+    assert cur.invoice_pages() == cur.your_pages() == 10 and cur.transcript_pages() == 20
 
 
 def test_a_trial_day_s_own_record_gives_its_own_document_its_takes_by_name(window, tmp_path, s):
