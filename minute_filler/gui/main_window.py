@@ -4523,9 +4523,11 @@ class MainWindow(QMainWindow):
         """The days Generate works the speeds of these jobs out over: them and the days of their trials ticked in the
         list (_considered), not invoiced yet, as its Speed column is (batch.speed_shown: a firm ordering one day alone
         that shares pages on another commits on both, Generate of one day too). Not a day for being the one on screen
-        (_counted): what Generate all bills would change with it. What the prices are worked out over too (_as_billed,
-        and the Excerpts window's), or they would say another speed than is billed."""
-        from ..batch import trial_days
+        (_counted): what Generate all bills would change with it. Jobs invoiced already, alone (batch.speed_days: they
+        show what they were billed, and Generate of the day shown bills one so again; a speed set since on a day still
+        to bill isn't theirs). What the prices are worked out over too (_as_billed, and the Excerpts window's), or
+        they would say another speed than is billed."""
+        from ..batch import speed_days, trial_days
         pool: dict[int, Job] = {id(j): j for j in jobs}
         considered = self._considered()
         for j in jobs:
@@ -4533,7 +4535,7 @@ class MainWindow(QMainWindow):
                 for d in trial_days(j, self.jobs):
                     if not d.invoiced and any(d is k for k in considered):
                         pool.setdefault(id(d), d)
-        return list(pool.values())
+        return speed_days(jobs, list(pool.values()))
 
     def _ask_split_speeds(self, jobs: list[Job], button: str = "Generate") -> bool:
         """Before the files are made: the firms of a split order whose speed isn't set (batch.speeds_to_ask:
