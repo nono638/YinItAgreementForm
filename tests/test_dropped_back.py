@@ -246,6 +246,69 @@ def test_a_trial_day_takes_no_corrected_take_of_another_day_by_its_name(window, 
     assert new.fixes == {} and june4.your_pages() == 20 + 4
 
 
+def trial_record(s, *paths, fix=None) -> dict:
+    """The record of one invoice for the days these PDFs make, both firms ticked on each. fix: (a PDF, {place:
+    initials}), the take corrected in it first."""
+    docs, errors = read_docs([str(p) for p in paths], s)
+    assert not errors
+    days = sorted(group(docs, s), key=lambda j: j.case.get("dates"))
+    for j in days:
+        j.case.attorneys = [Attorney(**ALEX, checked=True), Attorney(**DANA, checked=True)]
+        j.att_touched = True
+    if fix:
+        next(d for j in days for d in j.docs if d.path == str(fix[0])).correct(fix[1])
+    return json.loads(json.dumps(joint_origin(days, split_rule="")))
+
+
+def test_a_trial_day_s_own_record_reads_back_no_other_day_s_transcript(window, tmp_path, s):
+    """June 3 in two volumes and June 4 in one, on one invoice. Opened again with June 3's PM volume away, which is then
+    dropped back in its own place (it goes to June 3). June 4's own record, made then, named June 3's PM volume among
+    the trial's documents (nothing says which day's each is), and opened again it read it into June 4's job: 25 of your
+    pages billed on June 4 (30 total pages) for its 20 (20 total pages), with no word said."""
+    am3 = shared(tmp_path / "in" / "Roe 6-3 AM.pdf", 20)
+    pm3 = shared(tmp_path / "in" / "Roe 6-3 PM.pdf", 10, mine=5)
+    am4 = page_numbered_transcript(tmp_path / "in" / "Roe 6-4.pdf", 20, first=200, caption=JUNE_4)
+    origin = trial_record(s, am3, pm3, am4)
+    moved = away(pm3, tmp_path / "elsewhere")
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: len([j for j in window.jobs if j.docs]) == 2)
+    window.add_files([str(moved.rename(pm3))])
+    wait(window, lambda: sum(len(j.docs) for j in window.jobs) == 3)
+    june4 = next(j for j in window.jobs if j.case.get("dates") == "6/4/2026")
+    rec4 = record_of(june4)
+    assert rec4["job"].get("trial_day") is True and str(pm3) in rec4["job"]["old_sources"]
+    cur = open_again(window, rec4)
+    assert [d.path for d in cur.docs] == [str(am4)] and cur.case.get("dates") == "6/4/2026"
+    assert cur.your_pages() == cur.invoice_pages() == cur.transcript_pages() == 20
+
+
+def test_a_trial_day_s_own_record_gives_no_other_day_s_corrected_take_by_its_name(window, tmp_path, s):
+    """Each volume a "Transcript.pdf" in a folder of its own: June 3's AM (a Min-U-Script cover first) and PM (place 5
+    corrected to Pat's), June 4's AM, on one invoice. Opened again with June 3's PM away, June 4's own record keeps
+    that corrected take for when it comes back. Opened again, that record was a single day's, and June 4's own PM
+    volume dropped in (DS's 6 pages, then Pat's 4) took June 3's take by its name: a page of DS's billed as Pat's, 25
+    of your pages for 24, with no word said."""
+    am3 = shared(tmp_path / "6-3 AM" / "Transcript.pdf", 20, cover=COVER)
+    pm3 = shared(tmp_path / "6-3 PM" / "Transcript.pdf", 10, mine=5)
+    (tmp_path / "6-4 AM").mkdir()
+    am4 = page_numbered_transcript(tmp_path / "6-4 AM" / "Transcript.pdf", 20, first=200, caption=JUNE_4)
+    origin = trial_record(s, am3, pm3, am4, fix=(pm3, {5: PR}))
+    away(pm3, tmp_path / "elsewhere")
+    assert window.open_past_job(json.dumps(origin)) is True
+    wait(window, lambda: len([j for j in window.jobs if j.docs]) == 2)
+    june4 = next(j for j in window.jobs if j.case.get("dates") == "6/4/2026")
+    rec4 = record_of(june4)
+    assert rec4["job"]["page_fixes"] == {str(pm3): {"5": PR}}
+    cur = open_again(window, rec4)
+    assert cur.old_fixes_exact and [d.path for d in cur.docs] == [str(am4)]
+    (tmp_path / "6-4 PM").mkdir()
+    pm4 = page_numbered_transcript(tmp_path / "6-4 PM" / "Transcript.pdf", 10, first=220, caption=JUNE_4,
+                                   initials=[DS] * 6 + [PR] * 4)
+    drop(window, pm4, 2)
+    new = next(d for d in window.cur.docs if d.path == str(pm4))
+    assert new.fixes == {} and window.cur.your_pages() == 20 + 4
+
+
 # ------------------------------------------------------------------ not a guess
 def test_two_documents_of_one_name_get_theirs_only_when_a_path_tells_them_apart(window, tmp_path, s):
     """AM\\Transcript.pdf (the whole transcript chosen; place 10 corrected) and PM\\Transcript.pdf (place 5 corrected).

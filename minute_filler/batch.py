@@ -374,7 +374,8 @@ class Job:
     # counts_covers), given to each as it comes back (back_from_record), and kept by a record made meanwhile
     # (_away_takes). Not kept with the records as they are. old_fixes_exact: they go to a document at their path only,
     # never one known by its name: a trial's day's are of every day's documents still away, and its list names those
-    # of the other days too, so a day's own volume of the same name would take another day's corrected take.
+    # of the other days too, so a day's own volume of the same name would take another day's corrected take. A record
+    # of such a day alone says so ("trial_day": job_origin), and opened again it is a trial's day still.
     old_places: bool = False
     old_total: int = 0
     old_sources: list = field(default_factory=list)
@@ -1680,15 +1681,21 @@ def job_origin(job: Job) -> dict:
     without a Min-U-Script cover ("cover_out": see counts_covers; a job still waiting for its transcripts,
     Job.old_places, counts the covers, in its corrected takes too), and what a job opened again still keeps from its
     record: its list of documents (_kept_from_record), the takes corrected in those still away (_away_takes, those
-    counted as it counts its places: _kept_alike) and the count it still holds (Job.old_count)."""
+    counted as it counts its places: _kept_alike) and the count it still holds (Job.old_count). A day of a trial
+    opened again with a document away says so ("trial_day": Job.old_fixes_exact): its list names the other days'
+    documents too, and nothing says which are its own, so opened again that record reads only what it read
+    (record_documents) and gives a corrected take to a document at its path only. Read in, another day's transcript
+    was billed on this day with no word, or a volume of this day of the same name took another day's corrected take."""
     fixes = {**page_fixes(job.docs, job.old_places), **_kept_alike(_away_takes([job]), job.old_places)}
+    kept = _kept_from_record(job)
     return {"sources": [d.path for d in job.docs if d.path],
             "job": {**{k: getattr(job, k) for k in _ORIGIN_CHOICES},
                     "proc_touched": job.proc_touched, "att_touched": job.att_touched,
                     **({"not_ordered": sorted(job.not_ordered)} if job.not_ordered else {}),
                     **({"page_fixes": fixes} if fixes else {}),
                     **({"cover_out": True} if _places_without_cover([job]) else {}),
-                    **_kept_from_record(job),
+                    **kept,
+                    **({"trial_day": True} if kept and job.old_fixes_exact else {}),
                     **({"old_count": job.old_count} if job.old_count else {})}}
 
 
@@ -2017,11 +2024,13 @@ def _paths_of(value) -> list[str]:
 
 def record_documents(origin: dict) -> list[str]:
     """Every document a record was made from: those read ("sources"), then those it says were away when it was made
-    (_kept_from_record), for what the window says when it is opened again."""
+    (_kept_from_record), for what the window says when it is opened again. Not those of a trial's day's own record
+    ("trial_day": job_origin): its list names the other days' documents too, and read back into this one job, another
+    day's transcript would be billed on this day."""
     named = _paths_of(origin.get("sources"))
     choices = origin.get("job") if isinstance(origin.get("job"), dict) else {}
     days = origin.get("orders") if isinstance(origin.get("orders"), list) else []
-    for kept in [choices] + [d for d in days if isinstance(d, dict)]:
+    for kept in ([] if choices.get("trial_day") is True else [choices]) + [d for d in days if isinstance(d, dict)]:
         named += documents_not_here(_paths_of(kept.get("old_sources")), named)
     return named
 
@@ -2231,6 +2240,8 @@ def job_from_origin(origin: dict, s: Settings, split_rule: str = "") -> Job:
     job.old_places = counts_covers(origin)
     # (a record made while a document was away says what the record before it said: _kept_from_record, job_origin)
     job.old_sources = _paths_of(choices.get("old_sources")) or _paths_of(origin.get("sources"))
+    # (a trial's day alone: its list names other days' documents, and its corrected takes go by path only)
+    job.old_fixes_exact = choices.get("trial_day") is True
     est = job.case.fields["est_pages"]
     kept = choices.get("old_count")
     job.old_count = (kept if isinstance(kept, int) and not isinstance(kept, bool) and kept > 0 else
