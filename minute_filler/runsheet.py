@@ -154,10 +154,10 @@ class Row:
         starting apart, is that reporter's take, not this one, however many numbers they share (a day whose numbers
         start again: an earlier version left the take off, and it is added now); a label that isn't among them may be
         this reporter's under another name ("DS", now "Dana"), and from the same page, or with the end of the take
-        corrected since, it is the sheet's to keep. Under another name too, two takes starting apart with only one
-        number in common are that number printed twice, not one take. Without the rest, and without the cover's page
-        counted in an earlier run sheet's first take (no first page, one page more: _with_cover), generating a day again
-        adds its first take a second time."""
+        corrected since, it is the sheet's to keep (unless it is exactly another take of the run: takes_to_add). Under
+        another name too, two takes starting apart with only one number in common are that number printed twice, not
+        one take. Without the rest, and without the cover's page counted in an earlier run sheet's first take (no first
+        page, one page more: _with_cover), generating a day again adds its first take a second time."""
         if self.day != other.day:
             return False
         if self.doc and other.doc:
@@ -660,14 +660,19 @@ def _unique(rows: list[Row]) -> list[Row]:
 
 def takes_to_add(rows: list[Row], old: list[Row]) -> list[Row]:
     """Those of a run's takes not on the run sheet already (Row.same_take, among the reporters of the run). A row there
-    with page numbers can be several takes (a stretch since cut in two). One with none (its Start blank, or 0) is known
-    only by its reporter and its count, so it answers for one take: "Pat, 25 pages" was a cover and 24, and a later take
-    of Pat's of 25 pages isn't that row, or it could never be put back on the sheet."""
+    with page numbers can be several takes (a stretch since cut in two), but not when it is exactly another take of the
+    run (_exactly) that can't be this one (_other_take): an earlier version wrote that take and left this one off
+    (a day whose numbers start again on a take's own first number, two volumes of a day each numbered from 1). One with
+    none (its Start blank, or 0) is known only by its reporter and its count, so it answers for one take: "Pat, 25
+    pages" was a cover and 24, and a later take of Pat's of 25 pages isn't that row, or it could never be put back on
+    the sheet."""
     among = {r.reporter.lower() for r in rows}
+    takes = _unique(rows)
+    whose = _exactly(takes, old)
     used: list[Row] = []
     out: list[Row] = []
-    for r in _unique(rows):
-        hits = [o for o in old if r.same_take(o, among)]
+    for r in takes:
+        hits = [o for o in old if r.same_take(o, among) and not _other_take(r, whose.get(id(o)))]
         if any(o._span() and r._span() for o in hits):
             continue
         free = next((o for o in hits if not any(o is u for u in used)), None)
@@ -676,6 +681,34 @@ def takes_to_add(rows: list[Row], old: list[Row]) -> list[Row]:
         else:
             used.append(free)
     return out
+
+
+def _exactly(takes: list[Row], old: list[Row]) -> dict[int, Row]:
+    """id(row) -> the take of this run that a run sheet's row with page numbers is exactly: its day, Start and pages,
+    and its reporter (Row._same_reporter: "DS" there is Dana's take here). Each take is one row's at most, the rows
+    taken in turn: a take on the sheet twice is the first row's, and the other row nobody's."""
+    whose: dict[int, Row] = {}
+    for o in old:
+        if o._span():
+            t = next((t for t in takes if (t.day, t.start, t.pages) == (o.day, o.start, o.pages)
+                      and t._same_reporter(o) and not any(t is w for w in whose.values())), None)
+            if t is not None:
+                whose[id(o)] = t
+    return whose
+
+
+def _other_take(r: Row, t: Row | None) -> bool:
+    """t, the take a run sheet's row is exactly (_exactly), is a take that row can't also hold for r: another take of
+    r's transcript (its other pages: the row has no page to spare), or one of another transcript signed by another
+    reporter (the same page numbers, written by two reporters: no copy of one another). Two transcripts of one
+    reporter, or one unsigned, may be a draft and its signed copy, or a part of the day sent ahead of the whole: the row
+    is either's. So is one of a take corrected since."""
+    if t is None or t is r:
+        return False
+    if r.doc and r.doc == t.doc:
+        return True
+    return bool(r.doc and t.doc and r.initials and t.initials and r.initials != t.initials
+                and r.reporter.lower() != t.reporter.lower() and not (r.corrected or t.corrected))
 
 
 def _read_ours(ws) -> list[Row]:
