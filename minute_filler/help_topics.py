@@ -540,7 +540,8 @@ it.</p>
 <p>The run sheet still needs a transcript.</p>
 """),
     T("inv-speeds", INVOICE, "Speeds: what the invoice offers and the agreement names",
-      "speed delivery regular expedited expedite daily immediate turnaround offered agreement form speed rate per "
+      "speed default delivery regular expedited expedite daily immediate turnaround offered agreement form speed "
+      "rate per "
       "page choose",
       """
 <p>Every speed is chosen in the <b>Who ordered</b> card:</p>
@@ -602,10 +603,9 @@ each invoice charges it on its own pages: your 45 pages of 83 total pages get on
 <li><b>Index on several days</b>: by default, once any day of a case reaches it, every day gets an index; it can be
 each day on its own, or the days together.</li>
 <li><b>Index on shared pages</b>: each firm pays its own (the default), or one index split between the firms.</li>
-<li><b>Judge's index</b>: the index of the judge's copy, priced like the others. By default it is billed, split page
-by page between the firms that ordered each page (of 100 total pages, a firm ordering 10 pays for 5 of them). Set it
-to <i>Not billed</i> under Settings → Invoices → Index to bill each firm its own index but not the judge's: the
-Invoice card's <i>Includes</i> line then says "no judge's index".</li>
+<li><b>Judge's index</b>: billed by default, split page by page between the firms (of 100 total pages, a firm
+ordering 10 pays for 5). <i>Not billed</i> bills each firm its own index alone; the <i>Includes</i> line then says
+"no judge's index".</li>
 <li><a href="topic:inv-peripherals">Peripherals…</a> says yes or no for one job.</li>
 <li>A page count you typed below the transcript's total pages, when the two would decide differently: Generate asks.</li>
 <li>A rate sheet with no index price for the speeds offered: no index can be charged, and Generate says so.</li>
@@ -951,7 +951,7 @@ the same way, so "2026-0001" also finds 2026-0002; untick Settings → Records �
 loosely too</i> to have numbers found only as typed.</li>
 </ul>
 """),
-    T("rec-columns", RECORDS, "Choosing the columns", "columns show hide add sort heading pages speed ordered excerpt",
+    T("rec-columns", RECORDS, "Choosing the columns", "columns show hide some add remove sort heading records table",
       """
 <p>Click <b>Columns…</b> (or right-click a column heading) to choose what each table shows; the choice is remembered.
 Invoices can show the court, part, judge and dates, the firm and e-mail, your pages billed, your pages transcribed and
@@ -1336,8 +1336,8 @@ number, index numbers that don't match, or a firm billed at the form's speed bec
 told; <code>batch.json</code> says why.</p>
 """),
     # ---------------------------------------------------------------------------------------------------- Settings
-    T("set-pages", SETTINGS, "How Settings is laid out, and finding a setting", "layout pages find a setting search "
-      "preferences ctrl comma",
+    T("set-pages", SETTINGS, "How Settings is laid out, and finding a setting", "layout pages find a setting "
+      "where is it can't find cant lost missing preferences ctrl comma",
       """
 <p><b>Settings</b> (the ⚙ button, File → Settings…, or Ctrl+,) lists its pages on the left, each with a line saying
 what is on it. Type a word or two in <b>Find a setting</b> above them ("judge", "dark", "file name") and click what

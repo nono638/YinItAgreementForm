@@ -156,4 +156,7 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("does the min-u-script cover count as a page", ("check-pages",)),
     ("the page numbers start over partway through the transcript", ("exc-table",)),
     ("it says please wait when i press generate", ("make-outputs", "batch-generate-all")),
+    # Settings in pages, and the judge's index (2026-11-12)
+    ("dont charge the attorneys for the judges index", ("inv-index", "set-invoice")),
+    ("i cant find a setting", ("set-pages",)),
 ]
