@@ -465,12 +465,12 @@ def test_the_calendar_marks_the_court_holidays(window):
 
 def test_the_dates_tab_round_trip(qt, monkeypatch):
     from PySide6.QtCore import QTime
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = pat_settings()
     s.save()
     dlg = SettingsDialog(s)
-    dlg.show_tab("Dates")
-    assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "Dates"
+    dlg.show_page("dates")
+    assert dlg.current_page() == "dates"
     assert dlg.t_dating.isChecked() and dlg.t_business.isChecked() and not dlg.t_after.isChecked()
     assert not dlg.t_time.isEnabled() and dlg.t_time.time() == QTime(17, 0)
     dlg.t_dating.setChecked(False)

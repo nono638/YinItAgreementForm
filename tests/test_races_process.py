@@ -407,7 +407,7 @@ def test_settings_warnings_wait_until_everything_is_saved(qt, monkeypatch, tmp_p
     """A reporter line that can't be read and a signature that can't be stored: each is said, but only once every
     setting is in the Settings and on disk (before: the boxes came halfway, with the window's work going on
     meanwhile on settings half changed)."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = pat_settings()
     dlg = SettingsDialog(s)
     dlg.r_names.setPlainText("ds = Dana\nnonsense\n")

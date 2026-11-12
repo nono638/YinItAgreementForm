@@ -67,20 +67,21 @@ paid.</p>
 <p><b>Everything stays on this computer.</b> Photos are read by the text recognition built into Windows, and the
 optional <a href="topic:ai-what">AI helper</a> runs on this computer too. The only time the app goes online is to
 ask GitHub, once a day, whether there is a newer version. Nothing about you or your cases is sent, and
-Settings → Options → <i>Look for a newer version once a day</i> turns it off.</p>
+Settings → Program → <i>Look for a newer version once a day</i> turns it off.</p>
 """),
     T("start-first-time", START, "The first time: your details and defaults",
       "setup begin new install name address phone email initials signature first launch welcome",
       """
 <p>The first time the app starts, it asks for your name, address, rate sheet and where to save files. All of it
-can be changed later in <b>Settings</b> (File → Settings…):</p>
+can be changed later in <b>Settings</b> (File → Settings…, or Ctrl+,; <a href="topic:set-pages">how it is laid
+out</a>):</p>
 <ul>
 <li><b>My info</b>: your name, title, address, phone, fax, e-mail, website, initials and
 <a href="topic:set-signature">signature</a>. They go on every form and invoice.</li>
-<li><b>Defaults</b>: the court, county, number of copies and the <a href="topic:rates-sheets">rate sheet</a> new
-jobs start with.</li>
-<li><b>Options → Folders</b>: where the files are saved (<a href="topic:make-folders">more</a>).</li>
-<li><b>Invoice</b>: your payment details and the text of your invoices (<a href="topic:inv-text">more</a>).</li>
+<li><b>Rates and speeds</b>: the <a href="topic:rates-sheets">rate sheet</a> new jobs start with, and the speeds
+you offer.</li>
+<li><b>Files and folders</b>: where the files are saved (<a href="topic:make-folders">more</a>).</li>
+<li><b>Invoices</b>: your payment details and the text of your invoices (<a href="topic:inv-text">more</a>).</li>
 </ul>
 <p>Your <b>initials</b> matter on shared trials: the app finds your pages by the initials at the foot of each page.
 Put them in My info if they aren't the first letters of your name.</p>
@@ -116,7 +117,7 @@ one with something to check (<a href="topic:batch-job-list">more</a>).</li>
 ordered, what and at what speed), <i>Pages and dates</i>, then, when an invoice is to be made, <i>Invoice</i> and
 <i>Who pays what</i>, and for a trial <i>Who transcribed what</i>. Each folds to one line that sums it up
 (<a href="topic:start-room">more</a>). While nothing is open, a <b>Recent jobs</b> card at the top of the form lists
-the jobs made lately (3 at first, made in the last 30 days: Settings → Options → <i>Recent jobs</i>): click one to open
+the jobs made lately (3 at first, made in the last 30 days: Settings → Program → <i>Recent jobs</i>): click one to open
 it again. <i>Recent documents ▾</i> on it lists the documents you opened lately.</li>
 <li><b>The status</b> (top right): what still needs a look, such as <i>⚠ 1 missing, 2 to check</i>. Its tooltip
 lists them, and a click goes to the first one.</li>
@@ -138,7 +139,7 @@ buttons go on a row of their own under it.</li>
 <li><b>Fold a card</b> of the form to one line that sums it up, with a ⚠ when something in it needs a look; click its
 heading. View → <i>Fold all cards</i> and <i>Unfold all cards</i>.</li>
 <li><b>Zoom</b>: Ctrl++ and Ctrl+- (or Ctrl and the mouse wheel), Ctrl+0 for 100%; also View → Zoom in, Zoom out and
-Actual size, and Settings → Options → Zoom. The window also follows Windows' display scaling (125%, 150%).</li>
+Actual size, and Settings → Program → Zoom. The window also follows Windows' display scaling (125%, 150%).</li>
 <li><b>Theme</b>: View → Theme switches between light, dark and as Windows is.</li>
 </ul>
 <p>The divider, the folds and the zoom are remembered.</p>
@@ -156,7 +157,7 @@ answered.</p>
 <ul>
 <li><b>Search</b>: type a few words in the box at the top left of this window, such as <i>holiday</i> or
 <i>bill a lawyer by email</i>. It also finds words that mean the same, and forgives a typo.</li>
-<li><b>F1</b> opens the topic for where you are: on the Dates tab of Settings, the dates; in Records, the
+<li><b>F1</b> opens the topic for where you are: on the Dates page of Settings, the dates; in Records, the
 records.</li>
 <li><b>Tooltips</b>: rest the mouse on a field, a button or a heading to see what it does.</li>
 <li>The <a href="{website}">website</a> shows the app with pictures and has the latest version.</li>
@@ -285,7 +286,7 @@ with it.</p>
 labelled or not ("712345/2021", "712345-2021"); with a two-digit year after a label, or with a slash ("Index No.
 712345-21", "712345/21"); and under an <i>Index No.</i> label on the line above. A two-digit year is of this century
 up to next year, else of the last ("712345/99" is 1999). For another way of writing them, add a pattern of your own
-in Settings → Options → <b>Index numbers</b>, one per line: a regular expression that finds the number and the year
+in Settings → Reading documents → <b>Index numbers</b>, one per line: a regular expression that finds the number and the year
 as two groups in parentheses, in that order, and no other groups (<code>(?:...)</code> groups without one).
 <code>CV-(\\d{6})-(\\d{2})/QU</code> finds "CV-012345-25/QU" (12345/2025). Yours are tried as well as the app's
 own, and count as surely as a number after "Index No."; one that takes more than a second on a document is stopped
@@ -331,7 +332,7 @@ e-mail. In a trial they are the firm's on every day.</p>
 left. The plaintiffs' firms get warm colours, the defense firms cool ones, any others grey or green; point at a
 firm's square here, or at its column's heading in Who ordered which pages…, to see which side it is. A firm keeps its colour on
 every day of a trial, here, in Who pays what and Who ordered which pages…, so you can tell the firms apart at a glance.</p>
-<p>To tick each day on its own instead, Settings → Options → <i>A firm you tick orders</i>: <i>Only the day
+<p>To tick each day on its own instead, Settings → Trials → <i>A firm you tick orders</i>: <i>Only the day
 shown</i>. Two rows that may be one firm are asked about (<a href="topic:check-same-firm">more</a>).</p>
 """),
     T("check-same-firm", CHECK, "Are these one firm?", "same firm not the same duplicate merge join forget remember "
@@ -342,7 +343,7 @@ Smith Law), they are not joined without asking. The Who ordered card asks <i>Are
 firm</b> or <b>Not the same</b>. Generate asks too, before it makes anything.</p>
 <p>With <i>Remember</i> ticked (the default), your answer is kept for later documents. Unticked, it holds until you
 close the app.</p>
-<p>Settings → Invoice → <i>Firms you answered</i> lists the answers (those for now are marked so). <b>Forget</b> one,
+<p>Settings → Reading documents → <i>Firms you answered</i> lists the answers (those for now are marked so). <b>Forget</b> one,
 or <b>Forget all</b>: after Save, the jobs open now are read again and you're asked again.</p>
 """),
     T("check-copies", CHECK, "No. of copies", "copies number of copies parties ordering parties count",
@@ -375,7 +376,7 @@ math</i>).</p>
 <p>While documents are still being read (the bar at the top), both wait, and so does <i>Save</i> in the preview: a
 box asks you to press again once the reading is done.</p>
 <p>Both show a <a href="topic:make-preview">preview</a> first. Your choices are remembered, except <i>Show granular
-detail</i>, which is set for each job. Settings → Options → <i>Make by default</i> says what new jobs start with.
+detail</i>, which is set for each job. Settings → Outputs → <i>Make by default</i> says what new jobs start with.
 <i>Run sheet</i> ticks itself when two or more reporters wrote a case's transcripts; click it to decide
 yourself.</p>
 """),
@@ -399,7 +400,7 @@ line.</li>
 (<a href="topic:inv-several-days">more</a>). Three or more days in a row are written as a range
 ("9/28/2026–10/2/2026"), and dates too wide for the line go on a second line.</p>
 <p>The rate and speed on the form: see <a href="topic:inv-speeds">Speeds</a>. The dates: see
-<a href="topic:dates-business-days">Dated on a business day</a>. Settings → Options → <i>Include the instructions
+<a href="topic:dates-business-days">Dated on a business day</a>. Settings → Outputs → <i>Include the instructions
 page (UCS form page 2)</i> adds the form's second page.</p>
 """),
     T("make-mofr", MAKE, "The MOFR (Minute Order Form/Receipt)",
@@ -409,7 +410,7 @@ page (UCS form page 2)</i> adds the form's second page.</p>
 part, judge, dates, total copies, the type of order and the page count (the pages anyone ordered, whoever wrote
 them). The judge's, counsel's, clerk's and auditor's sections are left blank.</p>
 <p>Choose <b>Civil</b> or <b>Criminal</b> under <i>Case</i> in the Outputs box's <i>Options ▾</i>, under MOFR (Settings →
-Options → <i>MOFR case</i> sets the default). On a civil form the printed "PEOPLE V" is covered, so the full caption
+Outputs → <i>MOFR case</i> sets the default). On a civil form the printed "PEOPLE V" is covered, so the full caption
 fits.</p>
 <p>The days of a trial made together with Generate all, on one invoice, get one MOFR listing all of them. It ticks
 every speed ordered.</p>
@@ -429,14 +430,14 @@ wheel.</li>
 <li>Ctrl++ and Ctrl+- (or Ctrl and the mouse wheel) zoom.</li>
 </ul>
 <p>The run sheet, a spreadsheet, is not shown. <b>Don't show previews anymore</b> saves at once from then on;
-Settings → Options → <i>Show a preview before saving (Generate, Generate all)</i> turns it back on.</p>
+Settings → Files and folders → <i>Show a preview before saving (Generate, Generate all)</i> turns it back on.</p>
 """),
     T("make-saved", MAKE, "After saving: opening and printing", "print printer open after saving saved message box",
       """
 <p>After saving, a box says what was saved and where. After Generate (not Generate all) it can <b>print</b> them:
 they go to the printer you pick, every page, at their actual size (a form is not shrunk). The run sheet is a
 workbook: print it from Excel.</p>
-<p>Settings → Options → <i>Open the PDF after saving</i> opens each PDF when it is saved.</p>
+<p>Settings → Files and folders → <i>Open the PDF after saving</i> opens each PDF when it is saved.</p>
 <p>Later, print from <a href="topic:rec-overview">Records</a>: right-click → <i>Print 1 invoice…</i>.</p>
 """),
     T("make-folders", MAKE, "Where the files go: a folder for each case",
@@ -446,7 +447,7 @@ workbook: print it from Excel.</p>
       """
 <p>The PDFs and the case's run sheet are saved in a folder for the case, named by its index number, its days and
 its caption ("234567-2026 10-13,14,15-2026 Jones v USA Hauling"), next to your document or inside the <i>Save to</i>
-folder chosen in Settings → Options → Folders. Inside it, each kind of file has a folder of its own: <b>Minute
+folder chosen in Settings → Files and folders → Folders. Inside it, each kind of file has a folder of its own: <b>Minute
 Agreements</b>, <b>MOFR</b>, <b>Invoices</b> (with their detailed copies), <b>Math</b> (how the invoices were added
 up) and <b>Trial Runs</b> (the run sheet).</p>
 <ul>
@@ -483,11 +484,11 @@ output with its own folder keeps it; the invoices' math goes in a <b>Math</b> fo
       """
 <p>Each kind of file is named by a pattern of placeholders, which you can change:</p>
 <ul>
-<li>Minute agreements: Settings → Options → <i>File name</i>, at first
+<li>Minute agreements: Settings → Files and folders → File names → <i>Minute agreements</i>, at first
 <i>Minute Agreement - {case} - {index} - {attorney} - {today}</i>;</li>
-<li>MOFRs: Settings → Options → <i>MOFR file name</i>;</li>
-<li>Invoices: Settings → Invoice → <i>File name</i>, at first <i>Invoice {number} - {case} - {attorney}</i>;</li>
-<li>Run sheets: Settings → Run sheet → <i>File name</i>.</li>
+<li>MOFRs: Settings → Files and folders → File names → <i>MOFRs</i>;</li>
+<li>Invoices: Settings → Files and folders → File names → <i>Invoices</i>, at first <i>Invoice {number} - {case} - {attorney}</i>;</li>
+<li>Run sheets: Settings → Files and folders → File names → <i>Run sheets</i>.</li>
 </ul>
 <p><code>{date}</code> is the date of the minutes. <code>{today}</code> is the date the form is dated: today, or the
 next business day (or the next day, in the evening, when Settings → Dates says so:
@@ -500,7 +501,7 @@ next business day (or the next day, in the evening, when Settings → Dates says
 <p>The PDFs stay fillable: every value the app typed in, invoice amounts included, is a field you can still change
 in a PDF viewer, and a blank one can be typed into.</p>
 <p>When a PDF is final, <b>File → Lock finished PDFs (no more changes)…</b> saves a locked copy, which works in any
-PDF viewer. Or tick Settings → Options → <i>Flatten the PDF (fields no longer editable)</i> to lock every PDF as it is
+PDF viewer. Or tick Settings → Files and folders → <i>Flatten the PDF (fields no longer editable)</i> to lock every PDF as it is
 made.</p>
 <p>Corrected an invoice's amount in the PDF? Tell <a href="topic:rec-change">Records</a> too, so the totals
 agree.</p>
@@ -545,7 +546,7 @@ it.</p>
 <p>Every speed is chosen in the <b>Who ordered</b> card:</p>
 <ul>
 <li><b>Speed</b>, at its top: the speed the minute agreement forms name, at one rate per page: Expedited when you
-offer it, else the slowest offered (Settings → Invoice → <i>Agreement form speed</i> changes the rule). Choose
+offer it, else the slowest offered (Settings → Rates and speeds → <i>Agreement form speed</i> changes the rule). Choose
 another for the job: in a trial it is every day's. ↺ goes back to the rule.</li>
 <li><b>Speeds offered</b>, beside it: what the invoice of a firm ordering alone offers, each at its own price, so
 the attorney can choose. Tick one to bill that speed alone.</li>
@@ -574,10 +575,10 @@ in Who ordered);</li>
 (<i>E-mailed copy, index (83 total pages, 50 or more)</i>), and a link to the math.</li>
 </ul>
 <p>The speeds the invoice offers are ticked in Who ordered, beside the Speed (<a href="topic:inv-speeds">more</a>).
-With Settings → Invoice → <i>Firms ordering the same pages</i> set to ask, a firm sharing pages without a speed
+With Settings → Rates and speeds → <i>Firms ordering the same pages</i> set to ask, a firm sharing pages without a speed
 chosen is priced at the agreement form's speed with a question mark (<i>Dana Smith: Expedite? $98.00</i>) until
 Generate asks. Your defaults for every invoice are in
-<a href="topic:set-invoice">Settings → Invoice</a>.</p>
+<a href="topic:set-invoice">Settings → Invoices</a>.</p>
 """),
     T("inv-peripherals", INVOICE, "Peripherals…: the e-mailed copy and the index for one job",
       "peripherals emailed copy email index yes no auto this job skip",
@@ -588,18 +589,23 @@ Generate asks. Your defaults for every invoice are in
 <li><b>the index</b>: <i>Auto</i> (when the whole transcript has 50 total pages or more), <i>Yes, for this job</i> (a short
 transcript too) or <i>No, for this job</i>.</li>
 </ul>
-<p>New jobs start from Settings → Invoice. The <i>Includes</i> line says what this job's invoice gets and why.</p>
+<p>New jobs start from Settings → Invoices. The <i>Includes</i> line says what this job's invoice gets and why.</p>
 """),
     T("inv-index", INVOICE, "When there is an index",
-      "index word index concordance threshold 50 pages judge's index several days shared pages no index price",
+      "index word index concordance threshold 50 pages judge's index judges copy not billed several days shared "
+      "pages no index price",
       """
 <p>An index is charged when the <b>whole transcript</b> has 50 total pages or more (every reporter's pages), though
 each invoice charges it on its own pages: your 45 pages of 83 total pages get one, charged on your 45.</p>
 <ul>
-<li>The 50 is Settings → Invoice → <i>Add an index (and one for the judge) from</i>.</li>
+<li>The 50 is Settings → Invoices → <i>Bill an index from</i>.</li>
 <li><b>Index on several days</b>: by default, once any day of a case reaches it, every day gets an index; it can be
 each day on its own, or the days together.</li>
 <li><b>Index on shared pages</b>: each firm pays its own (the default), or one index split between the firms.</li>
+<li><b>Judge's index</b>: the index of the judge's copy, priced like the others. By default it is billed, split page
+by page between the firms that ordered each page (of 100 total pages, a firm ordering 10 pays for 5 of them). Set it
+to <i>Not billed</i> under Settings → Invoices → Index to bill each firm its own index but not the judge's: the
+Invoice card's <i>Includes</i> line then says "no judge's index".</li>
 <li><a href="topic:inv-peripherals">Peripherals…</a> says yes or no for one job.</li>
 <li>A page count you typed below the transcript's total pages, when the two would decide differently: Generate asks.</li>
 <li>A rate sheet with no index price for the speeds offered: no index can be charged, and Generate says so.</li>
@@ -612,13 +618,13 @@ each day on its own, or the days together.</li>
 <b>Show granular detail</b> in the Invoice card (for this job; it starts unticked for every new job) to add what
 <b>Customize…</b> chooses: your page count, your pages of each day, the price per page, the charges that make up each
 amount and the split between the parties.</p>
-<p>Settings → Invoice → <i>Also save a detailed copy of each invoice</i> saves "… (detailed).pdf" next to each
+<p>Settings → Invoices → <i>Also save a detailed copy of each invoice</i> saves "… (detailed).pdf" next to each
 invoice: the same invoice, with the same number, with the granular detail. It isn't opened, printed or recorded
 again: it's there for when someone asks. An invoice that already shows the granular detail gets none.</p>
 """),
     T("inv-numbers", INVOICE, "Invoice numbers", "invoice number numbering sequence format 2026-0001 year next skip",
       """
-<p>Invoices are numbered 2026-0001, 2026-0002, … The pattern is Settings → Invoice → <i>Invoice numbers</i>:
+<p>Invoices are numbered 2026-0001, 2026-0002, … The pattern is Settings → Invoices → <i>Invoice numbers</i>:
 <code>{year}</code> and <code>{seq}</code> (the count this year; <code>{seq:04}</code> = 0007), <code>{yy}</code> =
 26.</p>
 <p>Each number is taken from the records when its invoice is made, and claimed at once: two copies of the app making
@@ -658,7 +664,7 @@ total: no invoice</i> when none of them are; <i>(typed)</i> when it is the Pages
 already (✓), those unticked in the job list, a day nobody ordered (no invoice for the case until someone does) and
 a day waiting for a choice.</p>
 <p>Firms that ordered the same pages split the original and the judge's index; each pays its own copies and index.
-Generate bills the speeds shown without asking. Settings → Invoice → <i>Firms ordering the same pages</i>: <i>Ask me
+Generate bills the speeds shown without asking. Settings → Rates and speeds → <i>Firms ordering the same pages</i>: <i>Ask me
 each firm's speed at Generate</i> asks first, one line per firm for the whole trial.</p>
 """),
     T("inv-several-days", INVOICE, "Several days of one case: one invoice, one agreement",
@@ -676,7 +682,7 @@ ticked.</p>
 new documents for it make it billable again.</li>
 <li><i>Generate 6/4/2026 only</i> (the button names the day shown) makes that day alone; <i>Generate all 4 days</i>
 makes them all. Each button's tooltip lists the files it makes.</li>
-<li>Settings → Invoice → <i>Days of one case</i>: <i>An invoice for each day</i>. Settings → Options →
+<li>Settings → Trials → <i>Days of one case</i>: <i>An invoice for each day</i>. Settings → Trials →
 <i>Minute agreements and MOFRs: one for the whole case</i>: untick for forms for each day.</li>
 <li>Opened again from Records, a trial comes back with who ordered each day, as it was made.</li>
 </ul>
@@ -705,7 +711,7 @@ invoiced without them, and the undecided days can be invoiced on their own later
 ordered.</p>
 <p><b>Whose pages…</b> (Invoice card) has a box for <i>My pages</i>, each other reporter's pages ("DS's pages") and
 <i>The whole transcript</i>. Each other reporter you tick gets invoices of their own for their pages: in their name,
-with their address and how to pay them (Settings → Run sheet → <i>Invoices for</i>, or <b>Details…</b>), numbered
+with their address and how to pay them (Settings → Other reporters → <i>Invoices for</i>, or <b>Details…</b>), numbered
 apart from yours (DS-2026-0001). They are theirs, so Records leaves them out of your totals and lists them only
 when you click <i>Show them</i> there (<a href="topic:rec-overview">more</a>).</p>
 <p>The app asks when it can't tell: when none of the pages carry your initials, or the transcript begins with pages
@@ -715,7 +721,7 @@ My info if they aren't the first letters of your name.</p>
     T("inv-text", INVOICE, "Your own invoice text", "invoice text wording note message payment details footer "
       "conditions placeholders preview zelle check terms",
       """
-<p>Settings → Invoice → <i>Invoice text</i> is a list of short texts, each with:</p>
+<p>Settings → Invoices → <i>Invoice text</i> is a list of short texts, each with:</p>
 <ul>
 <li><b>Where</b> it goes: at the top, under the transcript details, under the amounts, payment, or the small print at
 the foot;</li>
@@ -745,17 +751,17 @@ invoice bills it, and the firms together (<i>Alex B. Counsel · Daily · Origina
 $1.25 · $5.75 a page</i>).</p>
 <p>It is the first tab of the preview, and behind the links under Who pays what and in the Invoice card. With
 previews off it comes in a window after saving: <b>Copy all</b>, <b>Save as PDF…</b> (for an attorney who asks) or
-<b>Don't show this anymore</b> (Settings → Options → <i>Show the math of each invoice</i> turns it back on).</p>
+<b>Don't show this anymore</b> (Settings → Invoices → <i>Show the math of each invoice</i> turns it back on).</p>
 <p><b>Generate saves it</b> as PDFs in a <b>Math</b> folder, apart from the invoices (in the case's folder; in
 <i>Save to</i> when you save without a folder for each case; inside the invoices' folder when they have one of their
 own): each firm's own ("… - the math.pdf", to send that firm), which shows only what that firm owes, and everyone's
-in one, every firm's amounts, to look back at the job. Which is saved (both, either or none) is chosen under the math itself and in Settings → Invoice → <i>Save the
+in one, every firm's amounts, to look back at the job. Which is saved (both, either or none) is chosen under the math itself and in Settings → Invoices → <i>Save the
 math</i>. <b>Save as PDF…</b> in the math's window does the same: everyone's, or only one firm's. When Generate saved
 none (<i>Don't save it</i>), or a PDF could not be saved, the box at its end says so.</p>
 """),
     T("inv-rounding", INVOICE, "Rounding", "rounding round cents fraction of a cent exact price a page by hand calculator",
       """
-<p>A share can come to part of a cent a page: four firms sharing Immediate pay $6.6125 a page. Settings → Invoice →
+<p>A share can come to part of a cent a page: four firms sharing Immediate pay $6.6125 a page. Settings → Invoices →
 <i>Rounding</i>:</p>
 <ul>
 <li><b>Exact</b> (the default) keeps every fraction of a cent and rounds the amount up to the cent once, at the end:
@@ -840,13 +846,13 @@ ordering by itself gets the invoice that lists every speed to choose from.</p>
 while none is chosen. Choose another there, or, for one run, by right-clicking the firm's cell in Who ordered which pages…
 (<i>Dana Smith on this run at… ▸</i>). The list under a firm's name in its table sets the speed of all a firm's
 pages; a cell names a speed only when it differs (<i>Daily · $172.50 (÷2)</i>: already that firm's share).</li>
-<li>Generate bills the speeds shown. With Settings → Invoice → <i>Firms ordering the same pages</i> set to ask, it
+<li>Generate bills the speeds shown. With Settings → Rates and speeds → <i>Firms ordering the same pages</i> set to ask, it
 asks <i>Which speed did each firm order?</i> first, one line per firm for the whole trial.</li>
 </ul>
-<p>At different speeds, the one original is divided as Settings → Invoice → <b>Split invoices</b> says. By
+<p>At different speeds, the one original is divided as Settings → Rates and speeds → <b>Split invoices</b> says. By
 default, it is billed at the <b>fastest</b> speed ordered. Each slower firm pays its share as if every firm had
 ordered its speed, and the fastest pays the rest. The judge's index is divided the same way. Each pays its own copies
-at its own speed, and its own index too (unless Settings → Invoice → <i>Index on shared pages</i> is <i>Split between
+at its own speed, and its own index too (unless Settings → Invoices → <i>Index on shared pages</i> is <i>Split between
 the firms</i>).</p>
 <p>Example (10 of your pages billed, no index): one firm orders Daily, one Immediate. The original is billed at
 Immediate, $7.60 a page. The Daily firm pays $6.50 ÷ 2 = $3.25 of it plus its own copies: $57.50. The Immediate firm pays the rest,
@@ -941,7 +947,7 @@ must be found somewhere in the record, in any order.</p>
 <li><b>Regex</b> reads what you type as a regular expression (<code>^Smith</code>, <code>2026-00(1|2)</code>). The
 box turns amber while it is incomplete.</li>
 <li><b>Fuzzy</b> also finds near misses and misspellings ("Counsle" finds "Counsel &amp; Counsel"). It treats numbers
-the same way, so "2026-0001" also finds 2026-0002; untick Settings → Options → <i>Fuzzy search matches numbers
+the same way, so "2026-0001" also finds 2026-0002; untick Settings → Records → <i>Fuzzy search matches numbers
 loosely too</i> to have numbers found only as typed.</li>
 </ul>
 """),
@@ -964,7 +970,7 @@ comes back into the main window as you left it (the fields, who was ticked, Peri
 documents it was read from are read again when they are still where they were. Use it for a corrected invoice, or to
 add another day of the case.</p>
 <p>An empty main window also lists your recent jobs: click one to open it again. How many it lists (3 at first, 5 at most),
-how lately made (30 days at first) and whether it lists them at all are under Settings → Options → <i>Recent
+how lately made (30 days at first) and whether it lists them at all are under Settings → Program → <i>Recent
 jobs</i>. File → Open recent lists the documents and folders you opened lately.</p>
 """),
     T("rec-change", RECORDS, "Correcting an invoice: Change amounts… and Void",
@@ -992,7 +998,7 @@ paid, still owed, payments received in the period, the average per page and per 
 <b>Copy</b> puts it on the clipboard.</p>
 <p>The first time you open Records in a month, a box says what last month came to ("Last month (September 2026) you
 made $870.00 with 243 of your pages billed (5 invoices)."), and the first time in a year, last year too. <i>Don't show me monthly or
-annual recaps anymore</i> stops them; Settings → Options → <i>Recaps</i> turns them back on.</p>
+annual recaps anymore</i> stops them; Settings → Records → <i>Recaps</i> turns them back on.</p>
 """),
     T("rec-backups", RECORDS, "Backups of your records", "backup restore copy lost records go back daily",
       """
@@ -1058,7 +1064,7 @@ it). Expedited's 5 days from Tuesday 10/13/2026 is
 Tuesday 10/20/2026. A line under the date says how: <i>5 business days from Tue 10/13/2026</i>. A holiday on the
 way is named: Regular's 15 days end on Wednesday 11/4/2026, <i>(Election Day on Tue 11/3 not counted)</i>.</p>
 <ul>
-<li>The days come from the rate sheet's <i>Days</i> column, or else Settings → Defaults → <i>Turnaround days</i>
+<li>The days come from the rate sheet's <i>Days</i> column, or else Settings → Dates → Turnaround → <i>Days</i>
 (at first Expedited 5, Regular 15: one and three working weeks). The line under the date ends <i>(the rate sheet's
 Days column)</i> when the sheet gave them.</li>
 <li>A rate sheet filled in before version 2.8.0 may still say 7 and 21 days, which were calendar days then (a week and
@@ -1107,7 +1113,7 @@ name.</p>
     T("dates-evening", DATES, "Forms made in the evening", "evening after hours 5 pm late night after 5:00 tomorrow next "
       "day cut-off time",
       """
-<p>Settings → Dates → <i>Made after 5:00 PM: dated the next day</i> (off at first) dates what you make after that
+<p>Settings → Dates → <i>Evening</i>: <i>Made after 5:00 PM: dated the next day</i> (off at first) dates what you make after that
 hour the next day, then the next business day: made Friday at 6 PM, dated Monday. Change the hour beside it.</p>
 <p>Made on the evening of 12/31/2026, an invoice is dated Monday 1/4/2027 and numbered 2027-0001.</p>
 """),
@@ -1118,7 +1124,7 @@ hour the next day, then the next business day: made Friday at 6 PM, dated Monday
       """
 <p>Prices come from rate sheets: small CSV files you can edit in Excel. Open their folder with <b>File → Open rate
 sheets folder</b> (it is <code>%APPDATA%\\YinItAgreementForm\\Rate Sheets</code>, or a folder you choose in
-Settings → Defaults). Pick one from the <i>Rate sheet</i> dropdown under <i>Pages and dates</i>.</p>
+Settings → Rates and speeds). Pick one from the <i>Rate sheet</i> dropdown under <i>Pages and dates</i>.</p>
 <p>To add one, for example city rates:</p>
 <ol>
 <li>copy <i>Rate Sheet TEMPLATE.csv</i>;</li>
@@ -1173,7 +1179,7 @@ such as Realtime, isn't, and neither is $0.00 (a charge not made at that speed).
 keeps track of who wrote what: an Excel sheet with a row per take, with the date, weekday, reporter, the day's and
 running take, the pages written, the first and last page, and the headers printed at the top of its first and last
 page (<i>Witness Start</i>, <i>Witness End</i>: the first and the last header printed in the take; Settings →
-Run sheet can leave them blank).</p>
+Run sheets can leave them blank).</p>
 <ul>
 <li>The <b>Run sheet</b> box in the Outputs box ticks itself when two or more reporters wrote a case's transcripts,
 and unticks when one did. Once you click it, it stays as you set it until New job.</li>
@@ -1194,7 +1200,7 @@ written again after Generate makes the invoices, so today's are on it too.</li>
 <p>Each case's run sheet is saved in the case's own folder, in its <b>Trial Runs</b> folder (a run sheet
 saved in the case's folder itself, or started in <i>Documents\\YinIt Run Sheets</i>, by an earlier version is still
 found and added to there). To keep every run
-sheet in one folder instead, choose one in Settings → Options → Folders. <i>Open the run sheet's folder</i>, under
+sheet in one folder instead, choose one in Settings → Files and folders → Folders. <i>Open the run sheet's folder</i>, under
 the Run sheet options, opens the folder of the case shown.</p>
 """),
     T("run-who-transcribed", RUNSHEET, "Who transcribed what",
@@ -1207,8 +1213,8 @@ list, read from the initials at the foot of the pages: the <i>Day</i>, the <i>Re
 ROE</i>). Above it, what each reporter wrote in all (<i>These 3 days: Pat
 Reporter 144 pages (you) · DS 76 pages</i>). It is there whenever a day ticked has a transcript, whatever outputs are
 ticked. It starts folded, the totals on its line: click its heading to see every take.</p>
-<p><b>Your takes</b> are shaded, your name in bold (Settings → Options → <i>Highlight your takes</i>, on at first).
-Above the table, <b>Only yours</b> shows only your takes, and a box for each reporter hides that reporter's takes
+<p><b>Your takes</b> are shaded, your name in bold, while <b>Highlight yours</b> above the table is ticked (on at
+first). Above the table too, <b>Only yours</b> shows only your takes, and a box for each reporter hides that reporter's takes
 when unticked, to see some reporters only. While anything is left out, <b>Clear filter</b> shows every take
 again.</p>
 <p><b>A take wrong?</b> When a page's initials were misread, or are missing, pages can land in the wrong take.
@@ -1228,7 +1234,7 @@ after day, tick <b>Run sheet</b> and Generate: the trial's <a href="topic:run-ov
 <p>The initials on the pages become names in the Reporter column:</p>
 <ul>
 <li>your own initials: Settings → My info → <i>Initials</i>;</li>
-<li>other reporters': Settings → Run sheet → <i>Reporters</i>, one per line ("ds = Dana");</li>
+<li>other reporters': Settings → Other reporters → <i>Names</i>, one per line ("ds = Dana");</li>
 <li>without that, the reporters named on the title page ("DANA SMITH, Senior Court Reporter") are matched to the
 initials; failing that, the initials are written.</li>
 </ul>
@@ -1240,7 +1246,7 @@ initials; failing that, the initials are written.</li>
 to the transcript and in
 <i>Documents\\YinIt Run Sheets</i> (where earlier versions kept them): the same index number, or the same case
 name. It then asks whether to add the takes to it or start a new one (the
-<i>If one exists</i> choice in the Run sheet column, or Settings → Run sheet → <i>When the case has one</i>).</p>
+<i>If one exists</i> choice in the Run sheet column, or Settings → Run sheets → <i>When the case has one</i>).</p>
 <p>Takes already there are not added twice. New takes go in date and page order; rows already there keep their
 place, and what you typed on them is kept.</p>
 <p>If the run sheet is open in Excel, nothing is made until you close it, so trying again never makes a second
@@ -1263,7 +1269,7 @@ reads them all and sorts them into <b>jobs</b>, one per case and date:</p>
 one job;</li>
 <li>a document without an index number is matched by its caption ("Smith v Jones" in an e-mail finds "John Smith v.
 Jones Trucking Corp.");</li>
-<li>two days of the same case make two jobs (Settings → Options → <i>Batches: put all days of the same case on one
+<li>two days of the same case make two jobs (Settings → Trials → <i>Batches: put all days of the same case on one
 form</i> reads them into one);</li>
 <li>a document that names no date joins its case if there is only one job for it; one that names no case gets a job
 of its own, left unticked.</li>
@@ -1321,7 +1327,7 @@ left (<i>Generate the 1 day left</i>). To make one again, click it and use its o
 <li>it makes the outputs saved as ticked in the window, unless <code>--outputs</code> says otherwise, into the output
 folder, with no preview and no folder for each case (run sheets go to their own folder if Settings give them
 one, and a case's run sheet found elsewhere is added to where it is);</li>
-<li><code>--math</code> also saves the math of the invoices, as Settings → Invoice → <i>Save the math</i> says, in a
+<li><code>--math</code> also saves the math of the invoices, as Settings → Invoices → <i>Save the math</i> says, in a
 <b>Math</b> folder inside the output folder;</li>
 <li>it writes a <code>batch.json</code> report: each job's <code>warnings</code> name a document without an index
 number, index numbers that don't match, or a firm billed at the form's speed because its speed wasn't given.</li>
@@ -1330,144 +1336,73 @@ number, index numbers that don't match, or a firm billed at the form's speed bec
 told; <code>batch.json</code> says why.</p>
 """),
     # ---------------------------------------------------------------------------------------------------- Settings
+    T("set-pages", SETTINGS, "How Settings is laid out, and finding a setting", "layout pages find a setting search "
+      "preferences ctrl comma",
+      """
+<p><b>Settings</b> (the ⚙ button, File → Settings…, or Ctrl+,) lists its pages on the left, each with a line saying
+what is on it. Type a word or two in <b>Find a setting</b> above them ("judge", "dark", "file name") and click what
+it finds to go to it.</p>
+<ul>
+<li><b>About you</b>: <a href="topic:set-my-info">My info</a>, <a href="topic:set-other-reporters">Other
+reporters</a>.</li>
+<li><b>The job</b>: <a href="topic:set-reading">Reading documents</a>, <a href="topic:set-ai">AI helper</a>,
+<a href="topic:set-trials">Trials</a>, <a href="topic:set-dates">Dates</a>, <a href="topic:set-rates">Rates and
+speeds</a>.</li>
+<li><b>What Generate makes</b>: <a href="topic:set-outputs">Outputs</a>, <a href="topic:set-invoice">Invoices</a>,
+<a href="topic:set-run-sheet">Run sheets</a>, <a href="topic:set-records">Records</a>.</li>
+<li><b>The program</b>: <a href="topic:set-files">Files and folders</a>, <a href="topic:set-program">Program</a>.</li>
+</ul>
+<p>Settings opens at the page you last used. Nothing changes until you click <b>Save</b>; <b>Help</b> (F1) opens the
+topic of the page shown. A setting greyed out needs the one above it ticked first.</p>
+<p>A few are also in the main window, where you work: the Outputs box's ticks and <i>Options ▾</i>, the speeds
+offered and the rate sheet. Each is one choice, the same in both places.</p>
+"""),
     T("set-my-info", SETTINGS, "Settings → My info", "my info personal details name title address telephone phone fax "
-      "email website initials signature contact",
+      "email website initials signature contact picture",
       """
 <p>Your details, on every form and invoice: <b>Name</b>, <b>Title</b>, <b>Address</b>, <b>Telephone</b>,
 <b>Fax</b>, <b>Email</b> and <b>Website</b>.</p>
 <ul>
 <li><b>Initials</b>: how your pages are found on a shared trial (<a href="topic:inv-reporters">more</a>), when they
 aren't the first letters of your name.</li>
-<li><b>Signature</b>: <i>Choose image...</i> and <i>Sign the court reporter line on every form</i>
+<li><b>Signature</b>: its <b>Picture</b> (<i>Choose image...</i>) and <i>Sign the court reporter line on every form</i>
 (<a href="topic:set-signature">more</a>).</li>
 </ul>
 """),
     T("set-signature", SETTINGS, "Your signature on the forms", "signature sign picture image scan photo court reporter "
       "line sign as court reporter",
       """
-<p>Choose a photo or scan of your signature on white paper once: Settings → My info → <i>Choose image...</i>. The
-paper is removed, so the form's line shows through. <i>Remove</i> takes it off; without one, your name is typed
-instead.</p>
+<p>Choose a photo or scan of your signature on white paper once: Settings → My info → <i>Signature</i>,
+<i>Choose image...</i>. The paper is removed, so the form's line shows through. <i>Remove</i> takes it off; without
+one, your name is typed instead.</p>
 <p><i>Sign the court reporter line on every form</i> (Settings → My info), or <i>Sign as court reporter</i> in the
 Outputs box's <i>Options ▾</i> (under Minute agreement), puts it on the court reporter line.</p>
 """),
-    T("set-defaults", SETTINGS, "Settings → Defaults", "defaults court county copies rate sheet sheets folder turnaround "
-      "days immediate daily expedited regular",
+    T("set-other-reporters", SETTINGS, "Settings → Other reporters", "other reporters colleague reporters names initials "
+      "run sheet reporter column invoices for invoice details their name payment",
       """
-<p>What new jobs start with: the <b>Court</b>, <b>County</b>, number of <b>Copies</b> and <b>Rate sheet</b>.</p>
+<p>The reporters whose pages share your transcripts, known by the initials at the foot of their pages.</p>
 <ul>
-<li><b>Sheets folder</b>: where the <a href="topic:rates-sheets">rate sheets</a> are (<i>Open folder</i> opens
-it).</li>
-<li><b>Turnaround days</b> for <b>Immediate</b>, <b>Daily</b>, <b>Expedited</b> and <b>Regular</b>: used when a rate
-sheet has no Days column (<a href="topic:dates-turnaround">more</a>).</li>
+<li><b>Names</b>: initials = name, one per line (<code>ds = Dana</code>), for the run sheet's Reporter column
+(<a href="topic:run-reporters">more</a>).</li>
+<li><b>Invoices for</b> and <i>Invoice details…</i>: the name, address and payment details of each reporter you make
+invoices for, when <i>Whose pages…</i> bills their pages (<a href="topic:inv-reporters">more</a>).</li>
 </ul>
 """),
-    T("set-options", SETTINGS, "Settings → Options", "options preferences flatten open pdf preview title case yin yang "
-      "form make by default mofr case instructions page batches folders save to file name theme zoom records search "
-      "recaps invoice math new versions update index numbers patterns",
+    T("set-reading", SETTINGS, "Settings → Reading documents", "reading documents defaults court county copies title case "
+      "capitals index numbers patterns firms you answered same firm forget",
       """
 <ul>
-<li><i>Write "per email" in the attorney signature spot</i>, <i>Flatten the PDF (fields no longer editable)</i>,
-<i>Open the PDF after saving</i>, <i>Show a preview before saving (Generate, Generate all)</i>.</li>
-<li><i>Convert ALL-CAPS names to Title Case</i>: "DANA SMITH" becomes "Dana Smith".</li>
-<li><i>Show the yin-yang (working / done / stumped pictures)</i>.</li>
-<li><b>Form</b>: which <a href="topic:make-agreement">agreement form</a>. <b>Make by default</b>: what new jobs tick
-in the Outputs box. <b>MOFR case</b>: Civil or Criminal. <i>Include the instructions page (UCS form page 2)</i>.</li>
-<li><i>Batches: put all days of the same case on one form</i> and <i>Minute agreements and MOFRs: one for the whole
-case (every day on its invoice)</i> (<a href="topic:inv-several-days">more</a>).</li>
-<li><b>A firm you tick orders</b>: <i>The whole trial (days added later too)</i>, or <i>Only the day shown</i>
-(<a href="topic:check-attorneys">more</a>).</li>
-<li><b>Folders</b>: <i>Save to</i>, <i>A folder for each case, inside Save to</i>, <i>Case folder name</i>, <i>If
-it's already there</i>, <i>Copy the documents read into an "Inputs" folder</i>, and a folder for each kind of file
-(<a href="topic:make-folders">more</a>).</li>
-<li><b>File name</b> and <b>MOFR file name</b> (<a href="topic:make-file-names">more</a>).</li>
-<li><b>Theme</b> and <b>Zoom</b> (<a href="topic:start-room">more</a>).</li>
-<li><b>Recent jobs</b>: <i>List them while nothing is open</i>, <i>up to</i> 3 (5 at most), <i>made in the last</i>
-30 days (at first; 0 is <i>at any time</i>) (<a href="topic:rec-reopen">more</a>).</li>
-<li><b>Who transcribed what</b>: <i>Highlight your takes</i> (on at first)
-(<a href="topic:run-who-transcribed">more</a>).</li>
-<li><b>Records search</b>: <i>Fuzzy search matches numbers loosely too</i> (<a href="topic:rec-search">more</a>).</li>
-<li><b>Index numbers</b>: patterns of your own (<a href="topic:check-index">more</a>).</li>
-<li><b>Recaps</b>: <i>Show a recap of last month (and last year) when Records is first opened</i>.</li>
-<li><b>Invoice math</b>: <i>Show the math of each invoice</i> (<a href="topic:inv-math">more</a>); saving it is under
-Settings → Invoice.</li>
-<li><b>New versions</b>: <i>Look for a newer version once a day</i>.</li>
+<li><b>When a document doesn't say</b>: the <b>Court</b>, <b>County</b> and number of <b>Copies</b> a new job
+gets.</li>
+<li><b>Names</b>: <i>Convert ALL-CAPS names to Title Case</i>: "DANA SMITH" becomes "Dana Smith".</li>
+<li><b>Index numbers</b>: patterns of your own, with a box to try them on (<a href="topic:check-index">more</a>).</li>
+<li><b>Firms you answered</b>: your answers on whether two rows are one firm; <i>Forget</i> one to be asked again
+(<a href="topic:check-same-firm">more</a>).</li>
 </ul>
 """),
-    T("set-dates", SETTINGS, "Settings → Dates", "dates tab date of agreement est delivery date business days evening "
-      "court holidays settings",
-      """
-<ul>
-<li><b>Date of agreement</b>: <i>Fill in the date of agreement (today, or the next business day as below)</i>.</li>
-<li><b>Est. delivery date</b>: <i>Fill in the estimated delivery date from the turnaround days</i>.</li>
-<li><b>Business days</b>: <i>Date forms and invoices on a business day</i>
-(<a href="topic:dates-business-days">more</a>), <i>Count turnaround days as business days</i> and <i>Count the
-turnaround from</i> (<a href="topic:dates-turnaround">more</a>).</li>
-<li><b>Evening</b>: <i>Made after</i> 5:00 PM: dated the next day (<a href="topic:dates-evening">more</a>).</li>
-<li><b>Court holidays</b>: the list, and <i>A holiday on a weekend is</i> moved or not
-(<a href="topic:dates-holidays">more</a>).</li>
-</ul>
-"""),
-    T("set-invoice", SETTINGS, "Settings → Invoice", "invoice settings speeds offered agreement form speed granular detail "
-      "save the math emailed copy index split invoices rounding days of one case firms you "
-      "answered turnaround invoice text numbers file name records folder",
-      """
-<ul>
-<li><b>Speeds offered</b> and <b>Agreement form speed</b> (<a href="topic:inv-speeds">more</a>).</li>
-<li><b>Firms ordering the same pages</b>: <i>Bill the speed each firm's row shows</i>, or <i>Ask me each firm's speed
-at Generate</i> (<a href="topic:inv-who-ordered">more</a>).</li>
-<li><b>Granular detail shows</b>: <i>Your page count</i>, <i>Your pages for each day</i>, <i>Price per page</i>, <i>The charges
-in each amount</i>, <i>The split between parties</i>; and <i>Also save a detailed copy of each invoice</i>
-(<a href="topic:inv-granular">more</a>).</li>
-<li><b>Save the math</b>: which PDFs of it Generate saves in a Math folder, or <i>Don't save it</i>
-(<a href="topic:inv-math">more</a>).</li>
-<li><i>Each party also gets an e-mailed copy (Email column of the rate sheet)</i>; <i>Add an index (and one for the
-judge) from</i> 50 total pages; <b>Index on several days</b> and <b>Index on shared pages</b>
-(<a href="topic:inv-index">more</a>).</li>
-<li><b>Split invoices</b>: how firms that ordered the same pages at different speeds share the original
-(<a href="topic:exc-speeds">more</a>).</li>
-<li><b>Rounding</b> (<a href="topic:inv-rounding">more</a>) and <b>Days of one case</b>
-(<a href="topic:inv-several-days">more</a>).</li>
-<li><b>Firms you answered</b> (<a href="topic:check-same-firm">more</a>).</li>
-<li><b>Regular turnaround</b>, <b>Expedited turnaround</b>, <b>Daily turnaround</b> and <b>Immediate
-turnaround</b>: how the invoice words each speed's turnaround ("3 weeks").</li>
-<li><b>Invoice text</b> (<a href="topic:inv-text">more</a>), <b>Invoice numbers</b>
-(<a href="topic:inv-numbers">more</a>) and the invoices' <b>File name</b>.</li>
-<li><b>Records folder</b>: where the CSV copies of your records are kept.</li>
-</ul>
-"""),
-    T("set-records", SETTINGS, "Settings → Records", "records settings tick boxes add a box colour the rows add a colour "
-      "count on the records button status words",
-      """
-<ul>
-<li><b>The tick boxes</b>: Paid, and those you tick <i>Use</i>. <i>Add a box</i> for your own, <i>Up</i> and
-<i>Down</i> to order them, <i>Restore defaults</i>. Each has a word for ticked and one for not ticked; <i>Whole
-transcript</i> ticks it on the other firms' invoices of the same transcript, and on one made for it later.</li>
-<li><i>Colour the rows</i>, and the colours: <i>Add a colour</i>, then click a box's cell for when it applies (✓
-ticked, ✗ not ticked, – either way).</li>
-<li><i>Count on the Records button</i>.</li>
-</ul>
-<p>What they do: <a href="topic:rec-boxes">Tick boxes, status and colours</a> and
-<a href="topic:rec-button">the count on the Records button</a>.</p>
-"""),
-    T("set-run-sheet", SETTINGS, "Settings → Run sheet", "run sheet settings when the case has one reporters invoices "
-      "for invoice details witness start end columns blank",
-      """
-<ul>
-<li><b>When the case has one</b>: ask whether to add to it or start a new one, add without asking, or always start a
-new run sheet (<a href="topic:run-one-per-trial">more</a>).</li>
-<li><b>Witness Start / End</b>: what those two columns get: the first and the last header printed at the top of the
-take's pages, as printed (<i>DIRECT - PLAINTIFF - JANE ROE</i>), or nothing, for you to type in.</li>
-<li><b>File name</b>: <code>{month}</code> <code>{year}</code> <code>{case}</code> <code>{index}</code>
-<code>{date}</code>.</li>
-<li><b>Reporters</b>: initials = name, one per line (<a href="topic:run-reporters">more</a>).</li>
-<li><b>Invoices for</b> and <i>Invoice details…</i>: the name, address and payment details of each other reporter
-you make invoices for (<a href="topic:inv-reporters">more</a>).</li>
-</ul>
-<p>Run sheets are saved in each case's own folder (its Trial Runs folder), unless Options → Folders gives them
-one.</p>
-"""),
-    T("set-ai", SETTINGS, "Settings → AI", "ai settings ollama model url timeout test connection use a local ai model",
+    T("set-ai", SETTINGS, "Settings → AI helper", "ai settings ollama model url timeout test connection use a local ai "
+      "model helper",
       """
 <ul>
 <li><i>Use a local AI model (Ollama) to help read documents</i>.</li>
@@ -1477,6 +1412,136 @@ one.</p>
 gemma…</i>.</li>
 </ul>
 <p>See <a href="topic:ai-what">The AI helper</a>.</p>
+"""),
+    T("set-trials", SETTINGS, "Settings → Trials", "trials trial several days case days of one case joint invoice "
+      "day shown batches combine one form per case",
+      """
+<p>A trial: the days of one case (the same index number), read together or added later.</p>
+<ul>
+<li><b>A firm you tick orders</b>: <i>The whole trial (days added later too)</i>, or <i>Only the day shown</i>
+(<a href="topic:check-attorneys">more</a>).</li>
+<li><b>Days of one case</b>: one joint invoice for all the days of a case (Generate all), or an invoice for each
+day (<a href="topic:inv-several-days">more</a>).</li>
+<li><i>Minute agreements and MOFRs: one for the whole case (every day on its invoice)</i>: needs the joint
+invoice.</li>
+<li><b>Batches</b>: <i>Put all days of the same case on one form</i> (<a href="topic:batch-folder">batches</a>).</li>
+</ul>
+"""),
+    T("set-dates", SETTINGS, "Settings → Dates", "dates date of agreement est delivery date business days evening "
+      "court holidays settings turnaround days on the invoice",
+      """
+<ul>
+<li><b>Filling in</b>: <i>Fill in the date of agreement (today, or the next business day as below)</i> and <i>Fill in
+the estimated delivery date from the turnaround days</i>.</li>
+<li><b>Turnaround</b>: each speed's <b>Days</b> (used when a rate sheet has no Days column) and what the invoice says
+about it, <b>On the invoice</b> ("2-4 weeks from receipt of payment."); <i>Count turnaround days as business days</i>
+and <b>Count the turnaround from</b> (<a href="topic:dates-turnaround">more</a>).</li>
+<li><b>Business days</b>: <i>Date forms and invoices on a business day</i>
+(<a href="topic:dates-business-days">more</a>), and the <b>Evening</b>: <i>Made after</i> 5:00 PM: dated the next
+day (<a href="topic:dates-evening">more</a>).</li>
+<li><b>Court holidays</b>: the list, and <i>A holiday on a weekend is</i> moved or not
+(<a href="topic:dates-holidays">more</a>).</li>
+</ul>
+"""),
+    T("set-rates", SETTINGS, "Settings → Rates and speeds", "rates speeds rate sheet sheets folder prices speeds offered "
+      "agreement form speed firms ordering the same pages split invoices regular expedited daily immediate",
+      """
+<ul>
+<li><b>Rate sheets</b>: the <b>Rate sheet</b> in use and the <b>Sheets folder</b> they're in (<i>Open folder</i>
+opens it; <a href="topic:rates-sheets">more</a>). The main window's Pages and dates card has the same list.</li>
+<li><b>Speeds offered</b> (the same boxes as in the main window's Who ordered card), <b>Agreement form speed</b>
+and, <b>If it isn't offered</b>, the slowest or the fastest offered (<a href="topic:inv-speeds">more</a>).</li>
+<li><b>Same pages, different speeds</b>: <b>Firms ordering the same pages</b>: <i>Bill the speed each firm's row
+shows</i>, or <i>Ask me each firm's speed at Generate</i> (<a href="topic:inv-who-ordered">more</a>); <b>Split
+invoices</b>: how firms that ordered the same pages at different speeds share the original
+(<a href="topic:exc-speeds">more</a>).</li>
+</ul>
+"""),
+    T("set-outputs", SETTINGS, "Settings → Outputs", "outputs make by default minute agreement form mofr case civil "
+      "criminal instructions page per email ucs",
+      """
+<ul>
+<li><b>Make by default</b>: <i>Minute agreement</i>, <i>MOFR</i>, <i>Invoice</i>, <i>Run sheet</i>: the same boxes as
+the main window's Outputs box.</li>
+<li><b>Minute agreement</b>: the <b>Form</b> (<a href="topic:make-agreement">more</a>), <i>Include the instructions
+page (UCS form page 2)</i> and <i>Write "per email" in the attorney signature spot</i>.</li>
+<li><b>MOFR</b>: the <b>MOFR case</b>, Civil or Criminal.</li>
+</ul>
+<p>Signing the court reporter line is under Settings → My info → Signature.</p>
+"""),
+    T("set-invoice", SETTINGS, "Settings → Invoices", "invoice settings granular detail save the math emailed copy "
+      "index judge's index judges rounding invoice text numbers show the math charges",
+      """
+<ul>
+<li><b>Charges</b>: <i>Each party also gets an e-mailed copy (Email column of the rate sheet)</i>, and
+<b>Rounding</b> (<a href="topic:inv-rounding">more</a>).</li>
+<li><b>Index</b>: <i>Bill an index from</i> 50 total pages; <b>Index on several days</b>, <b>Index on shared
+pages</b> and <b>Judge's index</b>: billed, split between the firms, or not billed
+(<a href="topic:inv-index">more</a>).</li>
+<li><b>What the invoice shows</b>: <b>Granular detail shows</b>: <i>Your page count</i>, <i>Your pages for each
+day</i>, <i>Price per page</i>, <i>The charges in each amount</i>, <i>The split between parties</i>; <i>Also save a
+detailed copy of each invoice</i> (<a href="topic:inv-granular">more</a>).</li>
+<li><b>Invoice text</b>: the invoice's own words, payment details and footer (<a href="topic:inv-text">more</a>).</li>
+<li><b>Numbers</b>: <b>Invoice numbers</b> (<a href="topic:inv-numbers">more</a>).</li>
+<li><b>The math</b>: <i>Show the math of each invoice</i>, and <b>Save the math</b>: which PDFs of it Generate saves
+in a Math folder, or <i>Don't save it</i> (<a href="topic:inv-math">more</a>).</li>
+</ul>
+<p>The speeds and the rate sheet are under Settings → Rates and speeds; one invoice for a trial's days under
+Settings → Trials; the invoices' file name under Settings → Files and folders.</p>
+"""),
+    T("set-run-sheet", SETTINGS, "Settings → Run sheets", "run sheet settings when the case has one witness start end "
+      "columns blank",
+      """
+<ul>
+<li><b>When the case has one</b>: ask whether to add to it or start a new one, add without asking, or always start a
+new run sheet (<a href="topic:run-one-per-trial">more</a>).</li>
+<li><b>Witness Start / End</b>: what those two columns get: the first and the last header printed at the top of the
+take's pages, as printed (<i>DIRECT - PLAINTIFF - JANE ROE</i>), or nothing, for you to type in.</li>
+</ul>
+<p>The reporters' names are under Settings → Other reporters; the run sheets' file name and folder under Settings →
+Files and folders. Run sheets are saved in each case's own folder (its Trial Runs folder), unless Files and folders
+gives them one.</p>
+"""),
+    T("set-records", SETTINGS, "Settings → Records", "records settings tick boxes add a box colour the rows add a colour "
+      "count on the records button status words fuzzy search recaps records folder csv copies",
+      """
+<ul>
+<li><b>The tick boxes</b>: Paid, and those you tick <i>Use</i>. <i>Add a box</i> for your own, <i>Up</i> and
+<i>Down</i> to order them, <i>Restore defaults</i>. Each has a word for ticked and one for not ticked; <i>Whole
+transcript</i> ticks it on the other firms' invoices of the same transcript, and on one made for it later.</li>
+<li><i>Colour the rows</i>, and the colours: <i>Add a colour</i>, then click a box's cell for when it applies (✓
+ticked, ✗ not ticked, – either way).</li>
+<li><i>Count on the Records button</i>.</li>
+<li><b>Search</b>: <i>Fuzzy search matches numbers loosely too</i> (<a href="topic:rec-search">more</a>).</li>
+<li><b>Recaps</b>: <i>Show a recap of last month (and last year) when Records is first opened</i>.</li>
+<li><b>CSV copies</b>: the <b>Records folder</b>, where the CSV copies of your records and the exports go.</li>
+</ul>
+<p>What they do: <a href="topic:rec-boxes">Tick boxes, status and colours</a> and
+<a href="topic:rec-button">the count on the Records button</a>.</p>
+"""),
+    T("set-files", SETTINGS, "Settings → Files and folders", "files folders save to case folder name inputs file names "
+      "patterns preview before saving open the pdf flatten lock",
+      """
+<ul>
+<li><b>Folders</b>: <i>Save to</i>, <i>A folder for each case, inside Save to</i>, <i>Case folder name</i>, <i>If
+it's already there</i>, <i>Copy the documents read into an "Inputs" folder beside the files</i>, and <i>A folder of
+its own for each output</i>: Minute agreements, MOFRs, Invoices, Run sheets (<a href="topic:make-folders">more</a>).</li>
+<li><b>File names</b> of the Minute agreements, MOFRs, Invoices and Run sheets
+(<a href="topic:make-file-names">more</a>).</li>
+<li><b>Saving</b>: <i>Show a preview before saving (Generate, Generate all)</i>, <i>Open the PDF after saving</i>,
+<i>Flatten the PDF (fields no longer editable)</i>.</li>
+</ul>
+"""),
+    T("set-program", SETTINGS, "Settings → Program", "program theme dark light zoom yin yang pictures recent jobs start "
+      "card new versions update",
+      """
+<ul>
+<li><b>Look</b>: <b>Theme</b> and <b>Zoom</b> (<a href="topic:start-room">more</a>), and <i>Show the yin-yang
+(working / done / stumped pictures)</i>. The View menu has them too.</li>
+<li><b>Start card</b>: <b>Recent jobs</b>: <i>List them while nothing is open,</i> <i>up to</i> 3 (5 at most),
+<i>made in the last</i> 30 days (at first; 0 is <i>at any time</i>) (<a href="topic:rec-reopen">more</a>).</li>
+<li><b>New versions</b>: <i>Look for a newer version once a day</i>.</li>
+</ul>
 """),
     T("set-export", SETTINGS, "Moving to a new computer: Export and Import settings",
       "export import settings new computer colleague share copy backup settings transfer",
@@ -1499,7 +1564,7 @@ optional AI helper, a model running on this computer through Ollama, helps most 
 arrive. On a laptop without a graphics card that takes about 30–60 seconds a document.</li>
 <li>Everything it says is checked against the original text, and invented values are dropped.</li>
 <li>It may tick who ordered only from e-mails and pasted text: a transcript or a photo lists who appeared, not who
-ordered (Settings → AI changes that).</li>
+ordered (Settings → AI helper changes that).</li>
 <li>Batches never use it.</li>
 </ul>
 <p>The line under the paste box says when Ollama is not running ("using rules only"), with a <i>How to set
@@ -1511,12 +1576,12 @@ up</i> link.</p>
 <li>Install <b>Ollama for Windows</b> from ollama.com/download.</li>
 <li>In the app: <b>Help → Set up the AI helper (Ollama)…</b> → <i>Download</i>. The download is 4.6 to 7.5 GB for
 gemma4:e2b. Or run <code>ollama pull gemma4:e2b</code> in PowerShell.</li>
-<li><b>Settings → AI → Test connection.</b></li>
+<li><b>Settings → AI helper → Model → Test connection.</b></li>
 </ol>
 """),
     T("ai-models", AI, "Which AI model", "model gemma4 e2b e4b smaller faster larger accurate graphics card gpu",
       """
-<p>Settings → AI → <i>Model</i> offers two: <b>gemma4:e2b</b>, smaller and faster (the default), and
+<p>Settings → AI helper → <i>Model</i> offers two: <b>gemma4:e2b</b>, smaller and faster (the default), and
 <b>gemma4:e4b</b>, larger and more accurate but much slower on a laptop without a graphics card. The box also lists
 any other model Ollama has installed, and you can type a name.</p>
 """),
@@ -1576,6 +1641,7 @@ it to open the download page (nothing is installed by itself). <b>Help → Check
 <tr><td><b>Ctrl+Enter</b></td><td>Generate (this job)</td></tr>
 <tr><td><b>Ctrl+Shift+Enter</b></td><td>Generate all</td></tr>
 <tr><td><b>Ctrl+R</b></td><td>Records</td></tr>
+<tr><td><b>Ctrl+,</b></td><td>Settings</td></tr>
 <tr><td><b>Ctrl++</b> / <b>Ctrl+-</b> / <b>Ctrl+0</b></td><td>Zoom in, out, back to 100% (also Ctrl and the mouse
 wheel)</td></tr>
 <tr><td><b>Ctrl+Tab</b> / <b>Ctrl+Shift+Tab</b></td><td>In the preview: the next file, the one before (also

@@ -329,9 +329,10 @@ def test_a_sheets_folder_typed_in_lists_its_sheets(qt, tmp_path, monkeypatch):
     """Only Browse... used to list the sheets of another folder: Save then kept a sheet of the old folder with
     the new one."""
     from minute_filler.gui import dialogs
+    from minute_filler.gui.settings_dialog import SettingsDialog
     monkeypatch.setattr(dialogs.QMessageBox, "warning", lambda *a, **k: None)
     s, other = sheets_folders(tmp_path)
-    d = dialogs.SettingsDialog(s)
+    d = SettingsDialog(s)
     assert "County Rates" in sheet_names(d) and "City Rates" not in sheet_names(d)
     d.d_dir.setText(str(other))
     d.d_dir.editingFinished.emit()  # (Enter, or the box left)
@@ -343,9 +344,10 @@ def test_a_sheets_folder_typed_in_lists_its_sheets(qt, tmp_path, monkeypatch):
 
 def test_a_sheets_folder_typed_and_saved_at_once(qt, tmp_path, monkeypatch):
     from minute_filler.gui import dialogs
+    from minute_filler.gui.settings_dialog import SettingsDialog
     monkeypatch.setattr(dialogs.QMessageBox, "warning", lambda *a, **k: None)
     s, other = sheets_folders(tmp_path)
-    d = dialogs.SettingsDialog(s)
+    d = SettingsDialog(s)
     d.d_dir.setText(str(other))
     d.accept()  # (no focus left the box first)
     assert s.rate_sheets_dir == str(other) and s.rate_sheet != "County Rates"

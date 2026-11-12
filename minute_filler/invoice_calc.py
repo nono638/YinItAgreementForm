@@ -8,11 +8,12 @@ For one speed, with N ordering parties (quote):
     index             pages x Index rate x N                (optional, from the threshold, e.g. 50 pages; one per
                                                              party, as Settings.invoice_index_shared "each" says,
                                                              else one, shared: "split")
-    judge's index     pages x Index rate                    (with the index; one, shared)
+    judge's index     pages x Index rate                    (with the index; one, shared; none when
+                                                             Settings.invoice_judge_index is "off": judge_index)
 
     total = the sum;  each party pays total / N, rounded up to the cent
 
-Or, with Settings -> Invoice -> Rounding "the price a page" (Settings.invoice_rounding "page"), as most people
+Or, with Settings -> Invoices -> Rounding "the price a page" (Settings.invoice_rounding "page"), as most people
 work it out by hand: what each party pays a page, all its charges together, is rounded to the nearest cent first,
 then times the pages (4 parties at Immediate: $7.60 / 4 + $1.45 + $1.45 + $1.45 + $1.45 / 4 = $6.6125 a page ->
 $6.61 x 1,000 pages = $6,610.00, where the exact way gives $6,612.50). It goes either way: $6.6175 -> $6.62.
@@ -28,7 +29,7 @@ with n firms in all, it pays the original / n, its own copy and e-mailed copy in
 ("each", the reporters' practice) or / n ("split"), and the judge's index / n. Its total is rounded up to the
 cent. When every firm orders every page, that is the same as quote's per-party amount. (100 pages, A orders
 them all and B 10 of them: A pays an index of 100 pages and 95 of the judge's, B an index of 10 and 5 of the
-judge's.)
+judge's; with the judge's index not billed, A an index of 100 pages and B one of 10.)
 
 The speeds priced are those of Settings.invoice_speeds (see offered). A job's Peripherals... can turn the
 e-mailed copies and the index on or off for its own invoice (quotes_for); otherwise the invoice settings decide.
@@ -196,6 +197,9 @@ class Quote:
     prices: list[tuple[Fraction, int]] = field(default_factory=list)
     # each price a page is rounded to the nearest cent, then times its pages (Settings.invoice_rounding "page")
     by_page: bool = False
+    # made with a judge's index (Settings.invoice_judge_index "split"): False, made without one ("off"), so the math
+    # says nothing of a judge's index for it, charged or not
+    judge_index: bool = True
 
     @property
     def share(self) -> bool:
@@ -280,19 +284,20 @@ def index_days(days: list[int], mode: str = "auto", rule: str = "any", threshold
 
 def quote(days: int | list[int], sp: Speed, parties: int = 1, include_email: bool = True,
           index: str | bool = "auto", rule: str = "any", threshold: int = 50, index_shared: str = "each",
-          judged: list[int] | None = None, by_page: bool = False) -> Quote:
+          judged: list[int] | None = None, by_page: bool = False, judge_index: bool = True) -> Quote:
     """Prices one speed for the pages of one day (an int) or of each day (a list). index: "auto" (see
     index_days), "on", "off"; True/False are "auto"/"off". judged: the pages each day's index is judged on,
     every page of its transcripts whoever wrote them (default: the days' own pages; the index is still charged
     on the days' own pages). index_shared: "each" (an index for each party) or "split" (one index, its price
     split between the parties like the original), as Settings.invoice_index_shared says. by_page: each party's
     price a page is rounded to the nearest cent, then times its pages (Settings.invoice_rounding "page", see
-    Quote.per_party). See the module docstring for the arithmetic."""
+    Quote.per_party). judge_index: the index comes with a judge's index (False: Settings.invoice_judge_index
+    "off", the parties' own indexes alone). See the module docstring for the arithmetic."""
     days = [days] if isinstance(days, int) else list(days)
     index = {True: "auto", False: "off"}.get(index, index)
     pages = sum(days)
     parties = max(1, parties)
-    q = Quote(sp.name, pages, parties, days=days, by_page=by_page)
+    q = Quote(sp.name, pages, parties, days=days, by_page=by_page, judge_index=judge_index)
 
     def line(label: str, rate: Decimal, qty: int, count: int = pages) -> Fraction:
         """Adds a line charging `count` pages; none when it would be $0 (no such column on the sheet). Returns
@@ -312,7 +317,8 @@ def quote(days: int | list[int], sp: Speed, parties: int = 1, include_email: boo
     if indexed:
         idx = extra_rate(sp, "index")
         with_index += line("Index", idx, parties if index_shared == "each" else 1, indexed)
-        with_index += line("Judge's index", idx, 1, indexed)
+        if judge_index:
+            with_index += line("Judge's index", idx, 1, indexed)
     q.prices = _merged([(a_page, pages - indexed), (with_index, indexed)])
     return q
 
@@ -337,18 +343,19 @@ def _decimal(f: Fraction) -> Decimal:
 
 
 def quote_shares(shares: list[Share], sp: Speed, include_email: bool = True, index_split: bool = False,
-                 days: list[int] | None = None, by_page: bool = False) -> Quote:
+                 days: list[int] | None = None, by_page: bool = False, judge_index: bool = True) -> Quote:
     """One firm's price for one speed, from the stretches of pages it ordered (see the module docstring):
     the original / n, its own copy and e-mailed copy, its own index whole (or / n: index_split), the judge's
-    index / n. The lines show the pages charged, those shared counting 1/n each (the original of 40 pages alone and
-    50 shared by two: 65 pages), and their parts, the pages by how many firms ordered them ([(40, 1), (50, 2)]).
-    The amount is worked out exactly (Quote.due) and rounded up to the cent once (Quote.per_party); with by_page,
-    each stretch's price a page (Quote.prices) is rounded to the nearest cent instead, then times its pages. days:
-    the pages the firm ordered on each day, for the invoice."""
+    index / n (none with judge_index False: Settings.invoice_judge_index "off"). The lines show the pages charged,
+    those shared counting 1/n each (the original of 40 pages alone and 50 shared by two: 65 pages), and their
+    parts, the pages by how many firms ordered them ([(40, 1), (50, 2)]). The amount is worked out exactly
+    (Quote.due) and rounded up to the cent once (Quote.per_party); with by_page, each stretch's price a page
+    (Quote.prices) is rounded to the nearest cent instead, then times its pages. days: the pages the firm ordered
+    on each day, for the invoice."""
     shares = [x for x in shares if x.pages > 0]
     pages = sum(x.pages for x in shares)
     q = Quote(sp.name, pages, max([x.n for x in shares] or [1]), days=list(days or [pages]), due=Fraction(0),
-              by_page=by_page)
+              by_page=by_page, judge_index=judge_index)
     a_page = [Fraction(0)] * len(shares)  # what the firm pays a page of each share, every charge together
 
     def line(label: str, rate: Decimal, part: list[int], split: bool) -> None:
@@ -378,7 +385,8 @@ def quote_shares(shares: list[Share], sp: Speed, include_email: bool = True, ind
     if indexed:
         idx = extra_rate(sp, "index")
         line("Index", idx, indexed, index_split)
-        line("Judge's index", idx, indexed, True)
+        if judge_index:
+            line("Judge's index", idx, indexed, True)
     q.prices = _merged([(a_page[k], shares[k].pages) for k in every])
     return q
 
@@ -393,14 +401,16 @@ def sheet_speed(sheet: RateSheet, name: str) -> Speed:
 
 
 def quote_ordered(shares: list[Share], sheet: RateSheet, rule: SplitRule | None = None, include_email: bool = True,
-                  index_split: bool = False, days: list[int] | None = None, by_page: bool = False) -> Quote:
+                  index_split: bool = False, days: list[int] | None = None, by_page: bool = False,
+                  judge_index: bool = True) -> Quote:
     """One firm's price for the speeds it committed to (each share's `speed`), the pages of each priced at its
     own speed: its copy, e-mailed copy and (index_split False) index in full, as quote_shares does. A charge
     billed once for the pages (the original, the judge's index, and the index too with index_split) is split
     between the n firms that ordered them: / n when they all ordered one speed, as quote_shares; at different
     speeds it is divided as the split rule says (rule.split(parties, me) -> courthouses.base.Part: the
     courthouse's rule chosen in Settings, or the one the job was billed by already: invoice.firm_invoices), the fastest
-    speed being that of the highest original on the sheet.
+    speed being that of the highest original on the sheet. judge_index False: no judge's index
+    (Settings.invoice_judge_index "off"), the firm's own index billed as before.
     One speed gives the lines "Original", "Copy"...; two (a firm that ordered Daily on one day, Regular on
     another) "Original (Daily)", ... for each. The amount is worked out exactly (Quote.due) and rounded up to the
     cent once (Quote.per_party); with by_page, each stretch's price a page (Quote.prices) is rounded to the nearest
@@ -417,7 +427,7 @@ def quote_ordered(shares: list[Share], sheet: RateSheet, rule: SplitRule | None 
     own = list(dict.fromkeys(found[x.speed].name for x in shares))
     pages = sum(x.pages for x in shares)
     q = Quote(" + ".join(own), pages, max(x.n for x in shares), days=list(days or [pages]), due=Fraction(0),
-              ordered=tuple(own), by_page=by_page)
+              ordered=tuple(own), by_page=by_page, judge_index=judge_index)
     a_page = [Fraction(0)] * len(shares)  # what the firm pays a page of each share, every charge together
 
     def stretch(k: int, price, once: bool) -> Stretch:
@@ -477,7 +487,8 @@ def quote_ordered(shares: list[Share], sheet: RateSheet, rule: SplitRule | None 
         indexed = [k for k in mine if shares[k].indexed]
         if indexed:
             line("Index" + tag, indexed, lambda sp: extra_rate(sp, "index"), index_split)
-            line("Judge's index" + tag, indexed, lambda sp: extra_rate(sp, "index"), True)
+            if judge_index:
+                line("Judge's index" + tag, indexed, lambda sp: extra_rate(sp, "index"), True)
     q.prices = _merged([(a_page[k], x.pages) for k, x in enumerate(shares)])
     return q
 
@@ -495,14 +506,19 @@ def offered(sheet: RateSheet, speeds: list[str], chosen: str) -> list[Speed]:
 
 
 def quotes_for(days: int | list[int], parties: int, sheet: RateSheet, s, chosen: str,
-               email: bool | None = None, index: str | None = None, judged: list[int] | None = None) -> list[Quote]:
+               email: bool | None = None, index: str | None = None, judged: list[int] | None = None,
+               judge_index: bool | None = None) -> list[Quote]:
     """One Quote per speed the invoice offers (Settings.invoice_speeds; `chosen`, the job's own speed, when
     none of them is on the sheet), for the pages of one day or of each day. The job's own choices: email
     (True/False: an e-mailed copy) and index ("auto", "on" or "off"); None = as the invoice settings in `s`
-    say. judged: the pages each day's index is judged on (see quote). Rounded as Settings.invoice_rounding says."""
+    say. judged: the pages each day's index is judged on (see quote). judge_index: the index comes with a judge's
+    index; None = as `s` says (Settings.invoice_judge_index, invoice.judge_billed). Rounded as
+    Settings.invoice_rounding says."""
+    if judge_index is None:
+        judge_index = s.invoice_judge_index != "off"
     email = s.invoice_include_email if email is None else email
     if index is None:
         index = "auto" if s.invoice_include_index else "off"
     return [quote(days, sp, parties, email, index, s.invoice_index_rule, s.invoice_index_threshold,
-                  s.invoice_index_shared, judged, s.invoice_rounding == "page")
+                  s.invoice_index_shared, judged, s.invoice_rounding == "page", judge_index)
             for sp in offered(sheet, s.invoice_speeds, chosen)]

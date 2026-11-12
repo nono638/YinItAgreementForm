@@ -477,7 +477,7 @@ def test_generate_shows_the_math_after_an_invoice(tmp_path, monkeypatch, make_wi
 
 
 def test_the_settings_save_the_math_choices(qt):
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = Settings()
     assert s.show_math is True and s.invoice_detailed_copy is False
     dlg = SettingsDialog(s)
@@ -773,7 +773,7 @@ def test_the_choice_is_under_the_math_and_the_preview_saves_none(tmp_path, monke
     # the live math (Who pays what) has it too, and the Settings window
     dlg = MathDialog([], win.s, win, live=True)
     assert dlg.saves.choice.currentData() == "all" and dlg.saved_note.text() == ""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     sd = SettingsDialog(win.s)
     assert sd.i_save_math.currentData() == "all"
     sd.i_save_math.setCurrentIndex(sd.i_save_math.findData("off"))

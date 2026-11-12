@@ -50,7 +50,7 @@ COURTHOUSE = Courthouse(
             tip="The UCS Court Reporter Minute Agreement Form, one for each ticked attorney,\n"
                 "with the pages that attorney ordered (whoever wrote them)\n"
                 "(Generate all: one per attorney for all the days of a case on one invoice,\n"
-                "when Settings → Options says one for the whole case)",
+                "when Settings → Trials says one for the whole case)",
             words=("minute agreement form", "minute agreement forms"), subfolder="Minute Agreements",
             asks=("firms", "parties", "speed", "speeds", "fields", "attorney"),
             panel="minute_filler.gui.panels:agreement", panel_pos=0),
@@ -59,7 +59,7 @@ COURTHOUSE = Courthouse(
             policy="minute_filler.batch:FormPolicy",
             tip="The court's Minute Order Form/Receipt (your parts of it)\n"
                 "(Generate all: one for all the days of a case on one invoice,\n"
-                "when Settings → Options says one for the whole case)",
+                "when Settings → Trials says one for the whole case)",
             words=("MOFR", "MOFRs"), subfolder="MOFR", asks=("firms", "parties", "speed", "speeds", "fields"),
             panel="minute_filler.gui.panels:mofr", panel_pos=2),
         OutputSpec(  # (its tooltip says whether the job has pages to bill: MainWindow._refresh_outputs)

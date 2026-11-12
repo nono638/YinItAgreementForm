@@ -60,17 +60,17 @@ def test_the_topics_use_made_up_names_only():
 
 
 def test_every_setting_is_in_the_help(qt):
-    """Each tick box and each row's label of Settings is named in some topic: a setting added without a word in the
-    help fails here."""
-    from PySide6.QtWidgets import QCheckBox, QFormLayout, QLabel, QTabWidget
-    from minute_filler.gui.dialogs import SETTINGS_TOPICS, SettingsDialog
+    """Each tick box and each row's label of Settings is named in its page's topic or another: a setting added
+    without a word in the help fails here. Each page opens a topic of its own."""
+    from PySide6.QtWidgets import QCheckBox, QFormLayout, QLabel
+    from minute_filler.gui.settings_dialog import SettingsDialog
     from minute_filler.help_topics import TOPICS, topic
     from minute_filler.settings import Settings
+    from minute_filler.settings_catalog import PAGES
     text = _norm(" ".join(t.title + " " + t.text for t in TOPICS))
     d = SettingsDialog(Settings())
-    tabs = d.findChild(QTabWidget)
-    names = {tabs.tabText(i) for i in range(tabs.count())}
-    assert names == set(SETTINGS_TOPICS) and all(topic(v) for v in SETTINGS_TOPICS.values())
+    assert set(d.pages) == {p.key for p in PAGES} and len({p.help for p in PAGES}) == len(PAGES)
+    assert all(topic(p.help) and d.pages[p.key].property("help_topic") == p.help for p in PAGES)
     labels = [c.text() for c in d.findChildren(QCheckBox)]
     for form in d.findChildren(QFormLayout):
         for row in range(form.rowCount()):
@@ -265,19 +265,23 @@ def test_every_part_of_the_window_names_a_real_topic(window):
     assert all(topic(t) for t in named), [t for t in named if not topic(t)]
 
 
-def test_settings_help_opens_the_tab_shown(qt, monkeypatch):
+def test_settings_help_opens_the_page_shown(qt, monkeypatch):
     from minute_filler.gui import help_window
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     from minute_filler.settings import Settings
     opened = []
     monkeypatch.setattr(help_window, "open_help", lambda t="", owner=None: opened.append((t, owner)))
     d = SettingsDialog(Settings())
-    d.show_tab("Dates")
+    d.show_page("dates")
     d.show_help()
     assert opened == [("set-dates", d)]
-    d.show_tab("Invoice")
+    d.show_page("invoices")
     d.show_help()
     assert opened[-1] == ("set-invoice", d)
+    d.show_page("trials")
+    d.show_help()
+    assert opened[-1] == ("set-trials", d)
+    SettingsDialog.last_page = ""
     d.deleteLater()
 
 

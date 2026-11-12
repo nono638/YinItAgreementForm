@@ -247,7 +247,8 @@ def test_the_settings_keep_details_of_a_reporter_without_a_line(qt, monkeypatch,
     """Details saved from Whose pages... for a reporter with no line under Run sheet → Reporters were dropped
     by Settings → OK; and a name changed in Invoice details... was put back by the box's line."""
     from dataclasses import replace
-    from minute_filler.gui.dialogs import ReporterDialog, SettingsDialog
+    from minute_filler.gui.dialogs import ReporterDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s.reporters["kl"] = ReporterProfile(full_name="Kim Lee", address1="1 Sample St")
     dlg = SettingsDialog(s)
     assert [dlg.r_who.itemData(i) for i in range(dlg.r_who.count())] == [DS, "kl"]
@@ -266,7 +267,8 @@ def test_the_settings_keep_details_of_a_reporter_without_a_line(qt, monkeypatch,
 def test_the_settings_keep_each_reporters_invoice_details(qt, monkeypatch, s):
     """Settings → Run sheet → Reporters: a reporter with details is marked ✓, details entered for a new line are
     kept with the others', and the details box shows and gives back what was saved (a prefix " K L " -> "KL")."""
-    from minute_filler.gui.dialogs import ReporterDialog, SettingsDialog
+    from minute_filler.gui.dialogs import ReporterDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     real_value = ReporterDialog.value
     dlg = SettingsDialog(s)
     assert [dlg.r_who.itemData(i) for i in range(dlg.r_who.count())] == [DS]

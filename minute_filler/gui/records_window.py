@@ -926,7 +926,7 @@ class RecordsWindow(QDialog):
         m.addSeparator()
         m.addAction("Back to the usual columns", lambda: self.set_columns(which, None))
         if which == "invoices" and self.on_settings is not None:
-            m.addAction("Tick boxes and colours… (Settings → Records)", lambda: self.on_settings("Records"))
+            m.addAction("Tick boxes and colours… (Settings → Records)", lambda: self.on_settings("records"))
         m.exec(at)
 
     def _header_menu(self, t: QTableWidget, which: str) -> None:

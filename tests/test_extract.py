@@ -224,7 +224,7 @@ PATTERN = r"CV-(\d{6})-(\d{2})/QU"  # (a pattern of the user's: Civil Court's do
 def test_index_number_patterns_in_the_settings_window(qt, monkeypatch):
     """Options -> Index numbers: what is wrong with a pattern as it is typed, what they find in a line to try them
     on, a pattern that can't be used keeping the window open (it would be lost), and the good ones saved."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     warned = []
     monkeypatch.setattr(qt.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
     dlg = SettingsDialog(Settings.load())

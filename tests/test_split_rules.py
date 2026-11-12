@@ -272,7 +272,7 @@ def test_split_invoices_in_the_settings_window(qt):
     """Settings -> Invoice -> Split invoices lists the courthouse's rules, each with its tooltip, saves the choice
     and rewords the invoice's note."""
     from PySide6.QtCore import Qt
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = Settings.load()
     dlg = SettingsDialog(s)
     box = dlg.i_split
@@ -289,7 +289,7 @@ def test_split_invoices_in_the_settings_window(qt):
 def test_saving_settings_keeps_the_default_as_the_default(qt):
     """Settings saved without touching Split invoices keeps "" (the courthouse's default, whatever it is then),
     not the default's key; chosen by name, it is kept by name (the sweep of 2026-10-21)."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     SettingsDialog(Settings.load()).accept()
     assert Settings.load().invoice_split_rule == ""
     s = Settings.load()

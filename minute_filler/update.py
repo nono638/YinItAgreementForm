@@ -1,6 +1,6 @@
 """Is there a newer version? The one time the app goes online.
 
-Once a day (Settings.check_updates, on by default; Settings -> Options turns it off) the window asks GitHub for
+Once a day (Settings.check_updates, on by default; Settings -> Program turns it off) the window asks GitHub for
 the latest release of the app and, when its number is higher than this copy's, shows an "Update to 2.8.0" button
 at the top of the window that opens the release's download page (MainWindow._show_update). The version found is
 remembered (Settings.update_version, update_page), so the button is back at each start until this copy is that

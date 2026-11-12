@@ -41,7 +41,7 @@ def test_a_settings_file_that_cant_be_read_is_not_written_over(qt, make_window, 
     """Starting up (a warning, not the Welcome questions), reading a file, an option ticked, a firm answer and
     closing all save on their own: none of them may write the defaults over the user's file; Save in Settings
     does (the user's choice)."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     from minute_filler.gui.preview import WelcomeDialog
     from minute_filler.settings import Settings
     path = Settings().path
@@ -127,7 +127,7 @@ def test_ai_questions_do_not_hold_the_reads_back(window, tmp_path, monkeypatch):
 
 # ------------------------------------------------------------------ G5, G10: a settings file that can't be written
 def test_a_save_that_fails_still_closes_settings(qt, monkeypatch):
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     from minute_filler.settings import Settings
 
     def locked(self, force=False):
@@ -186,7 +186,7 @@ def test_clarify_ticks_follow_the_rows_not_their_places(window, tmp_path, monkey
 
 # ------------------------------------------------------------------ G9: a signature that can't be stored
 def test_a_signature_that_cant_be_stored_is_said(qt, monkeypatch, tmp_path):
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = pat_settings()
     dlg = SettingsDialog(s)
     dlg._sig_new = str(tmp_path / "not there.png")
@@ -198,7 +198,7 @@ def test_a_signature_that_cant_be_stored_is_said(qt, monkeypatch, tmp_path):
 
 # ------------------------------------------------------------------ G11: Settings waits for the batch
 def test_settings_wait_for_the_batch(window, monkeypatch):
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     opened = []
     monkeypatch.setattr(SettingsDialog, "exec", lambda self: opened.append(1) or 0)
     window.filling = True
@@ -306,7 +306,7 @@ def test_open_this_job_again_during_a_batch_says_so_over_records(window, monkeyp
 def test_the_ai_tick_setting_is_in_settings(qt):
     """Settings → AI offers the choices of AI_TICKS, "text" by default with a tooltip saying why; the one chosen
     is saved."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     from minute_filler.settings import AI_TICKS, Settings
     s = pat_settings()
     dlg = SettingsDialog(s)

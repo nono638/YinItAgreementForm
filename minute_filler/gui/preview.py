@@ -9,7 +9,7 @@ end of the bar), "Files ▾" lists every file to go to it, and Ctrl+Tab / Ctrl+S
 go to the next one and back; "Side by side" shows every file at once, scrolled across with the bar along the
 bottom, Shift and the wheel (or the wheel alone when there is nothing to scroll down); the preview has its own
 zoom (Ctrl + / Ctrl - / Ctrl 0, Ctrl and the mouse wheel). Its "Don't show previews anymore" turns the preview
-off (Settings -> Options turns it back on). Generate all shows one too, for every file of the batch.
+off (Settings -> Files and folders turns it back on). Generate all shows one too, for every file of the batch.
 
 print_files sends PDFs to a printer through Qt's own print box: each page is drawn as a picture (300 dpi),
 so it prints the same whatever PDF program the computer has (Edge, the default one, can't be asked to print a
@@ -18,7 +18,7 @@ else made to fit. Other files (the Excel run sheet) are handed to their own prog
 
 MathDialog spells out the math of the invoices Generate just made, when previews are off (invoice_math.explain):
 a glance and OK. It can also copy it or save it as a PDF (everyone's, or only what one firm owes), and its
-"Don't show this anymore" turns it off (Settings -> Options turns it back on). The main window's "Who pays
+"Don't show this anymore" turns it off (Settings -> Invoices turns it back on). The main window's "Who pays
 what" and its Invoice card open it too (live=True), on the invoices as they would be made now, with no numbers
 yet. Wherever the math is shown it is a MathView: tables in either layout, "By invoice" or "Firms side by
 side", with a switch between them that is remembered (Settings.math_layout), and under it MathSaves: which of
@@ -43,13 +43,14 @@ from PySide6.QtWidgets import (
 from ..courthouses import by_mark
 from ..log import error as log_error
 from ..settings import Settings
+from ..settings_catalog import path
 from .widgets import QuietCombo
 from .zoom import z
 
 PREVIEW_DPI = 110  # the pages' pictures at 100 % zoom: a letter page is about 935 px wide
 PRINT_DPI = 300    # the pages as sent to the printer: the usual resolution for printed text
-OFF_NOTE = "Previews are off from now on. Settings → Options turns them back on."
-MATH_OFF_NOTE = "Off from now on. Settings → Options turns it back on."
+OFF_NOTE = f"Previews are off from now on. {path(page='files')} turns them back on."
+MATH_OFF_NOTE = f"Off from now on. {path(page='invoices')} turns it back on."
 # the math's headings and lines close together, and its tables' cells roomy enough to read (their borders are
 # drawn from invoice_math's table attributes; the colours follow the theme's text)
 MATH_CSS = ("p {margin: 0 0 3px 0;} h2 {margin: 14px 0 2px 0;} h3 {margin: 10px 0 4px 0;} "
@@ -256,8 +257,8 @@ class PreviewDialog(QDialog):
         row = QHBoxLayout()
         self.off = QPushButton("Don't show previews anymore")
         self.off.setFlat(True)
-        self.off.setToolTip("Generate and Generate all then save at once. Settings → Options turns previews back "
-                            "on.")
+        self.off.setToolTip(f"Generate and Generate all then save at once. {path('preview_before_saving')} "
+                            "turns previews back on.")
         self.off.clicked.connect(self._turn_off)
         row.addWidget(self.off)
         self.off_note = QLabel("")
@@ -431,7 +432,7 @@ COPY_TIP = "Put all of it on the clipboard as text, a line for each charge, to p
 SAVES_TIP = ("Generate saves the math as PDFs in a Math folder, apart from the invoices (in the case's folder; in Save to\n"
              "without a folder for each case; inside the invoices' folder when they have one of their own), so it is\n"
              "there when someone asks later: each firm's own (only what that firm owes, to send it) and one of\n"
-             "everyone's (every firm's amounts, to look back at the job). Also in Settings → Invoice.")
+             "everyone's (every firm's amounts, to look back at the job). Also in Settings → Invoices.")
 
 
 class MathSaves(QWidget):
@@ -623,7 +624,7 @@ class MathDialog(QDialog):
         row = QHBoxLayout()
         self.off = QPushButton("Don't show this anymore")
         self.off.setFlat(True)
-        self.off.setToolTip("Settings → Options turns it back on.")
+        self.off.setToolTip(f"{path('show_math')} turns it back on.")
         self.off.clicked.connect(self._turn_off)
         row.addWidget(self.off)
         self.note = QLabel("")

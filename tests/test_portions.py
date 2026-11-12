@@ -272,7 +272,7 @@ def test_a_firms_detail_says_which_pages_are_shared(tmp_path, s):
     assert "Original: 10 pp. × $4.30 + 20 pp. × $4.30 ÷ 2 firms" in text
     assert "Copy: 30 pp. × $1.00 + E-mailed copy: 30 pp. × $1.00 = $146.00" in text
     assert "split 2 ways" not in text and "Amounts are your share" in text
-    assert "the original and the judge's index of pages ordered together" in text  # (each pays its own index)
+    assert "the cost of the original and the judge's index for pages ordered together" in text  # (each pays its own index)
 
 
 # ------------------------------------------------------------------ found in the sweep of who ordered which pages

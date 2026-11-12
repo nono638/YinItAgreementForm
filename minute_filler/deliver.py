@@ -191,7 +191,7 @@ def generate(case: CaseInfo, s: Settings, out_dir: Path, outputs: list[str] | se
              day: date | None = None, invoice_origin: dict | None = None) -> list[Path]:
     """Writes the chosen outputs (keys of settings.OUTPUTS; others are left out) and logs them in the records,
     each made by its maker (courthouses.OutputSpec.maker), in the order of courthouses.make_order: the run
-    sheet first, the invoices last. Each output goes to its own folder when Settings -> Options -> Folders gives
+    sheet first, the invoices last. Each output goes to its own folder when Settings -> Files and folders -> Folders gives
     it one (Settings.folder_for), else into out_dir.
     An invoice needs `invoice` with the page count (a list: the invoices of each reporter billed, see
     batch.Job.invoice_sets; the user's own set, when there is one, gives the pages the records count) and

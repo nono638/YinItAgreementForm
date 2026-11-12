@@ -1,8 +1,9 @@
 """Builds minute_filler/templates/Invoice Template.xlsx: a spreadsheet for making transcript invoices by
 hand, with the app's arithmetic (minute_filler/invoice_calc.quote, as Settings have it by default) for an
 invoice where every party ordered every page: one original and one judge's index, each split between the
-parties, an index for each party (one, split, when Setup's IndexEach is FALSE, as Settings.invoice_index_shared
-"split" does), a copy and an e-mailed copy for each, and each party's share rounded up to the cent. Whether there
+parties (no judge's index when Setup's JudgeIndex is FALSE, as Settings.invoice_judge_index "off" does), an index
+for each party (one, split, when Setup's IndexEach is FALSE, as Settings.invoice_index_shared "split" does), a
+copy and an e-mailed copy for each, and each party's share rounded up to the cent. Whether there
 is an index is decided on the whole transcript (Job: the whole transcript's pages, every reporter's), and it is
 charged on the Pages billed, as in the app. (Pages ordered by some of the parties only - the app's Excerpts... -
 and parties ordering the same pages at different speeds are not in it.) All its data is fictional.
@@ -94,9 +95,10 @@ def build() -> Workbook:
         ("Offer Expedite", True, "OfferExpedite", True),
         ("Offer Daily", True, "OfferDaily", True),
         ("E-mailed copy for each party", True, "EmailCopies", True),
-        ("Index + judge's index", True, "Indexes", True),
+        ("Index", True, "Indexes", True),
         ("...from this many pages", 50, "IndexFrom", True),
         ("Index for each party (FALSE: one, split)", True, "IndexEach", True),
+        ("Judge's index", True, "JudgeIndex", True),
         ("", "", None, False),
         ("TURNAROUND WORDING", None, None, False),
         *[(sp, next(v for k, v in INVOICE_TURNAROUND.items() if speed_key(k) == speed_key(sp)), None, True)
@@ -189,7 +191,7 @@ def build() -> Workbook:
             # one per party (Setup's IndexEach TRUE, the default; one, shared, when FALSE), when the whole
             # transcript has the pages for one: 45 of an 83-page transcript get one
             f"=IF(AND(Indexes,MAX(Pages,N(TranscriptPages))>=IndexFrom),Pages*E{i}*IF(IndexEach,Parties,1),0)",
-            f"=IF(I{i}>0,Pages*E{i},0)",                               # one, shared
+            f"=IF(AND(JudgeIndex,I{i}>0),Pages*E{i},0)",               # one, shared (none: JudgeIndex FALSE)
             f"=SUM(F{i}:J{i})",
             f"=ROUNDUP(ROUND(K{i}/Parties,6),2)",  # rounded up to the cent (ROUND first: no float dust)
             f"=ROUND(L{i}/Pages,2)",
@@ -200,8 +202,9 @@ def build() -> Workbook:
     for c in "BCDEFGHIJKLM":
         ws.column_dimensions[c].width = 13
     ws.row_dimensions[1].height = 32
-    ws["A7"] = ("Each party pays one share of the original and the judge's index, plus its own copy, e-mailed copy "
-                "and index (one share of a single index when Setup's IndexEach is FALSE), rounded up to the cent. "
+    ws["A7"] = ("Each party pays one share of the original and the judge's index (none when Setup's JudgeIndex is "
+                "FALSE), plus its own copy, e-mailed copy and index (one share of a single index when Setup's "
+                "IndexEach is FALSE), rounded up to the cent. "
                 "Every party orders every page. The index comes once the whole transcript (Job: every reporter's "
                 "pages) has Setup's number of pages; it is charged on your Pages.")
     ws["A7"].font = MUTED

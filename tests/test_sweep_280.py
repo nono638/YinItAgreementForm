@@ -317,7 +317,7 @@ def test_the_details_follow_rows_removed_and_added(window, tmp_path):
 # ------------------------------------------------------------------ the Help window
 def test_the_help_of_settings_closes_with_it(qt, make_window, monkeypatch):
     from PySide6.QtWidgets import QApplication
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     from minute_filler.gui.help_window import HelpWindow
     win = make_window(pat_settings())
 
@@ -673,7 +673,7 @@ def test_a_results_line_reads_as_the_help_does():
     import re
     from minute_filler import help_search
     from minute_filler.help_topics import topic
-    assert "<b>Court</b>, County" in help_search.snippet(topic("set-defaults"), "the court")
+    assert "<b>Court</b>, County" in help_search.snippet(topic("set-reading"), "the court")
     t = topic("dates-turnaround")
     line = html.unescape(re.sub(r"<[^>]+>", "", help_search.snippet(t, "the court is closed that day")))
     assert line.startswith("…") and f" {line[1:].split()[0]} " in f" {t.text} "

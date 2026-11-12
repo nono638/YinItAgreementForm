@@ -59,6 +59,7 @@ from ..excerpts import (
 from ..invoice import default_speed, own_words, shared_words
 from ..invoice_calc import fmt
 from ..invoice_math import money_exact
+from ..settings_catalog import path
 from ..rates import speed_key
 from ..takes import run_numbers
 from .badges import STRIPE_ROLE, badge_html
@@ -532,8 +533,8 @@ class ExcerptsWindow(QDialog):
         text = (f"Each price is what that firm pays. Pages several firms ordered split {shared_words(self.s)}; each "
                 f"firm pays for its own {own_words(self.s)}.")
         if mixed:
-            text += (" At different speeds the original is billed once and divided as Settings → Invoice → Split "
-                     "invoices says.")
+            text += (" At different speeds the original is billed once and divided as "
+                     f"{path('invoice_split_rule')} says.")
         self.note.setText(text)
 
     def _price_cell(self, it: QTableWidgetItem, run: Run, firm, at: dict, p) -> None:
@@ -561,8 +562,8 @@ class ExcerptsWindow(QDialog):
         name = firm.label()
         if mixed:
             kinds = list(dict.fromkeys(sp for sp, _ in at.values()))
-            tip = (f"Ordered together at different speeds ({self._run_note(kinds)}), divided as Settings → Invoice → "
-                   f"Split invoices says. {name} pays {price}.")
+            tip = (f"Ordered together at different speeds ({self._run_note(kinds)}), divided as "
+                   f"{path('invoice_split_rule')} says. {name} pays {price}.")
         elif n > 1:
             who = f"the {n} firms that ordered them" if n == len(run.keys) else f"the {n} parties ordering them"
             tip = (f"{name} pays {price} for these pages: {who} split {shared_words(self.s)}; each pays for its own "

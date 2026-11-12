@@ -8,10 +8,11 @@ page) and the runs around it make room (carve). A run removed gives its pages to
 day can be one run again (whole_day). A run nobody ordered is billed to nobody. What is set is kept on each day as
 Job.portions (rows of (last page, firms), and a run's own speeds, see store) and the attorneys ticked on it, so the
 invoices (invoice.firm_invoices) bill it as before: pages ordered by several firms share the original and the judge's
-index between them (the index too, when Settings.invoice_index_shared says "split"), and each firm pays its own
-copy (and its own index). Whether a day gets an index is judged on every page of it, as
-Settings.invoice_index_rule says (with "any", another day of the invoice reaching the threshold is enough), so a
-firm that ordered 10 pages of a 100-page day pays an index of its 10 pages.
+index between them (the index too, when Settings.invoice_index_shared says "split"; no judge's index when
+Settings.invoice_judge_index says "off"), and each firm pays its own copy (and its own index). Whether a day
+gets an index is judged on every page of it, as Settings.invoice_index_rule says (with "any", another day of the
+invoice reaching the threshold is enough), so a firm that ordered 10 pages of a 100-page day pays an index of its
+10 pages.
 
 prices() works out, as the table is changed, what each run costs each firm that ordered it, what each set of
 firms ordering together pays for its pages ("A + B: 15 of your pages billed (30 total pages) - each of the 2
@@ -35,7 +36,7 @@ from decimal import Decimal
 from . import courthouses
 from .batch import (Job, as_billed, group_problem, joint_invoice, joint_invoice_sets, portion_row, same_entries,
                     speed_days, speeds_to_ask)
-from .invoice import ORDERED_BY_NOBODY, default_speed, firm_invoices, index_mode, index_pages
+from .invoice import ORDERED_BY_NOBODY, default_speed, firm_invoices, index_mode, index_pages, judge_billed
 from .invoice_calc import Share, index_days, offered, quote_ordered, quote_shares
 from .models import Attorney
 from .settings import Settings
@@ -463,7 +464,7 @@ class Prices:
     what each of them pays for those pages). Runs whose firms are priced at the speeds they ordered (`ordered`: a speed
     set or one Generate sets, a split order that commits to one, or a firm billed one speed for its other pages, its
     run alone too): what each firm pays for the run at its speed, and each set of firms and speeds ordering together.
-    And each firm's invoice (as invoiced: rounded as Settings -> Invoice -> Rounding says)."""
+    And each firm's invoice (as invoiced: rounded as Settings -> Invoices -> Rounding says)."""
     speeds: list[str]
     runs: dict[int, dict[str, Decimal]] = field(default_factory=dict)  # id(run) -> speed -> each pays
     # (firm keys, pages, speed -> what each of those firms pays), fewest firms first
@@ -540,6 +541,7 @@ def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None
     email = s.invoice_include_email if opts.email is None else opts.email
     split = s.invoice_index_shared != "each"
     by_page = s.invoice_rounding == "page"
+    judge = judge_billed(s)  # (a judge's index with the index, as the invoices bill it)
 
     def amount(q) -> Decimal:
         """A share as shown: exact, or its prices a page rounded to the cent (by_page), as invoiced."""
@@ -588,12 +590,13 @@ def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None
             try:
                 out.ordered[id(r)] = {k: (out.speed_billed(r, k) or out.fallback,
                                           amount(quote_ordered(shares_of(r, k), s.sheet(), rule, email, split,
-                                                               by_page=by_page)))
+                                                               by_page=by_page, judge_index=judge)))
                                       for k in r.keys}
             except ValueError:  # (a speed the sheet lacks, or too many speeds: the window says why)
                 pass
         else:
-            out.runs[id(r)] = {sp.name: amount(quote_shares(shares_of(r), sp, email, split, by_page=by_page))
+            out.runs[id(r)] = {sp.name: amount(quote_shares(shares_of(r), sp, email, split, by_page=by_page,
+                                                            judge_index=judge))
                                for sp in speeds}
     together: dict[tuple[str, ...], list[Run]] = {}
     at: dict[tuple[tuple[str, str], ...], list[Run]] = {}
@@ -610,7 +613,8 @@ def prices(days: list[Day], runs: list[Run], s: Settings, pool: list[Job] | None
     for keys, rs in together.items():
         shares = [x for r in rs for x in shares_of(r)]
         out.groups.append((keys, sum(x.pages for x in shares),
-                           {sp.name: amount(quote_shares(shares, sp, email, split, by_page=by_page))
+                           {sp.name: amount(quote_shares(shares, sp, email, split, by_page=by_page,
+                                                         judge_index=judge))
                             for sp in speeds}))
     out.groups.sort(key=lambda g: (len(g[0]), g[0]))
     for pairs, rs in at.items():

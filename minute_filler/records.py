@@ -1357,7 +1357,7 @@ def matcher(text: str, how: str = "words", fuzzy_numbers: bool = True):
                misspelling still finds it ("Counsle" finds "Counsel & Counsel"); words of one or two letters
                must be found as they are, and in practice so must words of three or four (one wrong letter
                already puts them below the score); ValueError when rapidfuzz is missing.
-               fuzzy_numbers False (Settings -> Options): a word with a digit in it (an invoice or index
+               fuzzy_numbers False (Settings -> Records): a word with a digit in it (an invoice or index
                number, a date) must be found as it is, as with "words" ("2026-0001" then doesn't find
                "2026-0002")
     Blank text finds everything. ValueError for a `how` not in SEARCH_MODES."""

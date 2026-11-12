@@ -1,4 +1,4 @@
-"""Optional second opinion from a local Ollama model, chosen in Settings -> AI (default gemma4:e2b; see MODELS).
+"""Optional second opinion from a local Ollama model, chosen in Settings -> AI helper (default gemma4:e2b; see MODELS).
 
 The model gets the text (e-mail body, OCR of a photo, a transcript's title page(s))
 and answers in JSON shaped like TEMPLATE (or, if that reply can't be read, constrained
@@ -142,7 +142,7 @@ INPUT:
 \"\"\"
 """
 
-# The models Settings -> AI offers whether or not they are installed yet: name -> what to know about it.
+# The models Settings -> AI helper offers whether or not they are installed yet: name -> what to know about it.
 # Any other model Ollama has can be chosen too (the box lists the installed ones, and takes a typed name).
 MODELS = {
     "gemma4:e2b": "smaller and faster: the usual choice",

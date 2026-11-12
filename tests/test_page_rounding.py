@@ -238,7 +238,7 @@ def test_the_rounding_setting_is_kept_and_checked():
 
 def test_rounding_in_the_settings_window(qt):
     """Settings -> Invoice -> Rounding shows the setting and saves the choice."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = Settings.load()
     dlg = SettingsDialog(s)
     assert dlg.i_rounding.currentData() == "exact"

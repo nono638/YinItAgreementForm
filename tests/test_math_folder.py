@@ -23,8 +23,8 @@ from test_show_the_math import math_window, settled
 
 NAMES = [("Alex B. Counsel", "Counsel & Counsel"), ("Dana Smith", "Smith Law"), ("Kim Park", "Park Law"),
          ("Sam Poe", "Poe LLP")]
-OFF_ONE = "The math of this invoice was not saved (Settings → Invoice → Save the math says Don't save it)."
-OFF_MANY = "The math of these invoices was not saved (Settings → Invoice → Save the math says Don't save it)."
+OFF_ONE = "The math of this invoice was not saved (Settings → Invoices → Save the math says Don't save it)."
+OFF_MANY = "The math of these invoices was not saved (Settings → Invoices → Save the math says Don't save it)."
 SOME = "Some of the math of these invoices could not be saved (the log says why)."
 
 
@@ -679,7 +679,7 @@ def clicked(qt, combo):
 
 
 def test_a_wheel_going_by_leaves_save_the_math_alone_in_settings(s, qt):
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s.save_math = "all"  # (the wheel down from here is Don't save it)
     s.save()
     dlg = SettingsDialog(s)
@@ -689,7 +689,7 @@ def test_a_wheel_going_by_leaves_save_the_math_alone_in_settings(s, qt):
     dlg.accept()
     assert Settings.load().save_math == "all"
     dlg = SettingsDialog(s)
-    dlg.tabs.setCurrentIndex(next(i for i in range(dlg.tabs.count()) if dlg.tabs.tabText(i) == "Invoice"))
+    dlg.show_page("invoices")
     box = clicked(qt, dlg.i_save_math)
     wheel_down(qt, box)  # (clicked first: it means it)
     assert box.currentData() == "off"

@@ -1,12 +1,12 @@
 """How Queens Supreme Court, Civil Term may bill pages that firms ordered together at different speeds (the
-courthouse's split rules, Courthouse.split_rules): two ways, the user choosing one in Settings -> Invoice ->
+courthouse's split rules, Courthouse.split_rules): two ways, the user choosing one in Settings -> Rates and speeds ->
 "Split invoices" (Settings.invoice_split_rule).
 
 The reporter bills ONE original of a page, however many firms ordered it, and a copy (and an e-mailed copy, and
 an index) for each firm, at the firm's own speed. The two ways differ only in how the one original is divided
-when the firms ordered the page at different speeds. The judge's index (billed once, like the original) is
-divided the same way. When every firm ordered the same speed, both are the usual split: each pays the original
-÷ the number of firms.
+when the firms ordered the page at different speeds. The judge's index (billed once, like the original, unless
+Settings.invoice_judge_index leaves it off) is divided the same way. When every firm ordered the same speed, both
+are the usual split: each pays the original ÷ the number of firms.
 
 Make-Whole Split (MAKE_WHOLE, the default): the original is billed at the fastest speed ordered on the page.
 

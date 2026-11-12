@@ -8,7 +8,7 @@ appearances.py; the rules for telling two entries are one firm or person
 (dedupe_attorneys, same_entry, merge_entry) are also used by merge.py and batch.py.
 find_dates is shared as well (merge.same_value, fill.date_ranges, batch.py, runsheet.py), and so
 are DELIVERY_WORDS and looks_like_transcript (extract_llm.py), so that the rules and
-the AI's answer are read alike. The user's own index number patterns (Settings -> Options -> Index numbers) are
+the AI's answer are read alike. The user's own index number patterns (Settings -> Reading documents -> Index numbers) are
 checked by index_pattern_problem, which the Settings window shows, and tried by RegexExtractor as well as its own.
 """
 from __future__ import annotations
@@ -595,7 +595,7 @@ class RegexExtractor:
             v = norm_index(m.group(1), m.group(2))
             if v:
                 ex.add("index_no", v, SRC_REGEX, 0.9)
-        for rx in self.own_index:  # (the user's own, Settings -> Options -> Index numbers)
+        for rx in self.own_index:  # (the user's own, Settings -> Reading documents -> Index numbers)
             for m in own_matches(rx, text):
                 num, yr = (re.sub(r"\D", "", x) for x in _index_parts(m))
                 v = norm_index(num, yr) if num and yr else None

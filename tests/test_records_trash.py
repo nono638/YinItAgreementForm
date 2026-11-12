@@ -311,7 +311,7 @@ def test_fuzzy_numbers_can_be_kept_exact(tmp_path):
 def test_fuzzy_numbers_is_a_setting_ticked_by_default(qt, tmp_path):
     """Settings -> Options -> Records search: ticked by default (as before), saved and loaded again."""
     from helpers import pat_settings
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     from minute_filler.settings import Settings
     s = pat_settings()
     assert Settings().fuzzy_numbers is True

@@ -11,10 +11,11 @@ each with the keys of the firms that ordered it, as set in the case's Excerpts w
 portion of ORDERED_BY_NOBODY is billed to nobody). firm_invoices then makes each firm's own invoice: only the
 days and pages it ordered, priced by invoice_calc.quote_shares (the original and the judge's index of pages
 ordered together are split between the firms; each pays its own copies and, as Settings.invoice_index_shared
-says by default, its own index). A firm whose speed is set (batch.Job.speeds), or one of a split order where
-the courthouse has such firms commit to a speed (courthouses.speed_upfront), is billed that speed alone instead
+says by default, its own index; Settings.invoice_judge_index "off" bills no judge's index: judge_billed). A
+firm whose speed is set (batch.Job.speeds), or one of a split order where the courthouse has such firms commit
+to a speed (courthouses.speed_upfront), is billed that speed alone instead
 (invoice_calc.quote_ordered): pages ordered together at different speeds get one original, divided as the
-courthouse's split rule chosen in Settings -> Invoice -> "Split invoices" says (Settings.invoice_split_rule),
+courthouse's split rule chosen in Settings -> Rates and speeds -> "Split invoices" says (Settings.invoice_split_rule),
 or the one the job, or an earlier day of its trial, was billed by already (InvoiceOpts.split_rule:
 batch.Job.split_rule, else batch.Job.trial_rule).
 Whether a day gets an index is judged on every page of its transcripts, whoever wrote them (index_pages, indexed_days;
@@ -25,7 +26,7 @@ invoice_calc); the invoice doesn't say which, its math does (invoice_math).
 The invoice's own text is the user's: rows of Settings.invoice_texts, each placed on the page and shown when
 its condition holds (invoice_texts, text_conditions: more than one party, an excerpt, a transcript several
 reporters wrote...), with {placeholders} filled in (text_values, fill_text). sample_invoice draws a made-up
-one for Settings -> Invoice -> Preview.
+one for Settings -> Invoices -> Invoice text (Preview…).
 
 On a transcript several reporters wrote, only the user's own pages are billed (batch.Job.billed_mask: the
 pages with the user's initials, unless Whose pages... says otherwise). The records get, besides the amounts,
@@ -478,11 +479,12 @@ def render(case: CaseInfo, atty: Attorney | None, s: Settings, quotes: list[Quot
 def job_quotes(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[Quote]:
     """The prices an invoice for this job lists: one per speed of Settings.invoice_speeds on the rate sheet,
     or the job's own speed (else Settings.agreement_speed()) when none of them is. The index is judged on every
-    page of the transcripts (judged_pages). ValueError without a page count."""
+    page of the transcripts (judged_pages), and comes with a judge's index as Settings say (judge_billed).
+    ValueError without a page count."""
     if opts.pages <= 0:
         raise ValueError("an invoice needs pages to bill")  # (the user, 2026-10-30: every count says whose pages)
     return quotes_for(opts.day_pages(), opts.parties, s.sheet(), s, case.get("delivery") or s.agreement_speed(),
-                      opts.email, opts.index, judged_pages(opts))
+                      opts.email, opts.index, judged_pages(opts), judge_billed(s))
 
 
 def make_invoice(case: CaseInfo, atty: Attorney | None, s: Settings, out_dir: Path, opts: InvoiceOpts,
@@ -578,7 +580,7 @@ def record_details(case: CaseInfo, opts: InvoiceOpts, quotes: list[Quote]) -> di
 
 
 def sample_invoice(s: Settings, folder: Path) -> Path:
-    """A picture (PNG) of a made-up invoice for Settings -> Invoice -> Preview: Jane Roe v. X.Y. Holding
+    """A picture (PNG) of a made-up invoice for Settings -> Invoices -> Invoice text (Preview…): Jane Roe v. X.Y. Holding
     Corporation, two parties sharing 120 pages, the speeds the settings offer. Nothing is recorded."""
     case = CaseInfo()
     for key, value in (("case_name", "Jane Roe v. X.Y. Holding Corporation"), ("index_no", "712345/2021"),
@@ -749,7 +751,7 @@ def index_reason(opts: InvoiceOpts, s: Settings, days: list[int] | None = None) 
     typed: judged_typed), "a day of 60 total pages, 50 or more" (Settings: if any day reaches the threshold,
     every day gets one), "1 of 2 days have 50 total pages or more", "every day has 50 pages or more (typed or
     total)" (some days judged on a number typed, some not), "turned on for this job", "turned off for
-    this job", "turned off in Settings → Invoice". days: the days of one firm's invoice (their places in
+    this job", "turned off in Settings → Invoices". days: the days of one firm's invoice (their places in
     opts.orders). Under the rule "each", where each day is judged alone, the reason is about those days only:
     "30 total pages, under 50" for a firm that ordered only the short day, not "1 of 2 days have 50 total pages
     or more". Under the other rules the whole invoice decides, so it says the same for every firm."""
@@ -757,7 +759,7 @@ def index_reason(opts: InvoiceOpts, s: Settings, days: list[int] | None = None) 
     if mode == "on":
         return "turned on for this job"
     if mode == "off":
-        return "turned off for this job" if opts.index is not None else "turned off in Settings → Invoice"
+        return "turned off for this job" if opts.index is not None else "turned off in Settings → Invoices"
     pages, typed, rule = judged_pages(opts), judged_typed(opts), s.invoice_index_rule
     if rule == "each" and days is not None:
         pages, typed = [pages[i] for i in days], [typed[i] for i in days]
@@ -823,17 +825,25 @@ def index_charged(quotes: list[Quote]) -> bool:
     return any(l.charge in ("Index", "Judge's index") and l.amount > 0 for q in quotes for l in q.lines)
 
 
+def judge_billed(s: Settings) -> bool:
+    """Whether the invoices bill a judge's index with the index (Settings.invoice_judge_index: "off" leaves it off
+    and bills the firms' own indexes alone)."""
+    return s.invoice_judge_index != "off"
+
+
 def shared_words(s: Settings) -> str:
     """What the firms that ordered the same pages split between them (each pays its own copy and e-mailed copy),
     as Settings.invoice_index_shared says: "the original and the judge's index" (each firm pays its own index),
-    or "the original, the index and the judge's index"."""
-    return ("the original and the judge's index" if s.invoice_index_shared == "each"
-            else "the original, the index and the judge's index")
+    or "the original, the index and the judge's index"; with the judge's index not billed (judge_billed), "the
+    original", or "the original and the index"."""
+    split = ["the original"] + (["the index"] if s.invoice_index_shared != "each" else []) + \
+        (["the judge's index"] if judge_billed(s) else [])
+    return ", ".join(split[:-1]) + " and " + split[-1] if len(split) > 1 else split[0]
 
 
 def own_words(s: Settings) -> str:
     """What each of those firms still pays for its own, as Settings say: "copy, e-mailed copy and index"; no
-    e-mailed copy, or no index, when Settings → Invoice charges none, and no index when it is split
+    e-mailed copy, or no index, when Settings → Invoices charges none, and no index when it is split
     (invoice_index_shared "split": see shared_words)."""
     own = ["copy"] + (["e-mailed copy"] if s.invoice_include_email else []) + \
         (["index"] if s.invoice_include_index and s.invoice_index_shared == "each" else [])
@@ -884,6 +894,7 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
     indexed = indexed_days(opts, s)  # (judged on every page of each day, whoever wrote it: see index_pages)
     email = s.invoice_include_email if opts.email is None else opts.email
     by_page = s.invoice_rounding == "page"  # (each price a page rounded to the nearest cent first, as by hand)
+    judge = judge_billed(s)  # (a judge's index with the index, unless Settings leave it off)
     sheet = s.sheet()
     speeds = offered(sheet, s.invoice_speeds, case.get("delivery") or s.agreement_speed())
     names = {_key(a): (a.label() if a is not None else "(no attorney)") for a in orderers}
@@ -908,7 +919,7 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
             rule = courthouses.split_rule(opts.split_rule or s.invoice_split_rule)  # (the job's or its trial's)
             quotes = [quote_ordered(shares, sheet, rule, email,
                                     s.invoice_index_shared != "each", [sum(x.pages for x in xs) for _, xs in days],
-                                    by_page)]
+                                    by_page, judge)]
         else:
             shares = [Share(x.pages, x.n, indexed[i]) for i, x in parts]
             quotes = None
@@ -934,7 +945,7 @@ def firm_invoices(case: CaseInfo, s: Settings, opts: InvoiceOpts) -> list[FirmIn
                       case.fields["dates"].source)
         if quotes is None:  # (billed alone: a price for each speed offered, to choose one)
             quotes = [quote_shares(shares, sp, email, s.invoice_index_shared != "each", [p for _, p in billed],
-                                   by_page) for sp in speeds]
+                                   by_page, judge) for sp in speeds]
         note = index_note(any(x.indexed for x in shares), index_reason(opts, s, [i for i, _ in days]),
                           index_charged(quotes))
         out.append(FirmInvoice(atty, fcase, fopts, quotes, group, note))

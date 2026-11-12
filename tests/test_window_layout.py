@@ -379,7 +379,7 @@ def test_recent_jobs_follow_settings(window, monkeypatch):
 def test_recent_jobs_settings_are_kept_and_bounded(window):
     """The Options row saves what it shows; a settings file edited by hand can't ask for more than 5 jobs or a
     negative number of days."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     d = SettingsDialog(window.s, window)
     assert d.o_recent.isChecked() and d.o_recent_count.value() == 3 and d.o_recent_days.value() == 30
     assert d.o_recent_count.maximum() == 5 and d.o_recent_days.specialValueText() == "at any time"

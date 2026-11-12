@@ -310,7 +310,7 @@ def test_auto_version_bump_asks_github(tmp_path, monkeypatch):
 def test_settings_ok_keeps_speeds_named_otherwise_on_a_rate_sheet(qt):
     """A speed of the user's own rate sheet, ticked under Speeds offered, has no box in
     Settings → Invoice: saving the Settings must not untick it."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = pat_settings()
     s.invoice_speeds = ["Regular", "2-Day Rush Plus"]
     SettingsDialog(s, None).accept()
@@ -319,9 +319,10 @@ def test_settings_ok_keeps_speeds_named_otherwise_on_a_rate_sheet(qt):
 
 def test_the_invoice_spreadsheet_prices_as_the_app_does():
     """The shipped template charges an index to each party and one judge's index split between them, as the app
-    does by default (a Setup option makes it one index, split), decided on the whole transcript's pages (every
-    reporter's: 45 of 83 get one) and charged on the Pages billed, with every rate of the bundled sheet (Daily:
-    $1.25 a page for copies, e-mailed copies and indexes), and rounds each party's share up to the cent."""
+    does by default (a Setup option makes it one index, split; another leaves the judge's index off), decided on
+    the whole transcript's pages (every reporter's: 45 of 83 get one) and charged on the Pages billed, with every
+    rate of the bundled sheet (Daily: $1.25 a page for copies, e-mailed copies and indexes), and rounds each
+    party's share up to the cent."""
     from openpyxl import load_workbook
     from minute_filler.invoice import TEMPLATE
     from minute_filler.rates import BUNDLED_DIR, load_sheet, parse_money
@@ -330,9 +331,16 @@ def test_the_invoice_spreadsheet_prices_as_the_app_does():
     index, each = calc["I2"].value, calc["L2"].value
     assert "IF(IndexEach,Parties,1)" in index and each.startswith("=ROUNDUP(") and "ROUND(K2/Parties" in each
     assert "MAX(Pages,N(TranscriptPages))>=IndexFrom" in index and "TranscriptPages" in wb.defined_names
-    names = {n: wb.defined_names[n].attr_text for n in ("IndexEach", "Turnaround")}
+    # the judge's index comes with the index, unless Setup's JudgeIndex leaves it off (Settings.invoice_judge_index)
+    assert calc["J1"].value == "Judge's index"
+    assert all(calc[f"J{i}"].value == f"=IF(AND(JudgeIndex,I{i}>0),Pages*E{i},0)" for i in range(2, 6))
+    names = {n: wb.defined_names[n].attr_text for n in ("IndexEach", "JudgeIndex", "Indexes", "Turnaround")}
     row = int(names["IndexEach"].rsplit("$", 1)[1])
     assert setup[f"B{row}"].value is True  # an index for each party, unless the user says otherwise
+    row = int(names["JudgeIndex"].rsplit("$", 1)[1])
+    assert setup[f"A{row}"].value == "Judge's index" and setup[f"B{row}"].value is True  # billed, by default
+    assert any(f"B{row}" in str(dv.sqref).split() for dv in setup.data_validations.dataValidation)  # TRUE/FALSE
+    assert setup[f"A{int(names['Indexes'].rsplit('$', 1)[1])}"].value == "Index"  # (the judge's has its own)
     rates = {r[0].value: [c.value for c in r[1:5]] for r in wb["Rates"].iter_rows(min_row=2) if r[0].value}
     assert rates["Daily"] == [6.5, 1.25, 1.25, 1.25]
     sheet = load_sheet(BUNDLED_DIR / "Sample Rates.csv")  # every speed as the sheet has it, not only Daily

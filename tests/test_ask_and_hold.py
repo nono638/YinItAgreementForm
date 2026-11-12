@@ -302,7 +302,7 @@ def test_answers_load_with_their_names_and_without():
 def test_an_answer_can_be_forgotten_in_settings(qt):
     """Settings → Invoice → Firms you answered: Forget takes the selected answer out, and the pair is asked about
     again."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     from minute_filler.settings import Settings
     s = Settings.load()
     s.firm_answers = [["smith law", "smith law group", True, "Smith Law", "Smith Law Group"],
@@ -410,7 +410,7 @@ def firm_docs(window):
 def test_forgetting_an_answer_splits_the_rows_again_at_once(window, monkeypatch):
     """Settings → Invoice → Forget all, then Save: the jobs open now are read again, the pair is two rows again
     and the card asks again (before: the joined row stayed until the app was closed)."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     from minute_filler.settings import Settings
     firm_docs(window)
     window._answer_firm(True)
@@ -432,7 +432,7 @@ def test_forgetting_an_answer_splits_rows_the_user_ticked_too(window, monkeypatc
     "Smith Law: Dana Smith, Sam Poe", into its two firms, and the tick stays on Smith Law (before: Sam Poe stayed in
     Smith Law's row, which went on its agreement and invoice)."""
     from PySide6.QtCore import Qt
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     firm_docs(window)
     window._answer_firm(True)
     tick = window.att.item(0, 0)
@@ -456,7 +456,7 @@ def test_forgetting_an_answer_splits_rows_the_user_ticked_too(window, monkeypatc
 def test_an_answer_for_now_is_listed_and_can_be_forgotten(window, monkeypatch):
     """Remember unticked: the answer is listed under Firms you answered as "for now", and Forget takes it back:
     the card asks again."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     firm_docs(window)
     window.firm_remember.setChecked(False)
     window._answer_firm(False)

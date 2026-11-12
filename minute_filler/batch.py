@@ -321,7 +321,7 @@ class Job:
     not_ordered: set = field(default_factory=set)
     # The split rule (courthouses.base.SplitRule.key) its invoices were priced by, once made (settle_split_rule):
     # a job billed one way stays billed that way, made again or opened again from the records, whatever Settings
-    # says later (the user, 2026-10-21). "" = not billed yet: as Settings -> Invoice -> Split invoices says.
+    # says later (the user, 2026-10-21). "" = not billed yet: as Settings -> Rates and speeds -> Split invoices says.
     split_rule: str = ""
     # The split rule an earlier invoice of this trial (its index number) was billed by, from the records
     # (trial_split_rules), set just before it is priced (note_trial_rules: fill_jobs and the window): every day of
@@ -2135,7 +2135,7 @@ def origin_fixes(origin: dict) -> dict[str, dict[int, str]]:
             for k, pages in kept.items() if isinstance(k, str) and isinstance(pages, dict)}
 
 
-# When 2.9.0 (published 2026-10-21, 11:11 New York time) brought a second split rule (Settings -> Invoice -> Split
+# When 2.9.0 (published 2026-10-21, 11:11 New York time) brought a second split rule (Settings -> Rates and speeds -> Split
 # invoices) without keeping yet which one billed an invoice: one recorded before was billed by the courthouse's
 # first rule, the only one there was (Activity.ts is local time, compared as text)
 SPLIT_RULES_SINCE = "2026-10-21T11:11"
@@ -2852,7 +2852,7 @@ def case_folders(jobs: list[Job], s: Settings, outputs: list[str] | None = None,
     """The case folders these jobs' files are to go into (Settings.case_folders, named by
     Settings.case_folder_pattern), one for the days of each case with the same Save to folder, named for all of
     them (trial_folder_name: "712345-2021 10-13,14,15-2026 Jones v USA Hauling"); [] with the setting off, or when
-    every one of `outputs` (default: Settings.outputs) has a folder of its own (Settings -> Options -> Folders).
+    every one of `outputs` (default: Settings.outputs) has a folder of its own (Settings -> Files and folders -> Folders).
     When the case has a folder there already (existing_case_folder, the jobs `loaded` in the window too) named
     for other days, its name gets theirs too (the days of the jobs saved into it, and those `ledger`, the
     records, has files of in it) and it is renamed so as the files are saved (CaseFolder.old: the user,
@@ -3113,7 +3113,7 @@ def saved_folders(paths: list, s: Settings) -> list[Path]:
     """The folders the files saved are in, each once, as the window names and opens them. With a folder for each
     case (Settings.case_folders), a file in a folder inside its case's own ("...\\712345-2021\\Invoices":
     settings.SUBFOLDERS) counts as in the case's folder, so the files of one case are one folder. A folder of an
-    output's own (Settings -> Options -> Folders: "D:\\Billing\\Invoices") is named as it is. A math PDF in its Math
+    output's own (Settings -> Files and folders -> Folders: "D:\\Billing\\Invoices") is named as it is. A math PDF in its Math
     folder counts as in the folder that one is inside, whichever that is (Settings.folder_for), so the box names,
     and Open folder opens, the folder of the invoices, never the math's."""
     def folder(p: Path) -> Path:

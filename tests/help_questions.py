@@ -5,7 +5,7 @@ right topic from the user's own words. Used by tests/test_help.py and tools/mean
 QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     # Getting started
     ("what does this program do", ("start-overview",)),
-    ("setting up for the first time", ("start-first-time", "set-my-info", "set-defaults")),
+    ("setting up for the first time", ("start-first-time", "set-my-info", "set-pages")),
     ("how do i go from the order to the forms", ("start-steps", "make-outputs")),
     ("everything is cut off on my laptop screen", ("start-room",)),
     ("opened the app twice", ("start-one-window",)),
@@ -31,7 +31,7 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("one agreement for each lawyer", ("make-agreement",)),
     ("what is the mofr", ("make-mofr",)),
     ("look at it before it saves", ("make-preview",)),
-    ("where are my pdfs saved", ("make-folders", "make-saved")),
+    ("where are my pdfs saved", ("make-folders", "make-saved", "set-files")),
     ("put the invoices in their own folder inside the case", ("make-folders",)),
     ("change the file name", ("make-file-names",)),
     ("stop the lawyer from editing the pdf", ("make-fix-lock",)),
@@ -92,8 +92,8 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     ("reporter initals at the bottom of the page", ("run-reporters", "run-overview")),
     ("keep adding days to the trial sheet", ("run-one-per-trial",)),
     ("another reporter made the run sheet", ("run-elsewhere",)),
-    ("change the list of reporters names", ("run-reporters", "set-run-sheet")),
-    ("which folder is the run sheet saved in", ("run-overview", "set-run-sheet", "make-folders")),
+    ("change the list of reporters names", ("run-reporters", "set-other-reporters")),
+    ("which folder is the run sheet saved in", ("run-overview", "set-run-sheet", "make-folders", "set-files")),
     ("list of every witness on the run sheet", ("run-overview",)),
     ("see which firms paid on the run sheet", ("run-overview",)),
     ("a take is wrong the initials were misread", ("run-who-transcribed",)),
@@ -106,9 +106,9 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     # Settings
     ("my name on the form", ("set-my-info", "start-first-time")),
     ("signiture on the agreement", ("set-signature",)),
-    ("change the default speed", ("inv-speeds", "set-invoice")),
+    ("change the default speed", ("inv-speeds", "set-rates")),
     ("new laptop", ("set-export",)),
-    ("ask me before saving every time", ("make-preview", "set-options")),
+    ("ask me before saving every time", ("make-preview", "set-files")),
     ("turn off the ai", ("set-ai", "ai-setup")),
     ("where are my records kept", ("set-records", "rec-backups", "rec-overview")),
     # The AI helper
@@ -140,16 +140,16 @@ QUESTIONS: list[tuple[str, tuple[str, ...]]] = [
     # who ordered, what and at what speed in one card (2026-10-24)
     ("the defense ordered every day of the trial", ("check-attorneys", "inv-who-ordered")),
     ("one firm only wants the second day", ("check-attorneys", "inv-who-ordered", "exc-table")),
-    ("stop asking me the speed for each firm when i generate", ("inv-who-ordered", "set-invoice", "exc-speeds")),
+    ("stop asking me the speed for each firm when i generate", ("inv-who-ordered", "set-rates", "exc-speeds")),
     # the case's folder named for its days, the documents copied beside the files, the recent jobs (2026-10-28)
     ("why was my case folder renamed", ("make-folders",)),
-    ("keep a copy of the transcripts with the forms", ("make-folders", "set-options")),
-    ("show fewer recent jobs", ("rec-reopen", "set-options", "start-window")),
+    ("keep a copy of the transcripts with the forms", ("make-folders", "set-files")),
+    ("show fewer recent jobs", ("rec-reopen", "set-program", "start-window")),
     ("how do i say which pages each firm ordered", ("exc-table", "inv-who-ordered")),
     # your pages and everyone's (2026-10-29)
     ("show only my takes", ("run-who-transcribed",)),
     ("how many of my pages were billed in each excerpt", ("exc-your-pages", "exc-table")),
-    ("stop shading my rows", ("run-who-transcribed", "set-options")),
+    ("stop shading my rows", ("run-who-transcribed",)),
     # whose pages each count is, and waiting for the reading (2026-10-30)
     ("difference between total pages and your pages", ("inv-reporters", "batch-job-list", "exc-your-pages")),
     # the cover and the page numbers as read (2026-11-06)

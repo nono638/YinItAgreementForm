@@ -108,7 +108,7 @@ def test_why_there_is_an_index_or_not_in_a_few_words():
     assert why([20, 30], "total") == "50 total pages over 2 days, 50 or more"
     assert why([20, 29], "total") == "49 total pages over 2 days, under 50"
     assert why([10], index="on") == "turned on for this job" and why([90], index="off") == "turned off for this job"
-    assert why([90], include=False) == "turned off in Settings → Invoice"
+    assert why([90], include=False) == "turned off in Settings → Invoices"
 
 
 def test_an_index_judged_on_a_number_typed_says_pages_typed():

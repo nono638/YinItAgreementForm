@@ -50,7 +50,7 @@ class OutputSpec:
     ("Minute agreement"). group: one of GROUPS. mark: the kind its PDFs are labelled with (pdfout.mark: "YinIt
     MOFR"), "" for a file that isn't a PDF; it never changes either, as the preview tells old files apart by it.
     color: its tab in the preview ("" for one never previewed). folder: a folder of its own under Documents
-    when Settings -> Options -> Folders gives none ("" = the job's Save to folder). subfolder: the folder it goes
+    when Settings -> Files and folders -> Folders gives none ("" = the job's Save to folder). subfolder: the folder it goes
     in inside the case's own folder ("Invoices": Settings.case_folders, see Settings.folder_for; "" = the case's
     folder itself).
 
@@ -138,8 +138,8 @@ class Party:
     """One firm on pages several firms ordered, as a split rule (SplitRule.split) sees it: its name (for the
     math's words: "Smith Law"; "This firm" for the one whose part is worked out), the speed it ordered (the rate
     sheet's name, "Daily"), the price of a page of the charge being split at that speed (the original, or the
-    judge's index), and how fast that speed is (rank: higher is faster; its place among the rate sheet's speeds,
-    which are read cheapest Original first)."""
+    judge's index when the invoices bill one), and how fast that speed is (rank: higher is faster; its place among
+    the rate sheet's speeds, which are read cheapest Original first)."""
     name: str
     speed: str
     rate: Fraction
@@ -157,13 +157,14 @@ class Part:
 
 class SplitRule(ABC):
     """A way of billing pages that firms ordered together at different speeds (a split order): how a charge billed
-    once for those pages (the original, the judge's index) is divided between the firms (split), and the words the
-    windows, the invoice and the math say it in. Each firm's own copy and e-mailed copy are its own, at its own
-    speed, whatever the rule, and so is its index unless Settings' Index on shared pages splits it (then the index is
-    billed once too, and divided by the rule: invoice_calc.quote_ordered).
+    once for those pages (the original, and the judge's index unless Settings.invoice_judge_index leaves it off) is
+    divided between the firms (split), and the words the windows, the invoice and the math say it in. Each firm's
+    own copy and e-mailed copy are its own, at its own speed, whatever the rule, and so is its index unless
+    Settings' Index on shared pages splits it (then the index is billed once too, and divided by the rule:
+    invoice_calc.quote_ordered).
 
     A courthouse offers one or more (Courthouse.split_rules), the first its default; the user picks one in
-    Settings -> Invoice -> "Split invoices" (Settings.invoice_split_rule, by key). A new way is a subclass with its
+    Settings -> Rates and speeds -> "Split invoices" (Settings.invoice_split_rule, by key). A new way is a subclass with its
     own key, added to the courthouse's tuple: nothing else changes. Instances hold nothing but these words, so one
     of each is made, at import.
 
@@ -171,15 +172,22 @@ class SplitRule(ABC):
     there, in plain words with an example. summary: what it does, as a phrase for the windows' tips and "Who pays
     what" ("each firm pays its share of the original as if every firm had ordered its speed"). note: said once in
     the math under an invoice with such pages. adds_up: said in the math under what the firms pay together, of
-    what their parts of an original add up to. invoice_note: the note printed on such
-    an invoice as it comes (the "mixed_speeds" row of Settings.invoice_texts, which the user may reword)."""
+    what their parts of an original add up to; judge_words: its words on the judge's index, left out of it when
+    the invoices bill none (adds_up_words). invoice_note: the note printed on such an invoice as it comes (the
+    "mixed_speeds" row of Settings.invoice_texts, which the user may reword)."""
     key: str = ""
     label: str = ""
     tip: str = ""
     summary: str = ""
     note: str = ""
     adds_up: str = ""
+    judge_words: str = " (and of the judge's index)"
     invoice_note: str = ""
+
+    def adds_up_words(self, judge_index: bool = True) -> str:
+        """adds_up as said of these invoices: without judge_words when they bill no judge's index
+        (Settings.invoice_judge_index "off"); as it is when it has no such words."""
+        return self.adds_up if judge_index else self.adds_up.replace(self.judge_words, "")
 
     @abstractmethod
     def split(self, parties: list[Party], me: int) -> Part:
@@ -212,14 +220,14 @@ class Courthouse:
 
     How it bills firms that order the same pages (a split order) at different speeds, the first of its billing
     rules (MIGRATION.md, BillingRules): split_rules, "module:name" of a tuple of SplitRule, the ways it may divide
-    a charge billed once for those pages (the original, the judge's index) between them, its default first, the
-    user choosing in Settings ("" = none: pages ordered together must all be at one speed); speeds_together, how
-    many different speeds may share pages (1 = one); speed_upfront, whether the firms of a split order must each
-    commit to a speed before they are billed (True: their invoices bill that speed alone, and Generate asks when
-    it isn't set), rather than choosing one from the invoice as a firm billed alone does.
+    a charge billed once for those pages (the original, the judge's index when billed) between them, its default
+    first, the user choosing in Settings ("" = none: pages ordered together must all be at one speed);
+    speeds_together, how many different speeds may share pages (1 = one); speed_upfront, whether the firms of a
+    split order must each commit to a speed before they are billed (True: their invoices bill that speed alone,
+    and Generate asks when it isn't set), rather than choosing one from the invoice as a firm billed alone does.
 
     holidays: the days its courts are closed, (name, rule in plain words: workdays.parse_rule) each, the first list
-    of Settings -> Dates (Settings.holidays): as that tab says, forms and invoices made on one are dated the next
+    of Settings -> Dates (Settings.holidays): as that page says, forms and invoices made on one are dated the next
     business day, and turnaround days in business days don't count them; holiday_weekend: what one of a fixed date
     that falls on a weekend does (Settings.holiday_weekend: "nearest", closed the Friday before or the Monday
     after, or "none").

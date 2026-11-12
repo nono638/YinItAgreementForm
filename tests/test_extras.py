@@ -630,7 +630,7 @@ def test_the_run_sheet_is_not_made_for_the_preview(previewing, monkeypatch, tmp_
 
 
 def test_preview_settings_checkbox(qt):
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = pat_settings()
     dlg = SettingsDialog(s)
     assert dlg.o_preview.isChecked() and dlg.o_recaps.isChecked() and dlg.o_updates.isChecked()
@@ -645,7 +645,7 @@ def test_the_model_box_offers_both_gemma_models(qt, monkeypatch):
     """Settings -> AI: gemma4:e2b and gemma4:e4b are offered though neither is installed, with the warning that
     the larger one is much slower without a graphics card; other installed models are listed after them."""
     from minute_filler.extract_llm import OllamaExtractor
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     from PySide6.QtCore import Qt
     dlg = SettingsDialog(pat_settings())  # (Ollama is "not running" in the tests)
     names = [dlg.a_model.itemText(i) for i in range(dlg.a_model.count())]

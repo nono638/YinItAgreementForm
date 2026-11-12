@@ -130,6 +130,8 @@ def qt(monkeypatch):
     monkeypatch.setattr(PreviewDialog, "exec", lambda self: QtWidgets.QDialog.Accepted)
     monkeypatch.setattr(MathDialog, "exec", lambda self: QtWidgets.QDialog.Accepted)
     monkeypatch.setattr(WelcomeDialog, "exec", lambda self: QtWidgets.QDialog.Rejected)
+    from minute_filler.gui.settings_dialog import SettingsDialog
+    monkeypatch.setattr(SettingsDialog, "last_page", "")  # (Settings opens where it was last closed: a test's own)
     return QtWidgets
 
 

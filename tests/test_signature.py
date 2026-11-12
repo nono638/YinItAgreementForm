@@ -112,7 +112,7 @@ def test_quick_date_button_fills_the_field(qt, make_window):
 
 def test_settings_dialog_stores_the_signature(tmp_path, monkeypatch, qt):
     QtWidgets = qt
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = Settings()
     s.use_ai = False
     src = str(photo(tmp_path / "photo.png"))

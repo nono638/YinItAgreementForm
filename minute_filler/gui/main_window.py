@@ -127,7 +127,9 @@ from ..takes import run_numbers
 from .. import courthouses
 from ..courthouses.base import resolve
 from ..settings import LOCAL, OUTPUTS, Settings, reporter_key
-from .dialogs import ClarifyDialog, RunSheetDialog, SettingsDialog
+from ..settings_catalog import path
+from .dialogs import ClarifyDialog, RunSheetDialog
+from .settings_dialog import SettingsDialog
 from .excerpts import show_how_to
 from .help_window import help_topic_of, open_help
 from .badges import STRIPE_ROLE, TAG_HEIGHT, StripeDelegate, badge_icon, badge_size, side_name, tag_color
@@ -152,12 +154,14 @@ ATT_WHAT, ATT_SPEED, ATT_PAGES = 9, 10, 11
 _DAY_TICK, _VISITOR = Qt.UserRole + 30, Qt.UserRole + 31
 VISITOR_TIP = "Named on another day of the trial, not this one. Tick it and it orders this day too."
 ATT_TIPS = {
-    0: "Tick each firm that ordered. In a trial a tick is the whole trial, days added later too (Settings →\n"
-       "Options → A firm you tick orders); a box half filled is a firm that ordered some days or pages only (What says which).",
+    0: "Tick each firm that ordered. In a trial a tick is the whole trial, days added later too\n"
+       f"({path('trial_orders')}); a box half filled is a firm that ordered some days or pages only (What says "
+       "which).",
     ATT_WHAT: "What the firm ordered: the whole trial (or day), only the day shown, or some days or pages\n"
               "(Who ordered which pages…, one table of every day and firm)",
     ATT_SPEED: "The speed the firm is billed: firms ordering the same pages are billed the speed shown\n"
-               "(Settings → Invoice can have Generate ask instead); a firm ordering alone may choose\n"
+               f"({path('split_speeds')} can have Generate ask instead); a firm ordering alone may\n"
+               "choose "
                "from its invoice, among the speeds offered. Different speeds on different days or pages: "
                "Who ordered which pages…",
     ATT_PAGES: "The pages its invoice bills of what it ordered: on a transcript of several reporters only\n"
@@ -379,9 +383,10 @@ EST_PAGES_TIP = ("Counted from the transcript PDF: every page, whoever wrote it 
                  "only)? Type the pages here and the invoice bills them (a number read from an e-mail isn't\n"
                  "billed).")
 AGREEMENT_SPEED_TIP = ("The speed written on the minute agreement forms (and the MOFR), at its rate per page, out\n"
-                       "of the speeds offered. In a trial it is every day's (unless Settings → Options → A firm\n"
-                       "you tick orders is the day shown). Firms ordering the same pages are billed it unless\n"
-                       "their row says another speed. Settings → Invoice picks it (first choice\n"
+                       "of the speeds offered. In a trial it is every day's (unless\n"
+                       f"{path('trial_orders')} is the day shown). Firms ordering the same pages are\n"
+                       f"billed it unless their row says another speed. {path('agreement_speed_first')}\n"
+                       "picks it (first choice "
                        "Expedited, else the slowest offered); choose another here (↺ goes back to the Settings\n"
                        "rule). A firm whose speed is chosen in its row gets its own speed on its form, and the\n"
                        "MOFR ticks every speed ordered.\n"
@@ -408,7 +413,7 @@ PAYS_TIP = ("What each firm's invoice comes to, as things stand: its pages, how 
 def _who_splits(s) -> dict[str, str]:
     """What firms ordering the same pages split, and what each pays for its own, as Settings say, for the
     tooltips above: {"shared": "the original and the judge's index", "own": "copy, e-mailed copy and index"}
-    (no e-mailed copy, or no index, when Settings → Invoice charges none)."""
+    (no e-mailed copy, or no index, when Settings → Invoices charges none)."""
     from ..invoice import own_words, shared_words
     return {"shared": shared_words(s), "own": own_words(s)}
 
@@ -1795,8 +1800,9 @@ class MainWindow(QMainWindow):
         fq.addWidget(self.firm_apart, 0, Qt.AlignTop)
         self.firm_remember = QCheckBox("Remember")
         self.firm_remember.setChecked(True)
-        self.firm_remember.setToolTip("Keep the answer for later documents naming these two (Settings → Invoice →\n"
-                                      "Firms you answered lists them, to forget one). Unticked: for now only.")
+        self.firm_remember.setToolTip("Keep the answer for later documents naming these two\n"
+                                      f"({path('firm_answers')} lists them, to forget one). Unticked: for now "
+                                      "only.")
         fq.addWidget(self.firm_remember, 0, Qt.AlignTop)
         self.firm_ask_box.setVisible(False)
         self._firm_q = None  # (the days asked about, (row, row)) of the question shown
@@ -1991,6 +1997,11 @@ class MainWindow(QMainWindow):
         self.takes_mine.setChecked(self.s.takes_only_mine)
         self.takes_mine.toggled.connect(self._takes_mine_toggled)
         filt.addWidget(self.takes_mine)
+        # (a way of looking at the card, so on the card: it was under Settings until 2.18)
+        self.takes_shade = QCheckBox("Highlight yours")
+        self.takes_shade.setChecked(self.s.takes_highlight_mine)
+        self.takes_shade.toggled.connect(self._takes_shade_toggled)
+        filt.addWidget(self.takes_shade)
         filt.addSpacing(z(12))
         self.takes_who_label = QLabel("Reporters:")
         filt.addWidget(self.takes_who_label)
@@ -2183,6 +2194,7 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Enter"), self, activated=self.fill)  # (the Enter of the number keys)
         QShortcut(QKeySequence("Ctrl+Shift+Enter"), self, activated=self.fill_all_jobs)
         QShortcut(QKeySequence("Ctrl+R"), self, activated=self.open_records)
+        QShortcut(QKeySequence("Ctrl+,"), self, activated=self.open_settings)  # (as in most Windows programs)
         QShortcut(QKeySequence("F1"), self, activated=lambda: self.show_help(help_topic_of(self.focusWidget())))
         for keys, step in (("Ctrl++", 1), ("Ctrl+=", 1), ("Ctrl+-", -1), ("Ctrl+0", 0)):
             QShortcut(QKeySequence(keys), self, activated=lambda s=step: self.zoom_step(s))
@@ -2201,7 +2213,7 @@ class MainWindow(QMainWindow):
         self.recent_menu.aboutToShow.connect(self._fill_recent)
         m.addSeparator()
         m.addAction("Open &rate sheets folder", self._open_sheets_folder)
-        m.addAction("&Settings…", self.open_settings)
+        m.addAction("&Settings…\tCtrl+,", self.open_settings)
         m.addAction("Ex&port settings (for another computer)…", self.export_settings)
         m.addAction("&Import settings…", self.import_settings)
         m.addSeparator()
@@ -2563,7 +2575,7 @@ class MainWindow(QMainWindow):
             if n == self._reading_recent:  # (an older read ending last would put back what the records held before)
                 self._fill_completions(values)
 
-        if self.s.recent_jobs_show:  # (as many and as lately made as Settings -> Options say)
+        if self.s.recent_jobs_show:  # (as many and as lately made as Settings -> Program says)
             self.runner.start(recent_jobs, self.s.recent_jobs_count, days=self.s.recent_jobs_days, on_done=jobs_read,
                               on_error=lambda _m: None)
         else:
@@ -2646,8 +2658,8 @@ class MainWindow(QMainWindow):
         """The Records button with its count ("Records · Ready to send: 3"), or plain at 0 or with none chosen."""
         if n and name:
             self.rec_btn.setText(f"Records · {name}: {n}")
-            self.rec_btn.setToolTip(f"{plural(n, 'invoice')} {'is' if n == 1 else 'are'} {name} (Settings → Records → "
-                                    f"Count on the Records button changes or turns off this count).\n{RECORDS_TIP}")
+            self.rec_btn.setToolTip(f"{plural(n, 'invoice')} {'is' if n == 1 else 'are'} {name} "
+                                    f"({path('records_count')} changes or turns off this count).\n{RECORDS_TIP}")
         else:
             self.rec_btn.setText("Records")
             self.rec_btn.setToolTip(RECORDS_TIP)
@@ -2772,7 +2784,7 @@ class MainWindow(QMainWindow):
         self.update_btn.setText(f"⬆  Update to {version}")
         self.update_btn.setToolTip(f"Version {version} is out (you have {update.__version__}). Click to open its "
                                    "download page in your browser; nothing is installed by itself.\n"
-                                   "Settings → Options turns the daily look for a newer version off.")
+                                   f"{path('check_updates')}: untick it to stop the daily look.")
         self.update_btn.setVisible(True)
         self._fit_corner()
 
@@ -2908,7 +2920,7 @@ class MainWindow(QMainWindow):
         Documents of a single job dropped while it was checking are then sent to the AI."""
         if not self.s.use_ai:
             self.ai_ok = False
-            self._ai_text("AI is off (Settings → AI). Using rules only.")
+            self._ai_text("AI is off (Settings → AI helper). Using rules only.")
             return
         self._ai_text("Checking AI…")
         self.ai = ai = OllamaExtractor(self.s)
@@ -4474,11 +4486,12 @@ class MainWindow(QMainWindow):
         self.speed_badge.setProperty("src", src)
         self.speed_badge.setProperty("loud", src == SRC_AI)
         self.speed_badge.setToolTip({SRC_USER: "Chosen by you for this job",
-                                     SRC_DEFAULT: "Picked by the rule in Settings → Invoice"}.get(src, ""))
+                                     SRC_DEFAULT: f"Picked by the rule in {path('agreement_speed_first')}"}
+                                    .get(src, ""))
         repolish(self.speed_badge)
         rule = self.s.delivery_name(self.s.agreement_speed())
         self.speed_reset.setVisible(src == SRC_USER)
-        self.speed_reset.setToolTip(f"Back to the speed Settings → Invoice picks ({rule})")
+        self.speed_reset.setToolTip(f"Back to the speed {path('agreement_speed_first')} picks ({rule})")
         ask = self.cur.speed_question()
         if ask:
             asked, _, _ = self.cur.asked_speed()
@@ -4632,6 +4645,7 @@ class MainWindow(QMainWindow):
         Generate asks once a price is added. False when Go back was clicked (nothing is made), or Generate all
         started meanwhile. Answers given before a Go back are kept, as the box says."""
         from ..batch import index_question
+        from ..invoice import judge_billed
         asked = False
         try:
             for group in groups:
@@ -4648,6 +4662,7 @@ class MainWindow(QMainWindow):
                 which = f" for {', '.join(d for j in q.jobs if (d := j.case.get('dates')))}" if several else ""
                 has = "the transcripts have" if q.transcripts > 1 else "the transcript has"
                 gets, it = ("get", "they get") if whom == "those days" else ("gets", "it gets")
+                judge = " (and the judge's)" if judge_billed(self.s) else ""  # (Settings may leave it off)
                 box = QMessageBox(self)
                 if not q.priced:  # no index can be charged either way: nothing to choose, but say why there's none
                     box.setIcon(QMessageBox.Warning)
@@ -4672,7 +4687,7 @@ class MainWindow(QMainWindow):
                 box.setText(f"{title}\n\nYou typed {q.typed:,} pages in Est. number of pages{which}; {has} "
                             f"{q.counted:,} total pages.\n\nJudged on the transcript, {whom} {gets} an index "
                             f"({q.pdf_why}); judged on the pages you typed, {it} none ({q.typed_why}).\n\n"
-                            "Include an index (and the judge's) "
+                            f"Include an index{judge} "
                             f"{'on this invoice' if whom == 'the invoice' else 'for ' + whom}?")
                 box.setInformativeText("Your answer is kept for this job: Peripherals… in the Invoice card "
                                        "changes it.")
@@ -4694,7 +4709,8 @@ class MainWindow(QMainWindow):
                 self._update_status()
 
     def _speed_to_rule(self):
-        """↺: the job's speed goes back to the one Settings → Invoice picks; the rate and delivery date follow."""
+        """↺: the job's speed goes back to the one Settings → Rates and speeds picks; the rate and delivery date
+        follow."""
         self.case.fields["delivery"] = FieldState()
         self._speed_everywhere()
         self._apply_speed_rule()
@@ -5215,7 +5231,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------- status
     def _set_status(self, text: str, state: str, mood: str | None = None):
         """Sets the status at the top. state: "" (plain text, as IDLE_STATUS is), or "busy", "ok" or "warn" (a
-        pill of its colour). When the yin-yang is on (Settings → Options, Settings.show_yin), state also picks its
+        pill of its colour). When the yin-yang is on (Settings → Program, Settings.show_yin), state also picks its
         picture unless mood names one: it swirls while busy ("working") and while the app waits (plain: "idle"); ok
         shows "done" once the swirl's turn is over, warn "stumped" at once (DropZone.set_mood)."""
         self.status.setText(text)
@@ -5309,8 +5325,8 @@ class MainWindow(QMainWindow):
                             f"•  {_entry_text(b)}\n\nOne firm gets one invoice and one minute agreement.")
                 remember = QCheckBox("Remember my answer for later documents")
                 remember.setChecked(ticked)
-                remember.setToolTip("Unticked: the answer holds until you close the app. Settings → Invoice →\n"
-                                    "Firms you answered lists your answers (those for now too), to forget one.")
+                remember.setToolTip("Unticked: the answer holds until you close the app.\n"
+                                    f"{path('firm_answers')} lists your answers (those for now too), to forget one.")
                 box.setCheckBox(remember)
                 same = box.addButton("Same firm", QMessageBox.YesRole)
                 apart = box.addButton("Not the same", QMessageBox.NoRole)
@@ -6107,10 +6123,10 @@ class MainWindow(QMainWindow):
         return False
 
     def _run_sheet_for(self, job: Job, button: str = "Generate") -> str | None:
-        """The run sheet to add the job's takes to ("" = a new one), as Settings → Run sheet says; asks when the
+        """The run sheet to add the job's takes to ("" = a new one), as Settings → Run sheets says; asks when the
         case seems to have one already. It is looked for where a new one would go (the Trial Runs folder of the
         case's folder, before Generate has chosen it: batch.case_dir_for, runsheet.runsheets_folder; or the run
-        sheets' own folder under Options → Folders), next to
+        sheets' own folder under Settings → Files and folders → Folders), next to
         its transcripts, where the records say the case's run sheets are and in the old run sheets folders
         (runsheet.sheet_folders). None = cancelled, also when a workbook named for the case can't be opened just
         now (runsheet.SheetUnreadable: the user is told which, and to press `button` again; nothing is made)."""
@@ -6235,7 +6251,7 @@ class MainWindow(QMainWindow):
         back = box.addButton("Go back", QMessageBox.RejectRole)
         box.setDefaultButton(add)
         box.setEscapeButton(back)
-        never = QCheckBox("Don't ask again (Settings → Options → Folders)")
+        never = QCheckBox(f"Don't ask again ({path('case_folder_existing')})")
         box.setCheckBox(never)
         box.exec()
         if box.clickedButton() not in (add, new):
@@ -6269,7 +6285,7 @@ class MainWindow(QMainWindow):
         fields are not asked about, but incomplete jobs are listed, to leave out or make anyway; then, for each
         invoice of the days made, whether there is an index when a page count typed below the transcript's
         changes it (_ask_index). Where the takes go is asked once per case when it has a run sheet already
-        (Settings → Run sheet; the jobs of one case share a run sheet group, so its days go on one sheet), and
+        (Settings → Run sheets; the jobs of one case share a run sheet group, so its days go on one sheet), and
         those open in Excel are to be closed first. Last, the case folders already there with files in them, in
         one box (_case_folder), and the index numbers again, for a document read meanwhile.
         The batch works on copies of the jobs and the settings (shown first in a preview when
@@ -6986,7 +7002,8 @@ class MainWindow(QMainWindow):
 
     def open_settings(self, _checked: bool = False, tab: str = ""):
         """Opens Settings (not while Generate all is making files: it reads the settings, and the answers about
-        the firms, on its thread), at the tab named (Records' "Tick boxes and colours…": "Records"). After Save,
+        the firms, on its thread), at the page named (a settings_catalog page key; Records' "Tick boxes and
+        colours…": "records"). After Save,
         the theme, the window's options, the rate sheets and the AI check are refreshed and every job is merged
         and priced again, with the answers about rows that may be one firm as they are now (one forgotten, for now
         or for good, splits its rows again and is asked about again)."""
@@ -7043,12 +7060,15 @@ class MainWindow(QMainWindow):
         self._apply_speed_rule()  # (a job without documents too: the rule may be another now)
         self._remerge_others()
         self._redate(force=True)  # (Settings -> Dates: the business days, the evening hour, the holidays)
+        for box, on in ((self.takes_shade, self.s.takes_highlight_mine), (self.takes_mine, self.s.takes_only_mine)):
+            with QSignalBlocker(box):  # (settings imported: the card's boxes say what they hold now)
+                box.setChecked(on)
         self._update_status()  # (Who transcribed what too: your takes highlighted or not, My info's initials)
         for act in self.theme_actions.actions():  # (View -> Theme and Show the yin-yang, as Settings has them now)
             act.setChecked(act.data() == (self.s.theme if self.s.theme in ("light", "dark") else "system"))
         self.yin_action.setChecked(self.s.show_yin)
         self._records_changed()  # (an open Records window: its tick boxes and colours, Settings -> Records; the count)
-        self._show_known_update()  # (Settings -> Options: the daily look turned off hides the Update button)
+        self._show_known_update()  # (Settings -> Program: the daily look turned off hides the Update button)
         self._check_old_days()  # (another sheet named, or business days turned on again)
 
     # ------------------------------------------------------- outputs and records
@@ -7126,7 +7146,7 @@ class MainWindow(QMainWindow):
         if "runsheet" in self.output_boxes:
             self.output_boxes["runsheet"].setToolTip(
                 "Adds the transcript's takes (who wrote which pages, from the initials on each page)\n"
-                "to the case's run sheet in Excel, or starts one (Settings → Run sheet)" if job.transcript_pages()
+                "to the case's run sheet in Excel, or starts one (Settings → Run sheets)" if job.transcript_pages()
                 else "Needs a transcript PDF among the inputs (the initials on its pages).\n"
                      "Jobs without one get no run sheet.")
             self.rs_info.setText("" if job.transcript_pages() or not job.docs else
@@ -7263,8 +7283,8 @@ class MainWindow(QMainWindow):
         elif len(group) > 1:
             self.inv_info.setText(f"Generate all: one invoice for {len(group)} days ({yours})\n{prices}")
             forms = ("It also makes one minute agreement per attorney (its days and pages) and one MOFR\n"
-                     "for these days (Settings → Options).\n" if self.s.forms_per_case else
-                     "The minute agreements and MOFRs are made for each day (Settings → Options).\n")
+                     f"for these days ({path(page='trials')}).\n" if self.s.forms_per_case else
+                     f"The minute agreements and MOFRs are made for each day ({path(page='trials')}).\n")
             self.inv_info.setToolTip(
                 f"Generate all bills these {len(group)} days of the case on one invoice for each attorney\n"
                 f"(the days it is ticked on, and the pages it ordered).\n{forms}"
@@ -7533,7 +7553,7 @@ class MainWindow(QMainWindow):
                 for r in others)
             bare = [r.upper() for r in others if not self.s.reporter(r).has_details()]
             if bare:
-                text += f"\n⚠ no invoice details for {', '.join(bare)}: Settings → Run sheet → Invoices for"
+                text += f"\n⚠ no invoice details for {', '.join(bare)}: {path('reporters', row='Invoices for')}"
         self.inv_pages_info.setText(_lines(text))
         self.inv_whose.setText("⚠ Whose pages…" if held else "Whose pages…")
         self.inv_whose.setToolTip(held or WHOSE_TIP)
@@ -7695,7 +7715,7 @@ class MainWindow(QMainWindow):
         return bool(own) and reporter_key(row.initials) in own
 
     def _tint_takes(self) -> None:
-        """The user's takes on Who transcribed what highlighted (Settings -> Options), in the theme's soft green,
+        """The user's takes on Who transcribed what highlighted (its Highlight yours box), in the theme's soft green,
         apart from the selection's blue, their reporter in bold; the others plain. Done again on the cells as they
         are when the theme changes (changeEvent), the takes not read again."""
         from .theme import DARK, LIGHT, is_dark
@@ -7745,6 +7765,9 @@ class MainWindow(QMainWindow):
         self.takes_mine.setEnabled(bool(own) or self.takes_mine.isChecked())
         self.takes_mine.setToolTip("Shows only the takes with your initials" if own else
                                    "Your initials aren't known: set them in Settings → My info")
+        self.takes_shade.setEnabled(bool(own))
+        self.takes_shade.setToolTip("Your takes shaded, your name in bold" if own else
+                                    "Your initials aren't known: set them in Settings → My info")
         only_mine = self.takes_mine.isChecked()
         for box in self.takes_who.values():
             box.setEnabled(not only_mine)  # (Only yours says whose takes are shown)
@@ -7774,6 +7797,11 @@ class MainWindow(QMainWindow):
         self.s.takes_only_mine = on
         self._save_settings()
         self._filter_takes()
+
+    def _takes_shade_toggled(self, on: bool) -> None:
+        """Highlight yours ticked or unticked: the user's takes shaded at once, and the choice kept."""
+        self._set_opt("takes_highlight_mine", on)
+        self._tint_takes()
 
     def _clear_takes_filter(self) -> None:
         """Clear filter: every reporter's takes shown again (Only yours unticked, every reporter ticked)."""
@@ -8079,8 +8107,10 @@ class MainWindow(QMainWindow):
         its typed count, as answered (Job.index_on_typed): '(40 pages typed, under 50)'.
         priced False: the rate sheet has no index price for the invoice's speeds (those offered and those firms
         ordered at: invoice.index_priced), so days that get an index are charged none: 'E-mailed copy, no index
-        charged\n(the rate sheet has no index price)'."""
-        from ..invoice import index_mode, index_reason, indexed_days
+        charged\n(the rate sheet has no index price)'. An index charged without the judge's
+        (Settings.invoice_judge_index "off") says so: 'E-mailed copy, index, no judge's index\n(83 total pages, 50 or
+        more)'."""
+        from ..invoice import index_mode, index_reason, indexed_days, judge_billed
         s = self.s
         email = s.invoice_include_email if opts.email is None else opts.email
         text = ("E-mailed copy" if email else "No e-mailed copy") + (" (this job)" if opts.email is not None else "")
@@ -8098,7 +8128,12 @@ class MainWindow(QMainWindow):
             # (a reason saying "40 pages typed" says it already: not "on the pages you typed: 40 pages typed")
             mine = "on the pages you typed: " if on_typed and index_mode(opts, s) == "auto" and \
                 "typed" not in reason else ""
-            text = f"{text}, {'index' if any(indexed_days(opts, s)) else 'no index'}"
+            indexed = any(indexed_days(opts, s))
+            text = f"{text}, {'index' if indexed else 'no index'}"
+            if indexed and not judge_billed(s):  # (Settings leave the judge's index off: the index alone)
+                # (too long for one line: broken after the index's comma, not inside "no judge's index")
+                sep = ",\n" if len(text) + len(", no judge's index") > LINE_WIDTH else ", "
+                text += f"{sep}no judge's index"
             why = f"({mine}{reason})"  # (on a line of its own)
         if len(why) > LINE_WIDTH and ", " in why:  # broken after its comma, not with "more)" left on a line alone
             head, _, tail = why.rpartition(", ")
@@ -8357,7 +8392,7 @@ class MainWindow(QMainWindow):
         """Opens the folder of the shown job's run sheet: where the case's run sheet is (runsheet.find_sheets in
         runsheet.sheet_folders: it may be next to the transcripts, where the records say, or in the old run sheets
         folder), else where it will go (runsheet.runsheets_folder: the Trial Runs folder of the case's folder, or
-        the folder Settings → Options → Folders gives run sheets, made first if needed). A case folder not made
+        the folder Settings → Files and folders → Folders gives run sheets, made first if needed). A case folder not made
         yet is not made for this: the nearest folder of it that is there is opened (for a job that names no case
         yet, its Save to folder)."""
         from ..batch import save_to_for
@@ -8460,7 +8495,7 @@ class MainWindow(QMainWindow):
     def _recap(self, win, today: date | None = None) -> None:
         """The first time Records is opened in a month: what last month came to ("Last month (September 2026)
         you made $870.00 with 243 pages"), and the first time in a year, last year too (records.recap). The box
-        has OK and a tick to show no more recaps (Settings -> Options turns them back on). A month without
+        has OK and a tick to show no more recaps (Settings -> Records turns them back on). A month without
         invoices says nothing. On April 1 the recap of last month is first a joke (records.april_fools)."""
         if not self.s.recaps:
             return
@@ -8489,7 +8524,7 @@ class MainWindow(QMainWindow):
         box.setWindowTitle("Recap")
         box.setText("\n\n".join(lines))
         stop = QCheckBox("Don't show me monthly or annual recaps anymore")
-        stop.setToolTip("Settings → Options turns them back on.")
+        stop.setToolTip(f"{path('recaps')}: tick it to have them back.")
         box.setCheckBox(stop)
         box.addButton(QMessageBox.Ok)
         box.exec()
@@ -8588,14 +8623,14 @@ class MainWindow(QMainWindow):
 
     def _set_theme(self, theme: str) -> None:
         """View -> Theme: as Windows is ("system"), light or dark, at once and for the next time (as Settings ->
-        Options -> Theme)."""
+        Program -> Theme)."""
         self.s.theme = theme
         apply_theme(self.app, theme)
         self._save_settings()
         self._tint_takes()  # (your takes' highlight, in the theme's colour)
 
     def _show_yin(self, on: bool) -> None:
-        """View -> Show the yin-yang (as Settings -> Options): the drop zone's picture comes or goes at once."""
+        """View -> Show the yin-yang (as Settings -> Program): the drop zone's picture comes or goes at once."""
         self.s.show_yin = on
         self._save_settings()
         self._job_status()  # (it sets the status again, and with it the picture: _set_status)

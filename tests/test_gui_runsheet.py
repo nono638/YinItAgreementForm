@@ -61,7 +61,7 @@ def test_generate_starts_a_run_sheet_then_asks(window, tmp_path, monkeypatch):
 def test_run_sheet_settings(qt, tmp_path, monkeypatch):
     """Initials and reporter names are tidied on Save, a line that can't be read is named, and they show
     again the same way."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     warned = []
     monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a: warned.append(a[2]))
     s = pat_settings()
@@ -209,7 +209,7 @@ def test_reading_gets_its_own_copy_of_the_settings(window, monkeypatch):
 
 def test_reporter_lines_written_other_ways(qt, monkeypatch):
     """"D. S. = Dana", "kl Kim", "mt - Maria" and a tab are all read; "Dana Smith - ds" (name first) is named."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     warned = []
     monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a: warned.append(a[2]))
     s = pat_settings()
@@ -393,7 +393,7 @@ def test_the_run_sheets_folder_of_a_job_that_names_no_case(make_window, tmp_path
 def test_the_witness_columns_setting(qt):
     """Settings -> Run sheet -> Witness Start / End: the first and last head printed in the take (the default), or
     blank."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = pat_settings()
     assert s.runsheet_witness == "headers"
     dlg = SettingsDialog(s)
@@ -407,11 +407,11 @@ def test_the_witness_columns_setting(qt):
 
 
 def test_open_the_run_sheets_folder_before_there_is_one(qt, tmp_path, monkeypatch):
-    import minute_filler.gui.dialogs as dialogs
+    import minute_filler.gui.settings_dialog as settings_dialog
     opened = []
-    monkeypatch.setattr(dialogs, "open_path", opened.append)
-    dlg = dialogs.SettingsDialog(pat_settings())
-    edit = dlg.o_dirs["runsheet"]  # Options -> Folders
+    monkeypatch.setattr(settings_dialog, "open_path", opened.append)
+    dlg = settings_dialog.SettingsDialog(pat_settings())
+    edit = dlg.control("output_dirs", "runsheet")  # Files and folders -> Folders
     edit.setText(str(tmp_path / "Run Sheets"))
     dlg._open_folder(edit, "runsheet")
     assert (tmp_path / "Run Sheets").is_dir() and opened == [tmp_path / "Run Sheets"]

@@ -121,7 +121,7 @@ def test_f1_on_the_button_opens_its_topic(window):
 
 
 def test_settings_save_the_inputs_box(qt):
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     dlg = SettingsDialog(pat_settings())
     assert not dlg.o_save_inputs.isChecked()  # (off by default)
     dlg.o_save_inputs.setChecked(True)

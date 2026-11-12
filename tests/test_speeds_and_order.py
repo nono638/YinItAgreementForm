@@ -22,7 +22,7 @@ from helpers import ROE, make_case, pat_settings, transcript_pdf
 
 def test_settings_keep_an_agreement_speed_named_by_a_rate_sheet(qt):
     """A first-choice speed with a rate sheet's own name showed as Regular in Settings, and OK saved Regular."""
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = pat_settings()
     s.agreement_speed_first = "Two-Day"
     dlg = SettingsDialog(s)

@@ -1,4 +1,4 @@
-"""The math of the invoices just made, spelled out (Settings -> Options: "Show the math of each invoice"), or of
+"""The math of the invoices just made, spelled out (Settings -> Invoices: "Show the math of each invoice"), or of
 those about to be made (the main window's "Who pays what" and the Invoice card open it before there are numbers).
 
 Most invoices show only each speed's amount; when someone later asks how an amount was reached, this is the
@@ -14,13 +14,14 @@ back at the job), so the answer is still there when the question comes months la
 says so when it wasn't saved (math_note).
 
 How a charge is paid is said in three plain phrases: "Each firm splits this cost" (the original and the judge's
-index of pages ordered together, divided between the firms that ordered each page), "Each firm pays for its
-own" (its copy, its e-mailed copy and, as Settings.invoice_index_shared says by default, its index) and "This
-firm alone" (pages no other firm ordered). A firm's own share is worked out exactly (invoice_calc.quote_shares)
-and spelled out stretch by stretch: the pages it ordered alone at the full price, and the pages ordered with
-other firms divided between them ("50 pages × $4.30 = $215.00 ÷ 2 firms = $107.50"). A line can come to part of
+index of pages ordered together, divided between the firms that ordered each page; no judge's index row when
+Settings.invoice_judge_index leaves it off), "Each firm pays for its own" (its copy, its e-mailed copy and, as
+Settings.invoice_index_shared says by default, its index) and "This firm alone" (pages no other firm ordered). A
+firm's own share is worked out exactly (invoice_calc.quote_shares) and spelled out stretch by stretch: the pages
+it ordered alone at the full price, and the pages ordered with other firms divided between them ("50 pages ×
+$4.30 = $215.00 ÷ 2 firms = $107.50"). A line can come to part of
 a cent: it is shown as it is ("$8.175") and the lines add up to "This firm's charges together", which is then
-rounded up to the cent ("This firm pays"). With Settings -> Invoice -> Rounding "the price a page" (Quote.by_page),
+rounded up to the cent ("This firm pays"). With Settings -> Invoices -> Rounding "the price a page" (Quote.by_page),
 when a price a page came to part of a cent (Quote.page_rounded), what each party pays says how instead: "This
 firm pays: $6.6125 a page, rounded to $6.61, × 1,000 pages", so a firm checking it by hand gets the same. The
 invoice itself never says how it was rounded (the user): only the math does.
@@ -555,8 +556,9 @@ def together(made: list[tuple[FirmInvoice, str]]) -> list[str]:
     ordered are added up together: 'As ordered (Daily, Immediate): the 2 firms together pay $780.00 for work that
     costs $780.00', and when some of their pages were ordered at different speeds, what their parts of each
     original add up to (the split rule's words, SplitRule.adds_up: one original at the fastest speed, under
-    Make-Whole Split). Of only some of a set's firms: 'Regular: these 2 of the 4 firms pay $309.00 for their share of
-    the work, which costs $309.00', and nothing of what their parts add up to (they don't: the others' are missing).
+    Make-Whole Split; nothing said of a judge's index when they were made without one: _judge_billed). Of only some of a set's
+    firms: 'Regular: these 2 of the 4 firms pay $309.00 for their share of the work, which costs $309.00', and
+    nothing of what their parts add up to (they don't: the others' are missing).
     [] when no set has two firms."""
     groups: dict[int, list[FirmInvoice]] = {}
     for f, _ in made:
@@ -573,7 +575,8 @@ def together(made: list[tuple[FirmInvoice, str]]) -> list[str]:
             speeds = ", ".join(dict.fromkeys(sp for q in quotes for sp in q.ordered))
             out.append(_together(f"As ordered ({speeds}){f' ({whose.upper()} invoices)' if whose else ''}", quotes, of))
             if not of:
-                out += list(dict.fromkeys(q.rule.adds_up for q in quotes if q.mixed))
+                judge = _judge_billed(quotes)
+                out += list(dict.fromkeys(q.rule.adds_up_words(judge) for q in quotes if q.mixed))
         firms = [f for f in firms if not _ordered(f)]
         if len(firms) < 2:
             continue
@@ -584,6 +587,12 @@ def together(made: list[tuple[FirmInvoice, str]]) -> list[str]:
             whose = firms[0].opts.reporter  # (another reporter's invoices are added up apart from the user's)
             out.append(_together(f"{q0.speed}{f' ({whose.upper()} invoices)' if whose else ''}", quotes, of))
     return out
+
+
+def _judge_billed(quotes: list[Quote]) -> bool:
+    """Whether these prices were made with a judge's index (Quote.judge_index: as they were billed, whatever Settings
+    say now), charged on them or not (a day under the threshold has none, as before)."""
+    return all(q.judge_index for q in quotes)
 
 
 def _left_out(firms: list[FirmInvoice]) -> tuple[list, list]:
@@ -1048,6 +1057,7 @@ def math_note(save: str, made: list, paths: list, now: str | None = None) -> str
     from collections import Counter
 
     from .settings import MATH_SAVES
+    from .settings_catalog import path
     n = len(made)
     if not n:
         return ""
@@ -1055,7 +1065,7 @@ def math_note(save: str, made: list, paths: list, now: str | None = None) -> str
         which = "this invoice" if n == 1 else "these invoices"
         if now not in (None, "off"):
             return f"The math of {which} was not saved. The list now says to save it, from the next Generate."
-        return f"The math of {which} was not saved (Settings → Invoice → Save the math says {MATH_SAVES['off']})."
+        return f"The math of {which} was not saved ({path('save_math')} says {MATH_SAVES['off']})."
     due = sum(math_pdfs(save, k) for k in Counter(f.group for f, _ in made).values())
     saved = len({str(p) for p in paths if is_math_file(p)})
     if saved >= due:

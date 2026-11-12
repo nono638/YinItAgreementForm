@@ -14,6 +14,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QPushButton, QSpinBox, QWidget
 
+from ..settings_catalog import path
 from .main_window import PARTIES_TIP, WHOSE_TIP, _who_splits
 
 
@@ -95,7 +96,7 @@ def invoice(win, inv: QFormLayout) -> None:
     includes.addWidget(win.inv_peripherals_info)
     win.inv_peripherals = QPushButton("Peripherals…")
     win.inv_peripherals.setToolTip("The e-mailed copy and the index, for this job's invoice only\n"
-                                   "(new jobs start from Settings → Invoice)")
+                                   "(new jobs start from Settings → Invoices)")
     win.inv_peripherals.clicked.connect(win._invoice_peripherals)
     includes.addWidget(win.inv_peripherals, 0, Qt.AlignTop)
     includes.addStretch(1)
@@ -108,7 +109,7 @@ def invoice(win, inv: QFormLayout) -> None:
     win.inv_detail.toggled.connect(win._invoice_detail_changed)
     inv.addRow("", with_button(
         win.inv_detail, "Customize…", "What granular detail shows on this job's invoice\n"
-        "(your defaults are in Settings → Invoice)", win._invoice_show))
+        "(your defaults are in Settings → Invoices)", win._invoice_show))
     win.inv_info = QLabel("")
     win.inv_info.setObjectName("muted")
     inv.addRow("Prices:", win.inv_info)
@@ -153,7 +154,7 @@ def runsheet(win, rs: QFormLayout) -> None:
     win.rs_folder = QLabel("<a href=\"open\">Open the run sheet's folder</a>")
     win.rs_folder.setToolTip("Opens the folder this case's run sheet is in, or will go in: the Trial Runs folder\n"
                              "inside the case's own folder, or Save to without a folder for each case\n"
-                             "(unless Settings → Options → Folders gives run sheets one)")
+                             f"(unless {path('output_dirs')} gives run sheets one)")
     win.rs_folder.linkActivated.connect(lambda _: win._open_run_sheets_folder())
     col = win.option_panels["runsheet"].layout()
     col.insertWidget(col.count() - 1, win.rs_folder)  # above the stretch

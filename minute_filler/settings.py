@@ -57,7 +57,7 @@ RATE_SHEETS_OK_KEPT = 20  # how many incomplete rate sheets used anyway are reme
 LOCAL = ("window_geometry", "recent_files", "update_checked", "update_version", "update_page", "recap_month",
          "recap_year", "welcomed",
          "signature_image", "opened_year", "new_year_day", "rate_sheets_ok", "window_splits", "folded_cards",
-         "sheet_days_kept", "job_sort", "job_weekday")
+         "sheet_days_kept", "job_sort", "job_weekday", "settings_page")
 # What says who the user is: left out of a settings file exported "without my details" (for a colleague), and
 # kept as it is when such a file is imported. The invoice's payment text (who to pay, and how) is left out
 # with them. The folders are among them: their paths name the user's Windows account.
@@ -287,7 +287,7 @@ class ReporterProfile:
 # OUTPUTS (what Generate can make: key -> label) and OUTPUT_FOLDERS (where an output is saved when
 # Settings.output_dirs doesn't say: a folder of its own under Documents; one not listed goes to the general
 # "Save to" folder) are the courthouse's outputs (courthouses.OutputSpec), imported above. An output gets
-# its own row under Settings -> Options -> Folders, and its file is written to Settings.folder_for(key, ...).
+# its own row under Settings -> Files and folders -> Folders, and its file is written to Settings.folder_for(key, ...).
 SPEEDS = ("Regular", "Expedited", "Daily", "Immediate")  # the delivery speeds, as named in Settings
 # When the agreement form's first-choice speed isn't offered: key -> label (see Settings.agreement_speed)
 AGREEMENT_FALLBACKS = {"slowest": "the slowest speed offered", "fastest": "the fastest speed offered"}
@@ -360,6 +360,11 @@ INDEX_SHARED = {
     "each": "Each firm pays its own",
     "split": "Split between the firms",
 }
+# Whether the invoices bill the judge's index with the index: key -> label (see Settings.invoice_judge_index)
+JUDGE_INDEX = {
+    "split": "Billed, split between the firms",
+    "off": "Not billed",
+}
 # How a party's amount is rounded when its price a page comes to part of a cent (invoice_calc.Quote.per_party):
 # key -> label. Four parties at Immediate pay $6.6125 a page: exactly, $6,612.50 for 1,000 pages; to the cent first,
 # as by hand, $6.61 a page, $6,610.00 (and $6.6175 would be $6.62: it goes either way)
@@ -428,7 +433,8 @@ TEXT_PLACEHOLDERS = ("{case} {index} {dates} {pages} (your pages billed) {total_
                      "reporter's) {parties} {number} {name} {bill_to} "
                      "{transcript} (\"transcript\" or \"transcripts\") {is} (\"is\" or \"are\") "
                      "{shared} (\"the original and the judge's index\", what firms ordering the same pages split; "
-                     "with Index on shared pages split, \"the original, the index and the judge's index\")")
+                     "with Index on shared pages split, \"the original, the index and the judge's index\"; the "
+                     "judge's index left out when it isn't billed)")
 
 
 def mixed_speeds_row(rule: str = "") -> dict:
@@ -440,15 +446,22 @@ def mixed_speeds_row(rule: str = "") -> dict:
     return {"where": "amounts", "when": "mixed_speeds", "text": how.invoice_note} if how else {}
 
 
+# The note on an invoice whose firms ordered different pages, as granular detail shows the split. It reads as well
+# when {shared} names one thing ("the original": the judge's index not billed, each firm its own index) as several;
+# the wording before 2.18 ("{shared} of pages ordered together are split") didn't, and unedited it is replaced (v18)
+SPLIT_SHARE_TEXT = ("Amounts are your share: the cost of {shared} for pages ordered together is split between the "
+                    "parties who ordered them.")
+OLD_SPLIT_SHARE_TEXT = ("Amounts are your share: {shared} of pages ordered together are split between the parties who "
+                        "ordered them.")
+
+
 def default_invoice_texts(payment: str = INVOICE_PAYMENT_TEXT, footer: str = INVOICE_FOOTER) -> list[dict]:
     """The invoice's text as it has always been: the notes under the amounts, the payment details and the
     footer (payment, footer: the ones to use, e.g. a user's own from before the text could be changed)."""
     rows = [
         {"where": "amounts", "when": "speeds",
          "text": "Please choose one delivery option and pay the amount shown for it."},
-        {"where": "amounts", "when": "split_share",
-         "text": "Amounts are your share: {shared} of pages ordered together are split between the parties who "
-                 "ordered them."},
+        {"where": "amounts", "when": "split_share", "text": SPLIT_SHARE_TEXT},
         {"where": "amounts", "when": "split_even", "text": "Amounts are per party ({parties} parties ordered)."},
         *[r for r in [mixed_speeds_row()] if r],
         {"where": "amounts", "when": "parties", "text": "The {transcript} {is} delivered once every party has paid."},
@@ -525,14 +538,14 @@ class Settings:
     flatten: bool = False
     open_after: bool = True
     title_case_names: bool = True     # "HONORABLE MARIA T. ALVAREZ" -> "Maria T. Alvarez"
-    # the user's own index number patterns (Settings -> Options -> Index numbers), regular expressions tried as well
+    # the user's own index number patterns (Settings -> Reading documents -> Index numbers), regular expressions tried as well
     # as the app's own: each finds the number and the year (extract_regex.index_pattern_problem)
     index_patterns: list = field(default_factory=list)
 
     # Output
     form_choice: str = "ucs"          # "ucs", "clean" or "original" (see fill.FORMS)
     include_instructions: bool = True  # keep the UCS form's instructions page (page 2)
-    settings_version: int = 17        # bumped when from_dict must change something in older files
+    settings_version: int = 18        # bumped when from_dict must change something in older files
     output_dir: str = ""              # blank = next to the first input file, else Documents\Minute Agreements
     output_dirs: dict = field(default_factory=dict)  # a folder for one output (key of OUTPUTS); none = as above
     # each case's files in a folder of its own inside the one above ("...\712345-2021 6-3,4-2026 Roe v Poe"), named
@@ -558,12 +571,13 @@ class Settings:
     mofr_filename_pattern: str = MOFR_FILENAME_PATTERN
 
     # Invoices (they need pages to bill: a transcript's, or a number typed in Est. number of pages)
-    # the speeds ticked under "Speeds offered" (Settings -> Invoice, and beside the Speed in the main window's
-    # Who ordered card): the invoice lists them so the attorney can choose (one alone: a single-speed
+    # the speeds ticked under "Speeds offered" (Settings -> Rates and speeds, and beside the Speed in the main
+    # window's Who ordered card): the invoice lists them so the attorney can choose (one alone: a single-speed
     # invoice), and the agreement form names one of them (agreement_speed)
     invoice_speeds: list = field(default_factory=lambda: ["Regular", "Expedited"])
     invoice_include_email: bool = True  # each party also gets an e-mailed copy (Email column of the rate sheet)
-    invoice_include_index: bool = True  # long transcripts get an index (Index column), plus one for the judge
+    # long transcripts get an index (Index column), and one for the judge unless invoice_judge_index is "off"
+    invoice_include_index: bool = True
     # pages from which an index is charged (see invoice_index_rule), every page of the transcript counted, whoever
     # wrote it (invoice.index_pages)
     invoice_index_threshold: int = 50
@@ -573,6 +587,10 @@ class Settings:
     # page. 100 pages, B orders 10 of them -> A pays an index of 100 pages and 95 of the judge's, B an index of
     # 10 and 5 of the judge's. "split" shares the index like the judge's.
     invoice_index_shared: str = "each"
+    # one of JUDGE_INDEX: "split" bills the judge's index with the index, one index split between the firms page
+    # by page like the original; "off" leaves it off every invoice (some reporters don't bill it), the firms' own
+    # indexes billed as before
+    invoice_judge_index: str = "split"
     # one of ROUNDINGS: "exact" keeps every fraction of a cent and rounds the amount up once; "page" rounds each
     # price a page to the cent first, as reporters do by hand, so their own math matches (the user, 2026-10-10)
     invoice_rounding: str = "exact"
@@ -594,13 +612,13 @@ class Settings:
     excerpt_hidden_cols: list = field(default_factory=list)
     excerpt_only_mine: bool = False
     # Who transcribed what: only the user's takes shown (the card's own "Only yours" box, as it was last ticked;
-    # off at first), and the user's takes highlighted (Settings -> Options; on at first: "most people want to see
+    # off at first), and the user's takes highlighted (its Highlight yours box; on at first: "most people want to see
     # just their portion", the user, 2026-10-29)
     takes_only_mine: bool = False
     takes_highlight_mine: bool = True
     # the user's answers when two attorney rows may be one firm or attorney ("Smith Law" and "Smith Law Group"):
     # [[Attorney.key(), Attorney.key(), True (the same) or False, how the first was written, the second], ...]
-    # (see extract_regex.use_firm_answers; the names are for Settings → Invoice → Firms you answered; rows saved
+    # (see extract_regex.use_firm_answers; the names are for Settings → Reading documents → Firms you answered; rows saved
     # by 2.2.0 have none, and load with them blank)
     firm_answers: list = field(default_factory=list)
     invoice_turnaround: dict = field(default_factory=lambda: dict(INVOICE_TURNAROUND))
@@ -614,7 +632,7 @@ class Settings:
     # a table not listed shows its usual columns
     records_columns: dict = field(default_factory=dict)
     # the Records search's Fuzzy box also matches numbers loosely ("2026-0001" finds "2026-0002"); False: a word
-    # with a digit in it must be found as typed (Settings -> Options)
+    # with a digit in it must be found as typed (Settings -> Records)
     fuzzy_numbers: bool = True
     # the Records window's tick boxes (tracking.TrackBox as dicts: Paid in use, the others switched on in
     # Settings -> Records; the user's own too) and its row colours (tracking.ColourRule as dicts: the first that
@@ -660,13 +678,14 @@ class Settings:
     zoom: float = 1.0                 # Ctrl + / Ctrl - zoom (1.0 = 100 %), on top of the Windows display scaling
     recent_files: list = field(default_factory=list)  # documents and folders opened, newest first (Open recent)
     # the start card, while nothing is open: whether it lists the jobs made lately, how many (RECENT_JOBS_MAX at
-    # most; 3 at first, "2 or 3", the user said) and how lately made, in days (0: any time) (Settings -> Options; the
+    # most; 3 at first, "2 or 3", the user said) and how lately made, in days (0: any time) (Settings -> Program; the
     # user, 2026-10-28)
     recent_jobs_show: bool = True
     recent_jobs_count: int = 3
     recent_jobs_days: int = 30
     preview_before_saving: bool = True  # Generate shows the files as pictures first; saved only on Save
     welcomed: bool = False            # the first-run "Welcome" questions were shown (once, while there is no name)
+    settings_page: str = ""           # the Settings window's page shown when it was last saved (a settings_catalog key)
     show_math: bool = True            # after Generate makes invoices, a window spells out how each amount was reached
     math_layout: str = "invoice"      # one of MATH_LAYOUTS: the math's tables, as last chosen in its window
     save_math: str = "both"           # one of MATH_SAVES: the math saved as PDFs (folder_for "math")
@@ -851,7 +870,7 @@ class Settings:
 
     def folder_for(self, kind: str, general: Path | str | None = None) -> Path:
         """The folder an output (a key of OUTPUTS, or "math": the invoices' math) is saved to: its own folder
-        under Settings -> Options -> Folders, else its built-in one (OUTPUT_FOLDERS, a folder under Documents; none
+        under Settings -> Files and folders -> Folders, else its built-in one (OUTPUT_FOLDERS, a folder under Documents; none
         in Queens), else `general` (where the job's files go: its case's own folder or its "Save to" folder, see
         batch.out_dir_for; Documents\\Minute Agreements without one). With a folder for each case (case_folders),
         `general` is the case's, and each kind of file goes in its folder inside it (SUBFOLDERS: "Invoices",
@@ -873,7 +892,7 @@ class Settings:
         return Path(general) / SUBFOLDERS[kind] if self.case_folders and SUBFOLDERS.get(kind) else Path(general)
 
     def own_folder(self, kind: str) -> bool:
-        """The output (or "math") goes to a folder of its own (folder_for: set under Settings -> Options ->
+        """The output (or "math") goes to a folder of its own (folder_for: set under Settings -> Files and folders ->
         Folders, or built in, OUTPUT_FOLDERS; the math inside the invoices'), not into its case's folder."""
         if kind == "math" and self.own_folder("invoice"):
             return True
@@ -1102,6 +1121,8 @@ class Settings:
         # saved before says "each" once; "split" chosen since stays
         if s.invoice_index_shared not in INDEX_SHARED or (version < 11 and s.invoice_index_shared == "split"):
             s.invoice_index_shared = "each"
+        if s.invoice_judge_index not in JUDGE_INDEX:
+            s.invoice_judge_index = "split"
         if s.invoice_rounding not in ROUNDINGS:
             s.invoice_rounding = "exact"
         if s.invoice_split_rule not in [r.key for r in split_rules()]:  # (another courthouse's, a later version's)
@@ -1141,7 +1162,7 @@ class Settings:
         old = data.get("runsheet_dir")
         if isinstance(old, str) and old.strip() and "runsheet" not in s.output_dirs:
             s.output_dirs["runsheet"] = old.strip()
-        # v8: the invoice's text became rows (Settings -> Invoice -> Invoice text); a payment text and footer
+        # v8: the invoice's text became rows (Settings -> Invoices -> Invoice text); a payment text and footer
         # written before are kept as the payment and footer rows
         if "invoice_texts" not in data:
             pay, foot = data.get("invoice_payment_text"), data.get("invoice_footer")
@@ -1209,12 +1230,18 @@ class Settings:
         if version < 16 and "takes" not in s.folded_cards:  # v16: Who transcribed what starts folded
             s.folded_cards.append("takes")
         # v17: the math is saved again for everyone (the user, 2026-10-28: most want it; it can be turned off again
-        # under Settings -> Invoice), and a case's folder named by the old default ("{index}") gets the new one,
+        # under Settings -> Invoices), and a case's folder named by the old default ("{index}") gets the new one,
         # its days and caption too
         if version < 17 and s.save_math == "off":
             s.save_math = "both"
         if version < 17 and s.case_folder_pattern == "{index}":
             s.case_folder_pattern = CASE_FOLDER_PATTERN
+        # v18: the split note's old wording, unedited, takes the new (it read "the original of pages ... are split"
+        # with the judge's index not billed)
+        if version < 18:
+            for r in s.invoice_texts:
+                if r.get("text") == OLD_SPLIT_SHARE_TEXT:
+                    r["text"] = SPLIT_SHARE_TEXT
         s.records_count = s.records_count.strip()
         s.settings_version = cls.settings_version
         return s

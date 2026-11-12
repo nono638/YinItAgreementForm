@@ -23,7 +23,7 @@ the number, the amount and whether it is paid) and each firm with a minute agree
 (refresh_orders): today's invoices are on it too.
 
 There is one run sheet per case, kept in the Trial Runs folder inside the case's own folder (straight in Save to
-without a folder for each case, or in the folder Settings -> Options -> Folders gives run sheets). A transcript's
+without a folder for each case, or in the folder Settings -> Files and folders -> Folders gives run sheets). A transcript's
 takes are added to the case's run sheet when there is one there, at the top of the case's folder (where 2.13 and
 earlier put it), next to the transcript, in a folder the records list for the case's run sheets (a trial's days
 can go to different folders) or in Documents\\YinIt Run Sheets (where earlier versions kept them all): see
@@ -378,7 +378,7 @@ def same_name(a: str, b: str) -> bool:
 
 
 def runsheets_folder(s: Settings, general: Path | str | None = None) -> Path:
-    """Where a new run sheet goes: the run sheets' folder under Settings -> Options -> Folders, else the Trial
+    """Where a new run sheet goes: the run sheets' folder under Settings -> Files and folders -> Folders, else the Trial
     Runs folder inside `general`, the case's own folder (batch.out_dir_for; `general` itself, Save to, without a
     folder for each case: see Settings.folder_for)."""
     return s.folder_for("runsheet", general)

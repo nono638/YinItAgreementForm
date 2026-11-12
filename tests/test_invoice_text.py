@@ -94,8 +94,9 @@ def test_old_payment_and_footer_are_kept():
 
 def test_the_editor_in_settings(qt, monkeypatch, tmp_path):
     from minute_filler.gui import dialogs
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = pat_settings()
-    dlg = dialogs.SettingsDialog(s)
+    dlg = SettingsDialog(s)
     ed = dlg.i_texts
     assert ed.rows() == default_invoice_texts()
     ed._add()

@@ -431,9 +431,9 @@ def test_tick_boxes_and_colours_open_settings_at_records(make_window, monkeypatc
     window.open_records()
     seen = []
     monkeypatch.setattr(main_window.SettingsDialog, "exec",
-                        lambda self: seen.append(self.tabs.tabText(self.tabs.currentIndex())) or 0)
+                        lambda self: seen.append(self.current_page()) or 0)
     window._records_win.on_settings("Records")
-    assert seen == ["Records"]
+    assert seen == ["records"]
     window._records_win.close()
 
 
@@ -477,12 +477,12 @@ def test_the_editor_adds_moves_removes_and_restores(qt, monkeypatch):
 
 def test_settings_records_tab_round_trip(qt, tmp_path):
     from PySide6.QtCore import Qt
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = pat_settings()
     s.save()
     dlg = SettingsDialog(s)
-    dlg.show_tab("Records")
-    assert dlg.tabs.tabText(dlg.tabs.currentIndex()) == "Records"
+    dlg.show_page("records")
+    assert dlg.current_page() == "records"
     ed = dlg.k_track
     ed.box_table.item(2, 0).setCheckState(Qt.Checked)  # Transcribed: Use
     ed.colours.setChecked(False)

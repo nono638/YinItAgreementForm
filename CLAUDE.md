@@ -21,3 +21,12 @@ numbers, and show them as read from the PDFs, never worked out from a count.
 What the court's own forms print (the agreement form's "Est. number of pages") keeps the form's wording.
 
 An unnumbered Min-U-Script cover isn't a page: no count counts it, and nothing bills it (the user, 2026-11-06).
+
+## Every setting makes one decision and has one home
+
+Before adding, moving or renaming a setting, follow SETTINGS.md: write the one decision it makes, look for a setting
+that already makes it (and extend that one instead), try a better default first, and place it by the page rules.
+`minute_filler/settings_catalog.py` lists every setting's page, heading and decision; `tests/test_settings_catalog.py`
+fails when a field has no entry, a control or a label is missing, or a "Settings → …" path names a page that no longer
+exists. A message that points at one setting builds its path with `settings_catalog.path(key)`; a page named alone
+("Settings → My info") may be written, and the test checks it is a page of today's.

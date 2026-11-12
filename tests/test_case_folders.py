@@ -321,7 +321,7 @@ def test_the_preview_writes_nothing_in_the_real_folders(tmp_path, make_window, m
 
 def test_the_settings_window_refuses_what_a_folder_name_doesnt_keep(qt):
     from PySide6.QtTest import QTest
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     dlg = SettingsDialog(_pat_settings())
     assert dlg.o_case_folders.isChecked() and dlg.o_case_pattern.text() == "{index} {days} {case}"
     assert 'e.g. "712345-2021 6-3,4-2026 Jane Roe v XY Holding Corporation"' in dlg.o_case_hint.text()

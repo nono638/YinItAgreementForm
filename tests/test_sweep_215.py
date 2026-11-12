@@ -347,7 +347,7 @@ def test_an_older_recent_jobs_read_does_not_undo_the_setting(window, qt, tmp_pat
 
 def test_the_folder_name_box_takes_accents_and_a_pattern_saved_before(qt):
     from PySide6.QtGui import QValidator
-    from minute_filler.gui.dialogs import SettingsDialog
+    from minute_filler.gui.settings_dialog import SettingsDialog
     s = pat_settings()
     s.case_folder_pattern = "{index}.{case}"  # (saved by hand or by an earlier version: the dot is no longer kept)
     d = SettingsDialog(s)

@@ -3,7 +3,7 @@ ordered which pages window counts each run's pages four ways (excerpts.count_run
 transcribed, Total pages transcribed and Total pages billed, each hidden or shown under Columns ▾ (kept in
 Settings); Only your pages hides the runs without any of the user's pages as it is ticked, and Clear filter shows
 them again. The Who transcribed what card has Only yours, a box per reporter and Clear filter, and highlights the
-user's takes (Settings -> Options, on at first). Pat Reporter ("pr") is the user, Dana Smith ("ds") the other
+user's takes (its Highlight yours box, on at first). Pat Reporter ("pr") is the user, Dana Smith ("ds") the other
 reporter; all names are made up."""
 import os
 import time
@@ -298,22 +298,27 @@ def test_your_takes_are_highlighted_unless_settings_say_not(window):
     mine, theirs = w.takes.item(0, 1), w.takes.item(1, 1)
     assert mine.text() == "Pat" and mine.font().bold() and mine.background().style() != Qt.NoBrush
     assert theirs.background().style() == Qt.NoBrush and not theirs.font().bold()
-    w.s.takes_highlight_mine = False
-    w._show_takes()
+    assert w.takes_shade.isChecked() and w.takes_shade.isEnabled()
+    w.takes_shade.setChecked(False)  # (the card's own box: shaded no more, at once, and kept)
     assert w.takes.item(0, 1).background().style() == Qt.NoBrush and not w.takes.item(0, 1).font().bold()
-    w.s.takes_highlight_mine = True
+    assert w.s.takes_highlight_mine is False and Settings.load().takes_highlight_mine is False
+    w._show_takes()
+    assert w.takes.item(0, 1).background().style() == Qt.NoBrush
+    w.takes_shade.setChecked(True)
+    assert w.takes.item(0, 1).font().bold()
     w._set_theme("dark")  # (tinted again in the dark theme's green, the takes not read again)
     from minute_filler.gui.theme import DARK
     assert w.takes.item(0, 1).background().color().name() == DARK["ok_bg"].lower()
     w._set_theme("light")
 
 
-def test_settings_save_the_highlight_box(qt):
-    from minute_filler.gui.dialogs import SettingsDialog
+def test_the_highlight_box_is_on_the_card_not_in_settings(qt):
+    """Highlight yours is a way of looking at the card, so it is the card's (SETTINGS.md), not Settings'."""
+    from minute_filler.gui.settings_dialog import SettingsDialog
+    from minute_filler.settings_catalog import ENTRY
     assert Settings().takes_highlight_mine and not Settings().takes_only_mine
     assert Settings.from_dict({"settings_version": 17}).excerpt_hidden_cols == []
+    assert ENTRY["takes_highlight_mine"].home == "window"
     dlg = SettingsDialog(pat_settings())
-    assert dlg.o_takes_mine.isChecked()
-    dlg.o_takes_mine.setChecked(False)
-    dlg.accept()
-    assert Settings.load().takes_highlight_mine is False
+    assert "takes_highlight_mine" not in dlg.controls
+    dlg.deleteLater()

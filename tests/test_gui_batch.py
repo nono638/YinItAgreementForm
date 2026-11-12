@@ -1024,7 +1024,7 @@ def test_peripherals_are_for_this_job_only_and_say_so(qt):
     assert radios == ["Auto: when the whole transcript has 60 total pages or more",
                       "Yes, for this job (however short the transcript)", "No, for this job"]
     notes = " ".join(w.text() for w in dlg.findChildren(QtWidgets.QLabel))
-    assert "for this job only" in notes and "New jobs start from Settings → Invoice, where the 60 total pages" in notes
+    assert "for this job only" in notes and "New jobs start from Settings → Invoices, where the 60 total pages" in notes
     assert "Auto counts every reporter's pages of the transcript, not only yours." in notes
     assert "Same as Settings" in [b.text() for b in dlg.findChildren(QtWidgets.QPushButton)]
     assert dlg.values() == (None, None)
